@@ -2,6 +2,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
+from typing import Callable
 
 import pymupdf
 
@@ -28,6 +29,52 @@ class TableParsingStage(StrEnum):
     ROW_EXTRACTION = "row_extraction"
     COMPLETED = "completed"
     FAILED = "failed"
+
+class ResultPage:
+    def __init__(self, page: pymupdf.Page, page_number: int, page_text: str) -> None:
+        self.page = page
+        self.page_number = page_number
+        self.page_lines = []
+        self.current_line = ""
+        self.current_x = 0.0
+        self.current_y = 0.0
+        self.current_block_no = -1
+
+    def append_word(self, current_x: float, word: tuple) -> None:
+        space_width = 12.0  # Estimated space width, to be refined
+        x_diff = word[0] - current_x
+        if x_diff > space_width:
+            self.current_line += "  " * int(x_diff / space_width)
+        self.current_line += word[4]
+        self.current_x = word[2]
+
+    def add_line(self, line: str) -> None:
+        self.page_lines.append(line)
+
+    def dump_lines(self) -> None:
+        print(f"Page {self.page_number} lines:")
+        for line in self.page_lines:
+            print(line)
+
+    def process_word(
+        self,
+        word: tuple,
+        process_line: Callable[[int, str], bool],
+    ) -> None:
+        print(f"Page width and height: {self.page.rect.width} x {self.page.rect.height}")
+        space_width = self.page.rect.width / 48  # Estimated space width, to be refined
+        line_height = self.page.rect.height / 64  # Estimated line height, to be refined
+        print(f"Estimated space width and line_height: {space_width} x {line_height}")
+
+        block_no = word[5]
+        if block_no != self.current_block_no:
+            process_line(self.current_block_no, self.current_line)
+            self.current_block_no = block_no
+            self.add_line(self.current_line)
+            self.current_line = ""
+            self.append_word(0.0, word)
+        else:
+            self.append_word(self.current_x, word)
 
 
 class PDFDigest:
@@ -124,20 +171,16 @@ class PDFDigest:
         return True
 
     def process_page(self, page: pymupdf.Page) -> None:
-        current_block_no = -1
-        current_line = ""
+        result_page = ResultPage(page, page.number, "")
 
         for word in page.get_text("words", sort=True):
-            block_no = word[5]
-            if block_no != current_block_no:
-                self.process_line(current_block_no, current_line)
-                current_block_no = block_no
-                current_line = word[4]
-            else:
-                current_line += " " + word[4]
+            result_page.process_word(word, self.process_line)
 
-            if current_block_no > 5:
-                break
+        if result_page.current_line:
+            self.process_line(result_page.current_block_no, result_page.current_line)
+            result_page.add_line(result_page.current_line)
+
+        result_page.dump_lines()
 
     def process_document(self) -> None:
         with pymupdf.open(self.pdf_path) as document:
