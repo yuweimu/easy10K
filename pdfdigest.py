@@ -43,7 +43,7 @@ class ResultPage:
     def append_word(self, current_x: float, word: tuple) -> None:
         space_width = 12.0  # Estimated space width, to be refined
         x_diff = word[0] - current_x
-        if x_diff > space_width:
+        if x_diff > space_width * 0.7:
             self.current_line += "  " * int(x_diff / space_width)
         self.current_line += word[4]
         self.current_x = word[2]
@@ -52,7 +52,7 @@ class ResultPage:
         self.page_lines.append(line)
 
     def dump_lines(self) -> None:
-        print(f"Page {self.page_number} lines:")
+        print(f"Page {self.page_number} lines {len(self.page_lines)}:")
         for line in self.page_lines:
             print(line)
 
@@ -67,9 +67,10 @@ class ResultPage:
         print(f"Estimated space width and line_height: {space_width} x {line_height}")
 
         block_no = word[5]
-        if block_no != self.current_block_no:
+        if block_no != self.current_block_no or abs(word[3] - self.current_y) > line_height:
             process_line(self.current_block_no, self.current_line)
             self.current_block_no = block_no
+            self.current_y = word[3]
             self.add_line(self.current_line)
             self.current_line = ""
             self.append_word(0.0, word)
@@ -135,6 +136,7 @@ class PDFDigest:
         return facts
 
     def process_line(self, line_no: int, line: str) -> bool:
+        return True
         if line_no < 0 or not line.strip():
             return True
 
@@ -182,16 +184,19 @@ class PDFDigest:
 
         result_page.dump_lines()
 
-    def process_document(self) -> None:
+    def process_document(self, pages: list = None) -> None:
         with pymupdf.open(self.pdf_path) as document:
             print(f"Total pages: {document.page_count}")
             for page in document:
+                if pages and page.number not in pages:
+                    continue
                 self.process_page(page)
 
 
 def main() -> None:
-    digest = PDFDigest("reports/test.pdf")
-    digest.process_document()
+    # digest = PDFDigest("reports/test.pdf")
+    digest = PDFDigest("reports/dongpeng-2026q3.pdf")
+    digest.process_document([13])
 
 
 if __name__ == "__main__":
