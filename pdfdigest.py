@@ -21,11 +21,18 @@ class TableParsingStage(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
 
+EXTRA_BR_SEPERATOR = " <br/>"
+
 class PageLine:
     def __init__(self, line_no: int, text: str, words: list[tuple]) -> None:
         self.line_no = line_no
         self.plain_text = text
         self.words = words
+
+    def adjusted_text(self):
+        # TODO
+        parts = self.plain_text.split("<br/>")
+        return parts[0]
 
 class TableParsingStateMachine:
     def __init__(self) -> None:
@@ -143,7 +150,7 @@ class TableParsingStateMachine:
         return "previous_balance"
 
     def _extract_table_item(self, page_line: PageLine) -> bool:
-        fields = page_line.plain_text.split()
+        fields = page_line.adjusted_text().split()
         if len(fields) < 2:
             return True
 
@@ -151,6 +158,9 @@ class TableParsingStateMachine:
         notes            = ""
         current_balance  = ""
         previous_balance = ""
+
+        if page_line.plain_text.find("归属于母公司所有者权益") >= 0:
+             print(f"===== found 归属于母公司所有者权益")
 
         for word in page_line.words:
             aligned_item = self._align_table_item(word)
@@ -165,7 +175,8 @@ class TableParsingStateMachine:
                 assert current_balance == fields[-2], f"Current balance mismatch: {current_balance} vs {fields[-2]}"
             elif aligned_item == "previous_balance":
                 previous_balance = word[4]
-                assert previous_balance == fields[-1], f"Previous balance mismatch: {previous_balance} vs {fields[-1]}"
+                assert previous_balance == fields[-1], f"Previous balance mismatch: -{previous_balance}- vs -{fields[-1]}-"
+                break
             else:
                 print(
                     f"Item name '{word[4]}' "
@@ -188,6 +199,7 @@ class ResultPage:
         self.page_number = page_number
         self.page_lines: list[PageLine] = []
         self.current_line = ""
+        self.current_line_extra = ""
         self.current_word_line: list[tuple] = []
         self.current_x = 0.0
         self.current_y = 0.0
@@ -198,9 +210,12 @@ class ResultPage:
         x_diff = word[0] - current_x
         if x_diff > space_width * 0.7:
             self.current_line += "  " * int(x_diff / space_width)
+        elif x_diff < 0:
+            self.current_line += EXTRA_BR_SEPERATOR
+
         self.current_line += word[4]
 
-        if word[0] - self.current_x < 3 and len(self.current_word_line) > 0:
+        if (word[0] - self.current_x > 0 and word[0] - self.current_x < 3) and len(self.current_word_line) > 0:
             tail_word = self.current_word_line[-1]
 
             assert abs(word[3] - tail_word[3]) < 2, "coord Y mistach"
@@ -229,21 +244,20 @@ class ResultPage:
             print()  # New line after each word line
 
     def process_word(self, word: tuple) -> None:
-        # print(f"Page width and height: {self.page.rect.width} x {self.page.rect.height}")
-        space_width = self.page.rect.width / 48  # Estimated space width, to be refined
-        line_height = self.page.rect.height / 64  # Estimated line height, to be refined
-        # print(f"Estimated space width and line_height: {space_width} x {line_height}")
-
         block_no = word[5]
-        if block_no != self.current_block_no or abs(word[3] - self.current_y) > line_height:
+
+        if word[4].find("归属于母公司所有者权益") >= 0:
+             print(f"found word 归属于母公司所有者权益")
+
+        if block_no != self.current_block_no or word[1] > self.current_y:
             self.current_block_no = block_no
-            self.current_y = word[3]
             self.add_line(self.current_line)
             self.current_line = ""
             self.append_word(0.0, word)
         else:
             self.append_word(self.current_x, word)
-
+        if word[3] > self.current_y:
+            self.current_y = word[3]
 
 class PDFDigest:
     def __init__(self, pdf_path: str | Path) -> None:
@@ -262,7 +276,7 @@ class PDFDigest:
         if result_page.current_line:
             result_page.add_line(result_page.current_line)
 
-        # result_page.dump_lines()
+        result_page.dump_lines()
 
         for page_line in result_page.page_lines:
             self.parse_page_line(page_line)
