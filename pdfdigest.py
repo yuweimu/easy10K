@@ -7,20 +7,6 @@ from typing import Callable
 import pymupdf
 
 
-NUMBER_PATTERN = re.compile(
-    r"""
-    (?P<number>
-        \(?-?
-        \d[\d,]*
-        (?:\.\d+)?
-        \)?
-    )
-    \s*$
-    """,
-    re.VERBOSE,
-)
-
-
 class TableParsingStage(StrEnum):
     BS_TITLE_DETECTION = "bs_header_detection"
     BS_HEADER_EXTRACTION = "bs_header_extraction"
@@ -136,12 +122,6 @@ class TableParsingStateMachine:
             print("Stage changed to BS_TABLE_ITEMS_EXTRACTION")
         return True
 
-    def mid(self, r):
-        return (r[0] + r[1]) / 2
-
-    def mid_distance(self, r1, r2):
-        return abs(self.mid(r1) - self.mid(r2))
-
     def _align_table_item(self, word: tuple) -> str:
         if self.table_caption_line is None:
             return "item_field_error"
@@ -167,8 +147,6 @@ class TableParsingStateMachine:
         if len(fields) < 2:
             return True
 
-        if page_line.plain_text.find("应付票据") >= 0:
-            print(f"===== found 应付票据")
         item_name        = ""
         notes            = ""
         current_balance  = ""
@@ -196,14 +174,13 @@ class TableParsingStateMachine:
                 )
 
         print(
-            f"Extracting BS item: {[item_name,notes,current_balance,previous_balance]}"
+            f"Extracting BS item: {[item_name, notes, current_balance, previous_balance]}"
         )
 
         if re.search(r"负债.*权益.*", item_name):
             self.stage = TableParsingStage.BS_TABLE_COMPLETED
             print("Stage changed to BS_TABLE_COMPLETED")
         return True
-
 
 class ResultPage:
     def __init__(self, page: pymupdf.Page, page_number: int, page_text: str) -> None:
@@ -273,50 +250,6 @@ class PDFDigest:
         self.pdf_path = Path(pdf_path)
         self.state_machine = TableParsingStateMachine()
 
-    @staticmethod
-    def parse_number(raw: str) -> Decimal | None:
-        value = raw.strip().replace(",", "")
-        negative = value.startswith("(") and value.endswith(")")
-        value = value.strip("()")
-
-        try:
-            number = Decimal(value)
-            return -number if negative else number
-        except InvalidOperation:
-            return None
-
-    @classmethod
-    def parse_financial_lines(cls, page_text: str) -> list[dict]:
-        facts = []
-
-        for line in page_text.splitlines():
-            line = " ".join(line.split())
-            if not line:
-                continue
-
-            match = NUMBER_PATTERN.search(line)
-            if not match:
-                continue
-
-            raw_number = match.group("number")
-            label = line[:match.start()].strip(" .:-")
-            if len(label) < 2:
-                continue
-
-            number = cls.parse_number(raw_number)
-            if number is None:
-                continue
-
-            facts.append(
-                {
-                    "source_label": label,
-                    "source_value": raw_number,
-                    "numeric_value": number,
-                }
-            )
-
-        return facts
-
     def parse_page_line(self, page_line: PageLine) -> bool:
         self.state_machine.process_word_line(page_line)
 
@@ -354,7 +287,6 @@ def main() -> None:
     digest = PDFDigest("reports/dongpeng-2025.pdf")
     digest.process_document([110, 111, 112])
     # digest.process_document([110])
-
 
 if __name__ == "__main__":
     main()
