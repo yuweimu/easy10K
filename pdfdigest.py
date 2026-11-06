@@ -167,16 +167,12 @@ class TableParsingStateMachine:
         if len(fields) < 2:
             return True
 
-        item_name = fields[0]
-        current_balance = fields[-2]
-        previous_balance = fields[-1]
-
-        print(
-            f"Extracting BS item: {item_name}, "
-            f"Current: {current_balance}, Previous: {previous_balance}"
-        )
-        if page_line.plain_text.find("一年内到期的非流动资产") >= 0:
-            print(f"===== found 一年内到期的非流动资产")
+        if page_line.plain_text.find("应付票据") >= 0:
+            print(f"===== found 应付票据")
+        item_name        = ""
+        notes            = ""
+        current_balance  = ""
+        previous_balance = ""
 
         for word in page_line.words:
             aligned_item = self._align_table_item(word)
@@ -199,11 +195,11 @@ class TableParsingStateMachine:
                     f"{page_line.plain_text}"
                 )
 
+        print(
+            f"Extracting BS item: {[item_name,notes,current_balance,previous_balance]}"
+        )
+
         if re.search(r"负债.*权益.*", item_name):
-            print(
-                f"===== End of BS items detected in line "
-                f"{page_line.line_no}: {page_line.plain_text}"
-            )
             self.stage = TableParsingStage.BS_TABLE_COMPLETED
             print("Stage changed to BS_TABLE_COMPLETED")
         return True
@@ -333,7 +329,7 @@ class PDFDigest:
         if result_page.current_line:
             result_page.add_line(result_page.current_line)
 
-        result_page.dump_lines()
+        # result_page.dump_lines()
 
         for page_line in result_page.page_lines:
             self.parse_page_line(page_line)
