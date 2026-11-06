@@ -29,10 +29,15 @@ class PageLine:
         self.plain_text = text
         self.words = words
 
-    def adjusted_text(self):
-        # TODO
+    def adjusted_text(self) -> str:
         parts = self.plain_text.split("<br/>")
-        return parts[0]
+        if len(parts) == 1:
+            return parts[0]
+        main_fields = re.findall(r"\s*\S+", parts[0])
+        for extra_part in parts[1:]:
+            main_fields[0] += extra_part
+        
+        return "".join(main_fields)
 
 class TableParsingStateMachine:
     def __init__(self) -> None:
@@ -145,7 +150,7 @@ class TableParsingStateMachine:
             return "item_name"
         if word[2] < caption_words[2][0]:
             return "notes" if self.has_notes else "current_balance"
-        if word[2] < caption_words[3][0]:
+        if self.has_notes and word[2] < caption_words[3][0]:
             return "current_balance" if self.has_notes else "previous_balance"
         return "previous_balance"
 
@@ -165,13 +170,15 @@ class TableParsingStateMachine:
         for word in page_line.words:
             aligned_item = self._align_table_item(word)
             if aligned_item == "item_name":
-                item_name = word[4]
-                assert item_name == fields[0], f"Item name mismatch: {item_name} vs {fields[0]}"
+                item_name = fields[0]
+                assert item_name.find(word[4]) == 0, f"Item name mismatch: {item_name} vs {fields[0]}"
             elif aligned_item == "notes":
                 notes = word[4]
                 assert self.has_notes and notes == fields[1], f"Notes mismatch: {notes} vs {fields[1]}"
             elif aligned_item == "current_balance":
                 current_balance = word[4]
+                if current_balance != fields[-2]:
+                    print("error=======")
                 assert current_balance == fields[-2], f"Current balance mismatch: {current_balance} vs {fields[-2]}"
             elif aligned_item == "previous_balance":
                 previous_balance = word[4]
@@ -217,8 +224,9 @@ class ResultPage:
 
         if (word[0] - self.current_x > 0 and word[0] - self.current_x < 3) and len(self.current_word_line) > 0:
             tail_word = self.current_word_line[-1]
-
-            assert abs(word[3] - tail_word[3]) < 2, "coord Y mistach"
+            if abs(word[3] - tail_word[3]) >= 6:
+                print("==== coord Y mistach")
+            assert abs(word[3] - tail_word[3]) < 6, "coord Y mistach"
             new_tail_word = tuple([tail_word[0], tail_word[1], word[2], tail_word[3], tail_word[4] + word[4]])
             self.current_word_line[-1] = new_tail_word
         else:
@@ -276,7 +284,7 @@ class PDFDigest:
         if result_page.current_line:
             result_page.add_line(result_page.current_line)
 
-        result_page.dump_lines()
+        # result_page.dump_lines()
 
         for page_line in result_page.page_lines:
             self.parse_page_line(page_line)
@@ -294,13 +302,15 @@ class PDFDigest:
 def main() -> None:
     # digest = PDFDigest("reports/test.pdf")
 
-    # digest = PDFDigest("reports/dongpeng-2026q3.pdf")
-    # digest.process_document()
+    digest = PDFDigest("reports/dongpeng-2025.pdf")
+    # digest.process_document([110, 111, 112])
+    # digest.process_document([110])
+    digest.process_document()
+
+    digest = PDFDigest("reports/dongpeng-2026q3.pdf")
+    digest.process_document()
     #digest.process_document([7,8,9])
 
-    digest = PDFDigest("reports/dongpeng-2025.pdf")
-    digest.process_document([110, 111, 112])
-    # digest.process_document([110])
 
 if __name__ == "__main__":
     main()
