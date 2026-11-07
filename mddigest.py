@@ -3,7 +3,11 @@ from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
 from typing import Callable
+
+import pymupdf
 import pymupdf4llm
+
+from financial_statement_line_items import FinancialStatementLineItemDict
 
 
 class TableParsingStage(StrEnum):
@@ -16,7 +20,6 @@ class TableParsingStage(StrEnum):
     BS_TABLE_COMPLETED = "bs_table_completed"
     FAILED = "failed"
 
-
 class TableParsingStateMachine:
     def __init__(self) -> None:
         self.stage = TableParsingStage.BS_TITLE_DETECTION
@@ -27,6 +30,7 @@ class TableParsingStateMachine:
         self.previous_reporting_date: str | None = None
         self.has_notes = False
         self.table_caption_line: str | None = None
+        self.line_item_dict = FinancialStatementLineItemDict("financial-statement-line-items.txt")
 
         self._handlers = {
             TableParsingStage.BS_TITLE_DETECTION: self._detect_title,
@@ -114,11 +118,19 @@ class TableParsingStateMachine:
             print("Stage changed to BS_TABLE_ITEMS_EXTRACTION")
         return True
 
+    @staticmethod
+    def is_number(s):
+        try:
+            float(s.replace(",", ""))   # 去掉千分位逗号
+            return True
+        except (ValueError, AttributeError):
+            return False
+        
     def _extract_table_item(self, page_line: str) -> bool:
         if len(page_line) < 10 or page_line[0] != "|":
             return True
 
-        fields = page_line.strip("|").split("|")
+        fields = page_line.replace("<br>", "").strip("|").split("|")
         if len(fields) < 2:
             return True
 
@@ -126,22 +138,19 @@ class TableParsingStateMachine:
         if len(fields) != len(caption_fields):
             return True
 
-        item_name        = ""
-        notes            = ""
-        current_balance  = ""
-        previous_balance = ""
-
         if page_line.find("归属于母公司所有者权益") >= 0:
              print(f"===== found 归属于母公司所有者权益")
-        result = [""]
+        result = ["", "", "", ""]
         if len(fields) == 3:
             result = [fields[0], "---", fields[1], fields[2]]
         elif len(fields) == 4:
             result = [fields[0], fields[1], fields[2], fields[3]]
 
-        print(
-            f"Extracting BS item: {result}"
-        )
+        if self.is_number(result[2].strip("*")) or self.is_number(result[3].strip("*")):
+            item_id = self.line_item_dict.get_item_id(fields[0])
+            print(f"Extracting BS item: {item_id} {result}")
+        else:
+            print(f"Skip BS item: {page_line}")
 
         if re.search(r"负债.*权益.*", result[0]):
             self.stage = TableParsingStage.BS_TABLE_COMPLETED
@@ -155,25 +164,34 @@ class PDFDigest:
         self.state_machine = TableParsingStateMachine()
 
     def process_document(self, pages: list = None) -> None:
-        md_text = pymupdf4llm.to_markdown(self.pdf_path, pages = pages)
-        for md_line in md_text.splitlines():
-            # print(f"------ {md_line} -----")
-            self.state_machine.process_md_line(md_line)
+        total_pages = 0
+        if not pages:
+            with pymupdf.open(self.pdf_path) as document:
+                total_pages = document.page_count
+                pages = list(range(total_pages))
+
+        for page_number in pages:
+            print(f"Digesting page {page_number + 1}/{total_pages} ...")
+            md_text = pymupdf4llm.to_markdown(self.pdf_path, pages = [page_number])
+            for md_line in md_text.splitlines():
+                self.state_machine.process_md_line(md_line)
 
 def main() -> None:
-    pdf_digest = PDFDigest("reports/dongpeng-2026q3.pdf")
-    # pdf_digest.process_document([0, 1, 2])
-    pdf_digest.process_document()
 
     # digest = PDFDigest("reports/test.pdf")
 
-    # digest = PDFDigest("reports/dongpeng-2026q3.pdf")
+    digest = PDFDigest("reports/dongpeng-2026q3.pdf")
     # digest.process_document()
-    #digest.process_document([7,8,9])
+    digest.process_document([7,8,9])
 
     # digest = PDFDigest("reports/dongpeng-2025.pdf")
     # digest.process_document([110, 111, 112])
-    # digest.process_document([110])
+    # digest.process_document()
+
+
+    # digest = PDFDigest("reports/maotai-2025.pdf")
+    # digest.process_document([110, 111, 112])
+    # digest.process_document()
 
 if __name__ == "__main__":
     main()
