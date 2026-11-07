@@ -1,55 +1,122 @@
-数据资源 0
+0|数据资源|Data Resources
 
-资产 101
-流动资产 101101
-	货币资金 101101101
-	结算备付金 101101102
-	拆出资金 101101103
-	交易性金融资产 101101104
-	衍生金融资产 101101105
+101|资产|Assets
+	101101|流动资产|Current Assets
+		101101101|货币资金|Monetary Funds
+		101101102|结算备付金|Settlement Reserves
+		101101103|拆出资金|Funds Lent
+		101101104|交易性金融资产|Trading Financial Assets
+		101101105|衍生金融资产|Derivative Financial Assets
 
-	应收票据 101101201
-	应收账款 101101202
-	应收款项融资 101101203
-	应收保费 101101204
-	应收分保账款 101101205
-	应收分保合同准备金 101101206
-	其他应收款 101101207
-		应收利息 101101207101
-		应收股利 101101207102
+		101101201|应收票据|Notes Receivable
+		101101202|应收账款|Accounts Receivable
+		101101203|应收款项融资|Receivables Financing
+		101101204|应收保费|Premiums Receivable
+		101101205|应收分保账款|Reinsurance Accounts Receivable
+		101101206|应收分保合同准备金|Reinsurance Contract Reserves Receivable
+		101101207|其他应收款|Other Receivables
+			101101207101|应收利息|Interest Receivable
+			101101207102|应收股利|Dividends Receivable
 
-	预付款项  101101301
+		101101301|预付款项|Prepayments
 
-	买入返售金融资产 101101302
-	存货 101101303
-	合同资产 101101304
-	持有待售资产 101101305
-	一年内到期的非流动资产 101101306
-	其他流动资产 101101401
-	流动资产合计 101101
+		101101302|买入返售金融资产|Financial Assets Purchased under Resale Agreements
+		101101303|存货|Inventories
+		101101304|合同资产|Contract Assets
+		101101305|持有待售资产|Assets Held for Sale
+		101101306|一年内到期的非流动资产|Non-current Assets Due within One Year
+		101101401|其他流动资产|Other Current Assets
+		101101|流动资产合计|Total Current Assets
 
-非流动资产 101102
-	发放贷款和垫款 101102101
-	债权投资 101102102
-	其他债权投资 101102103
-	长期应收款 101102111
-	长期股权投资 101102121
-	其他权益工具投资 101102122
-	其他非流动金融资产 101102131
-	投资性房地产 101102141
+	101102|非流动资产|Non-current Assets
+		101102101|发放贷款和垫款|Loans and Advances
+		101102102|债权投资|Debt Investments
+		101102103|其他债权投资|Other Debt Investments
+		101102111|长期应收款|Long-term Receivables
+		101102121|长期股权投资|Long-term Equity Investments
+		101102122|其他权益工具投资|Other Equity Instrument Investments
+		101102131|其他非流动金融资产|Other Non-current Financial Assets
+		101102141|投资性房地产|Investment Properties
 
-	固定资产 101102201
-	在建工程 101102202
-	使用权资产 101102203
-	无形资产 101102204
-	生产性生物资产 101102211
-        油气资产 101102212
+		101102201|固定资产|Property, Plant and Equipment
+		101102202|在建工程|Construction in Progress
+		101102203|使用权资产|Right-of-use Assets
+		101102204|无形资产|Intangible Assets
+		101102211|生产性生物资产|Productive Biological Assets
+		101102212|油气资产|Oil and Gas Assets
 
-	开发支出 101102301
-	商誉 101102302
-	长期待摊费用 101102303
-	递延所得税资产 101102304
-	其他非流动资产 101102305
-非流动资产合计 101102
-资产总计 101
+		101102301|开发支出|Development Costs
+		101102302|商誉|Goodwill
+		101102303|长期待摊费用|Long-term Deferred Expenses
+		101102304|递延所得税资产|Deferred Tax Assets
+		101102305|其他非流动资产|Other Non-current Assets
+	101102|非流动资产合计|Total Non-current Assets
+101|资产总计|Total Assets
 
+201|负债|Liabilities
+	201101|流动负债|Current Liabilities
+		201101101|短期借款|Short-term Borrowings
+		201101102|向中央银行借款|Borrowings from the Central Bank
+		201101103|拆入资金|Funds Borrowed
+		201101102|交易性金融负债|Trading Financial Liabilities
+		201101104|衍生金融负债|Derivative Financial Liabilities
+		201101201|应付票据|Notes Payable
+		201101202|应付账款|Accounts Payable
+		201101203|预收款项|Advances from Customers
+		201101204|合同负债|Contract Liabilities
+		201101401|卖出回购金融资产款|Financial Assets Sold under Repurchase Agreements
+		201101402|吸收存款及同业存放|Deposits from Customers and Banks
+		201101403|代理买卖证券款|Funds from Brokerage Services
+		201101404|代理承销证券款|Funds from Underwriting Services
+		201101301|应付职工薪酬|Employee Benefits Payable
+		201101302|应交税费|Taxes Payable
+		201101303|其他应付款|Other Payables
+			201101303101|应付利息|Interest Payable
+			201101303102|应付股利|Dividends Payable
+		201101304|应付手续费及佣金|Fees and Commissions Payable
+		201101305|应付分保账款|Reinsurance Accounts Payable
+		201101306|持有待售负债|Liabilities Held for Sale
+		201101307|一年内到期的非流动负债|Non-current Liabilities Due within One Year
+		201101308|其他流动负债|Other Current Liabilities
+	201101|流动负债合计|Total Current Liabilities
+
+	201102|非流动负债|Non-current Liabilities
+		201102101|长期借款|Long-term Borrowings
+		201102102|应付债券|Bonds Payable
+			201102102101|优先股|Preference Shares
+			201102102102|永续债|Perpetual Bonds
+		201102103|租赁负债|Lease Liabilities
+		201102104|长期应付款|Long-term Payables
+		201102105|长期应付职工薪酬|Long-term Employee Benefits Payable
+		201102106|预计负债|Provisions
+		201102107|递延收益|Deferred Income
+		201102108|递延所得税负债|Deferred Tax Liabilities
+		201102301|保险合同准备金|Insurance Contract Reserves
+		201102401|其他非流动负债|Other Non-current Liabilities
+	201102|非流动负债合计|Total Non-current Liabilities
+201|负债合计|Total Liabilities
+
+301|所有者权益|Owners’ Equity
+301|股东权益|Shareholders’ Equity
+301|所有者权益（或股东权益）|Owners’ Equity (or Shareholders’ Equity)
+	301101|实收资本（或股本）|Paid-in Capital (or Share Capital)
+	301101|实收资本|Paid-in Capital
+	301101|股本|Share Capital
+	301103|减：库存股|Less: Treasury Shares
+	301104|资本公积|Capital Reserves
+	301105|其他综合收益|Other Comprehensive Income
+	301106|专项储备|Special Reserves
+	301107|盈余公积|Surplus Reserves
+	301108|未分配利润|Undistributed Profits
+	301109|一般风险准备|General Risk Reserve
+	301110|归属于母公司所有者权益（或股东权益）合计|Total Equity Attributable to Owners of the Parent (or Shareholders)
+	301111|归属于母公司所有者权益合计|Total Equity Attributable to Owners of the Parent
+	301112|归属于母公司股东权益合计|Total Equity Attributable to Shareholders of the Parent
+	301113|少数股东权益|Non-controlling Interests
+301|所有者权益（或股东权益）合计|Total Owners’ Equity (or Shareholders’ Equity)
+301|所有者权益合计|Total Owners’ Equity
+301|股东权益合计|Total Shareholders’ Equity
+
+0|负债和所有者权益（或股东权益）总计|Total Liabilities and Owners’ Equity (or Shareholders’ Equity)
+0|负债和所有者权益总计|Total Liabilities and Owners’ Equity
+0|负债和股东权益总计|Total Liabilities and Shareholders’ Equity

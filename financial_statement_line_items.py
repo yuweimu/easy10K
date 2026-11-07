@@ -1,4 +1,3 @@
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -7,6 +6,7 @@ from pathlib import Path
 class FinancialStatementLineItem:
     name: str
     item_id: str
+    english_name: str
     parent: "FinancialStatementLineItem | None" = None
 
 
@@ -36,14 +36,23 @@ class FinancialStatementLineItemDict:
                 if not raw_line.strip():
                     continue
 
-                match = re.fullmatch(r"(\s*)(\S.*?)\s+(\S+)\s*", raw_line)
-                if match is None:
+                content = raw_line.rstrip("\r\n")
+                fields = content.split("|")
+                if len(fields) != 3:
                     raise ValueError(
                         f"Invalid line-item definition at {source_path}:"
                         f"{line_number}: {raw_line.rstrip()!r}"
                     )
 
-                indentation, name, item_id = match.groups()
+                indentation = content[: len(content) - len(content.lstrip(" \t"))]
+                item_id, name, english_name = (
+                    field.strip() for field in fields[0:3]
+                )
+                if not item_id or not name or not english_name:
+                    raise ValueError(
+                        f"Invalid line-item definition at {source_path}:"
+                        f"{line_number}: {raw_line.rstrip()!r}"
+                    )
                 indent = len(indentation.expandtabs(8))
                 if name in self.items:
                     raise ValueError(
@@ -54,7 +63,9 @@ class FinancialStatementLineItemDict:
                 while parents and parents[-1][0] >= indent:
                     parents.pop()
                 parent = parents[-1][1] if parents else None
-                item = FinancialStatementLineItem(name, item_id, parent)
+                item = FinancialStatementLineItem(
+                    name, item_id, english_name, parent
+                )
                 self.items[name] = item
                 self.item_ids[name] = item_id
                 parents.append((indent, item))
