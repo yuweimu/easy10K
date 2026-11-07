@@ -1,3 +1,4 @@
+0|跳过|Skip
 0|数据资源|Data Resources
 
 101|资产|Assets
@@ -96,8 +97,8 @@
 	201102|非流动负债合计|Total Non-current Liabilities
 201|负债合计|Total Liabilities
 
-301|所有者权益|Owners’ Equity
 301|股东权益|Shareholders’ Equity
+301|所有者权益|Owners’ Equity
 301|所有者权益（或股东权益）|Owners’ Equity (or Shareholders’ Equity)
 	301101|实收资本（或股本）|Paid-in Capital (or Share Capital)
 	301101|实收资本|Paid-in Capital
@@ -109,14 +110,14 @@
 	301107|盈余公积|Surplus Reserves
 	301108|未分配利润|Undistributed Profits
 	301109|一般风险准备|General Risk Reserve
-	301110|归属于母公司所有者权益（或股东权益）合计|Total Equity Attributable to Owners of the Parent (or Shareholders)
-	301110|归属于母公司所有者权益合计|Total Equity Attributable to Owners of the Parent
 	301110|归属于母公司股东权益合计|Total Equity Attributable to Shareholders of the Parent
+	301110|归属于母公司所有者权益合计|Total Equity Attributable to Owners of the Parent
+	301110|归属于母公司所有者权益（或股东权益）合计|Total Equity Attributable to Owners of the Parent (or Shareholders)
 	301113|少数股东权益|Non-controlling Interests
+301|股东权益合计|Total Shareholders’ Equity
 301|所有者权益（或股东权益）合计|Total Owners’ Equity (or Shareholders’ Equity)
 301|所有者权益合计|Total Owners’ Equity
-301|股东权益合计|Total Shareholders’ Equity
 
+0|负债和股东权益总计|Total Liabilities and Shareholders’ Equity
 0|负债和所有者权益（或股东权益）总计|Total Liabilities and Owners’ Equity (or Shareholders’ Equity)
 0|负债和所有者权益总计|Total Liabilities and Owners’ Equity
-0|负债和股东权益总计|Total Liabilities and Shareholders’ Equity

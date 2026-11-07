@@ -147,8 +147,12 @@ class TableParsingStateMachine:
             result = [fields[0], fields[1], fields[2], fields[3]]
 
         if self.is_number(result[2].strip("*")) or self.is_number(result[3].strip("*")):
-            item_id = self.line_item_dict.get_item_id(fields[0])
-            print(f"Extracting BS item: {item_id} {result}")
+            item = self.line_item_dict.get(fields[0])
+            if item:
+                print(f"Extracting BS item: {item.item_id} {item.name} {item.english_name} {result}")
+            else:
+                print(f"ERROR: unknown item name: {fields[0]}")
+
         else:
             print(f"Skip BS item: {page_line}")
 
