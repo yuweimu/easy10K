@@ -28,6 +28,22 @@ class FinancialStatementLineItemDictTests(unittest.TestCase):
         self.assertEqual(items["资产"].name, "资产")
         self.assertEqual(items["资产"].english_name, "Assets")
 
+    def test_duplicate_item_id(self) -> None:
+        source_path = self.write_source(
+            "\t\t301101|股本|Share Capital\n"
+            "\t\t301101|实收资本（或股本）|Paid-in Capital (or Share Capital)\n"
+            "\t\t301101|实收资本|Paid-in Capital\n"
+        )
+
+        items = FinancialStatementLineItemDict(source_path)
+
+        self.assertEqual(items.get("股本").name, "股本")
+        self.assertEqual(items.get("股本").english_name, "Share Capital")
+        self.assertEqual(items.get("实收资本（或股本）").name, "股本")
+        self.assertEqual(items.get("实收资本（或股本）").english_name, "Share Capital")
+        self.assertEqual(items.get("实收资本").name, "股本")
+        self.assertEqual(items.get("实收资本").english_name, "Share Capital")
+
     def test_builds_parent_relationships_from_indentation(self) -> None:
         source_path = self.write_source(
             "101|资产|Assets\n"

@@ -22,6 +22,7 @@ class FinancialStatementLineItemDict:
 
         self.items: dict[str, FinancialStatementLineItem] = {}
         self.item_ids: dict[str, str] = {}
+        self._items_by_id: dict[str, FinancialStatementLineItem] = {}
         self._load(Path(source_path))
 
     def _load(self, source_path: Path) -> None:
@@ -63,15 +64,22 @@ class FinancialStatementLineItemDict:
                 while parents and parents[-1][0] >= indent:
                     parents.pop()
                 parent = parents[-1][1] if parents else None
-                item = FinancialStatementLineItem(
-                    name, item_id, english_name, parent
-                )
+                item = self._items_by_id.get(item_id)
+                if item is None:
+                    item = FinancialStatementLineItem(
+                        name, item_id, english_name, parent
+                    )
+                    self._items_by_id[item_id] = item
                 self.items[name] = item
                 self.item_ids[name] = item_id
                 parents.append((indent, item))
 
     def get(self, name: str) -> FinancialStatementLineItem | None:
         return self.items.get(name)
+
+
+    def __getitem__(self, name: str) -> FinancialStatementLineItem:
+        return self.items[name]
 
     def get_item_id(self, name: str) -> str:
         try:
@@ -81,6 +89,3 @@ class FinancialStatementLineItemDict:
 
     def __contains__(self, name: str) -> bool:
         return name in self.items
-
-    def __getitem__(self, name: str) -> FinancialStatementLineItem:
-        return self.items[name]
