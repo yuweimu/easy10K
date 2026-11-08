@@ -1,9 +1,8 @@
 import re
-from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
-from typing import Callable
 
+import argparse
 from financial_statement_line_items import FinancialStatementLineItemDict
 
 
@@ -184,8 +183,7 @@ class MDDigest:
             if match and total_pages:
                 current_page = int(match.group(1))
                 print(
-                    f"\rDigesting page {current_page}/{total_pages}...",
-                    end="",
+                    f"Digesting page {current_page}/{total_pages}...",
                     flush=True,
                 )
 
@@ -195,7 +193,20 @@ class MDDigest:
             print(" done.")
 
 def main() -> None:
-    digest = MDDigest("reports/dongpeng-2026q3.md")
+
+    parser = argparse.ArgumentParser(
+        description="Convert a PDF to Markdown with searchable page markers."
+    )
+    parser.add_argument(
+        "md_path",
+        type=Path,
+        nargs="?",
+        default=Path("reports/dongpeng-2026q3.md"),
+        help="Path to the input MD file",
+    )
+    args = parser.parse_args()
+
+    digest = MDDigest(args.md_path)
     digest.process_document()
 
 if __name__ == "__main__":
