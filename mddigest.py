@@ -1,4 +1,6 @@
 import re
+import os
+import importlib
 from enum import StrEnum
 from pathlib import Path
 
@@ -29,6 +31,9 @@ class TableParsingStateMachine:
         self.has_notes:bool = False
         self.table_caption_line: str | None = None
         self.line_item_dict = FinancialStatementLineItemDict("financial-statement-line-items.txt")
+        self.database_url = os.getenv("DATABASE_URL")
+        self._db_connection = None
+        self._db_table_ready = False
 
         self._handlers = {
             TableParsingStage.BS_TITLE_DETECTION: self._detect_title,
@@ -81,6 +86,87 @@ class TableParsingStateMachine:
         if handler is None:
             return True
         return handler(md_line)
+
+    def _store_extracted_item(
+        self,
+        item_id: str,
+        value: str,
+        item_english_name: str,
+    ) -> None:
+        """Upsert one extracted balance-sheet item into PostgreSQL."""
+        if not self.database_url:
+            return
+
+        if self._db_connection is None:
+            try:
+                psycopg = importlib.import_module("psycopg")
+            except ImportError as exc:
+                raise RuntimeError(
+                    "PostgreSQL persistence requires psycopg; "
+                    "install the project requirements first"
+                ) from exc
+
+            self._db_connection = psycopg.connect(self.database_url)
+
+        if not self._db_table_ready:
+            with self._db_connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS balance_sheet_items (
+                        stock_code VARCHAR(6) NOT NULL,
+                        reporting_date DATE NOT NULL,
+                        item_id TEXT NOT NULL,
+                        report_creation_time TEXT NOT NULL,
+                        value TEXT NOT NULL,
+                        item_english_name TEXT NOT NULL,
+                        UNIQUE (
+                            stock_code,
+                            reporting_date,
+                            item_id,
+                            report_creation_time
+                        )
+                    )
+                    """
+                )
+            self._db_connection.commit()
+            self._db_table_ready = True
+
+        with self._db_connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO balance_sheet_items (
+                    stock_code,
+                    reporting_date,
+                    item_id,
+                    report_creation_time,
+                    value,
+                    item_english_name
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (
+                    stock_code,
+                    reporting_date,
+                    item_id,
+                    report_creation_time
+                ) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    item_english_name = EXCLUDED.item_english_name
+                """,
+                (
+                    self.stock_code,
+                    self.current_reporting_date,
+                    item_id,
+                    self.report_creation_time,
+                    value,
+                    item_english_name,
+                ),
+            )
+        self._db_connection.commit()
+
+    def close(self) -> None:
+        if self._db_connection is not None:
+            self._db_connection.close()
+            self._db_connection = None
 
     def _detect_title(self, md_line: str) -> bool:
         if "合并资产负债表" == md_line.strip():
@@ -182,12 +268,18 @@ class TableParsingStateMachine:
         elif len(fields) == 4:
             result = [fields[0], fields[1], fields[2].strip("*"), fields[3].strip("*")]
 
-        if self.is_number(result[2].strip("*")) or self.is_number(result[3].strip("*")):
+        if self.is_number(result[2]) or self.is_number(result[3]):
             item = self.line_item_dict.get(fields[0])
             if item:
                 print(
                     f"Extracted BS item: {self.stock_code} {self.current_reporting_date} "
-                    f"{item.item_id} {result[2]} {self.report_creation_time} {item.english_name}"
+                    f"{item.item_id} {self.report_creation_time} "
+                    f"{result[2]} {item.english_name}"
+                )
+                self._store_extracted_item(
+                    item.item_id,
+                    result[2],
+                    item.english_name,
                 )
             else:
                 print(f"ERROR: unknown item name: {fields[0]}")
@@ -211,8 +303,11 @@ class MDDigest:
             raise FileNotFoundError(f"Markdown file not found: {self.md_path}")
 
         md_lines = self.md_path.read_text(encoding="utf-8").splitlines()
-        for line in md_lines:
-            self.state_machine.process_md_line(line)
+        try:
+            for line in md_lines:
+                self.state_machine.process_md_line(line)
+        finally:
+            self.state_machine.close()
 
 def main() -> None:
 
