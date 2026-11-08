@@ -65,7 +65,7 @@ class PDF2MarkDown:
             # print(f"Digesting page {page_number + 1}/{total_pages} ...")
             page_markdown = pymupdf4llm.to_markdown(self.pdf_path, **options, pages = [page_number])
             
-            md_file.write(f"<!-- PDF_PAGE: {page_number} -->\n\n")
+            md_file.write(f"<!-- PDF_PAGE: {page_number+1}/{total_pages} -->\n\n")
             md_file.write(page_markdown)
         print(" done.")
 

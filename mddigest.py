@@ -4,9 +4,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Callable
 
-import pymupdf
-import pymupdf4llm
-
 from financial_statement_line_items import FinancialStatementLineItemDict
 
 
@@ -72,7 +69,7 @@ class TableParsingStateMachine:
         if not dates or dates.count(dates[0]) > 1:
             print(
                 f"Warning: Found multiple or no dates in line "
-                f"{md_line.line_no}: {md_line.plain_text}"
+                f"{md_line}"
             )
             self.stage = TableParsingStage.FAILED
             print("Stage changed to FAILED")
@@ -162,47 +159,44 @@ class TableParsingStateMachine:
         return True
 
 
-class PDFDigest:
-    def __init__(self, pdf_path: str | Path) -> None:
-        self.pdf_path = Path(pdf_path)
+class MDDigest:
+    def __init__(self, md_path: str | Path) -> None:
+        self.md_path = Path(md_path)
         self.state_machine = TableParsingStateMachine()
 
-    def process_document(self, pages: list = None) -> None:
-        total_pages = 0
-        if not pages:
-            with pymupdf.open(self.pdf_path) as document:
-                total_pages = document.page_count
-                pages = list(range(total_pages))
+    def process_document(self) -> None:
+        if not self.md_path.is_file():
+            raise FileNotFoundError(f"Markdown file not found: {self.md_path}")
 
-        for page_number in pages:
-            print(
-                f"\rConverting page {page_number + 1}/{total_pages}...",
-                end="",
-                flush=True,
-            )
-            # print(f"Digesting page {page_number + 1}/{total_pages} ...")
-            md_text = pymupdf4llm.to_markdown(self.pdf_path, pages = [page_number])
-            for md_line in md_text.splitlines():
-                self.state_machine.process_md_line(md_line)
+        md_lines = self.md_path.read_text(encoding="utf-8").splitlines()
+        page_marker = re.compile(
+            r"^<!--\s*PDF_PAGE:\s*(\d+)\s*/\s*(\d+)\s*-->$"
+        )
+        page_matches = [
+            match
+            for line in md_lines
+            if (match := page_marker.match(line.strip()))
+        ]
+        total_pages = int(page_matches[0].group(2)) if page_matches else 0
 
-        print(" done.")
+        for md_line in md_lines:
+            match = page_marker.match(md_line.strip())
+            if match and total_pages:
+                current_page = int(match.group(1))
+                print(
+                    f"\rDigesting page {current_page}/{total_pages}...",
+                    end="",
+                    flush=True,
+                )
+
+            self.state_machine.process_md_line(md_line)
+
+        if total_pages:
+            print(" done.")
 
 def main() -> None:
-
-    # digest = PDFDigest("reports/test.pdf")
-
-    digest = PDFDigest("reports/dongpeng-2026q3.pdf")
-    # digest.process_document()
-    digest.process_document([7,8,9])
-
-    # digest = PDFDigest("reports/dongpeng-2025.pdf")
-    # digest.process_document([110, 111, 112])
-    # digest.process_document()
-
-
-    # digest = PDFDigest("reports/maotai-2025.pdf")
-    # digest.process_document([110, 111, 112])
-    # digest.process_document()
+    digest = MDDigest("reports/dongpeng-2026q3.md")
+    digest.process_document()
 
 if __name__ == "__main__":
     main()
