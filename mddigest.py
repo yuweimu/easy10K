@@ -24,7 +24,9 @@ class TableParsingStateMachine:
         self.reporting_entity: str | None = None
         self.current_reporting_date: str | None = None
         self.previous_reporting_date: str | None = None
-        self.has_notes = False
+        self.report_creation_time:str = ""
+        self.stock_code:str | None = None
+        self.has_notes:bool = False
         self.table_caption_line: str | None = None
         self.line_item_dict = FinancialStatementLineItemDict("financial-statement-line-items.txt")
 
@@ -36,9 +38,43 @@ class TableParsingStateMachine:
             TableParsingStage.BS_TABLE_ITEMS_EXTRACTION: self._extract_table_item,
         }
 
+    def process_as_metadata(self, md_line: str) -> bool:
+        """Process document metadata, page markers, stock code, etc."""
+        if not self.report_creation_time:
+            creation_date_match = re.match(
+                r"^<!--\s*ORIGINAL_PDF_FILE_CREATION_DATE:\s*(.*?)\s*-->$",
+                md_line.strip(),
+            )
+            if creation_date_match:
+                self.report_creation_time = creation_date_match.group(1)
+                return True
+
+        if not self.stock_code:
+            stock_code_match = re.match(
+                r"(?:证券|公司|股票)代码[：:]\s*(\d{6})", md_line
+            )
+            if stock_code_match:
+                self.stock_code = stock_code_match.group(1)
+                return True
+
+        page_match = re.match(
+            r"^<!--\s*PDF_PAGE:\s*(\d+)\s*/\s*(\d+)\s*-->$",
+            md_line.strip(),
+        )
+        if page_match:
+            current_page = int(page_match.group(1))
+            total_pages = int(page_match.group(2))
+            print(
+                f"Digesting page {current_page}/{total_pages}...",
+                flush=True,
+            )
+            return True
+        return False
 
     def process_md_line(self, md_line: str) -> bool:
         if not md_line or len(md_line) == 0:
+            return True
+        if self.process_as_metadata(md_line):
             return True
 
         handler = self._handlers.get(self.stage)
@@ -145,7 +181,7 @@ class TableParsingStateMachine:
         if self.is_number(result[2].strip("*")) or self.is_number(result[3].strip("*")):
             item = self.line_item_dict.get(fields[0])
             if item:
-                print(f"Extracting BS item: {item.item_id} {item.name} {item.english_name} {result}")
+                print(f"Extracting BS item: {self.stock_code} {self.report_creation_time} {item.item_id} {fields[2]} {item.name} {item.english_name} {result}")
             else:
                 print(f"ERROR: unknown item name: {fields[0]}")
 
@@ -168,29 +204,8 @@ class MDDigest:
             raise FileNotFoundError(f"Markdown file not found: {self.md_path}")
 
         md_lines = self.md_path.read_text(encoding="utf-8").splitlines()
-        page_marker = re.compile(
-            r"^<!--\s*PDF_PAGE:\s*(\d+)\s*/\s*(\d+)\s*-->$"
-        )
-        page_matches = [
-            match
-            for line in md_lines
-            if (match := page_marker.match(line.strip()))
-        ]
-        total_pages = int(page_matches[0].group(2)) if page_matches else 0
-
-        for md_line in md_lines:
-            match = page_marker.match(md_line.strip())
-            if match and total_pages:
-                current_page = int(match.group(1))
-                print(
-                    f"Digesting page {current_page}/{total_pages}...",
-                    flush=True,
-                )
-
-            self.state_machine.process_md_line(md_line)
-
-        if total_pages:
-            print(" done.")
+        for line in md_lines:
+            self.state_machine.process_md_line(line)
 
 def main() -> None:
 

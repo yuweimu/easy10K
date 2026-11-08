@@ -2,6 +2,7 @@
 
 import argparse
 from pathlib import Path
+import re
 from typing import Any
 
 import pymupdf
@@ -30,6 +31,24 @@ class PDF2MarkDown:
         )
         self.markdown_options = markdown_options
 
+    def get_pdf_creation_date(self):
+        try:
+            doc = pymupdf.open(self.pdf_path)
+            metadata = doc.metadata
+            doc.close()
+            
+            creation_date = metadata.get("creationDate")
+
+            m = re.match(r"D:(\d{14})", creation_date)
+            # PDF 日期格式通常为 "D:YYYYMMDDHHmmss..."，这里简单返回原始字符串
+            if m:
+                return m.group(1)
+            else:
+                return creation_date
+        except Exception as e:
+            print(f"creationDate not found: {e}")
+            return None
+
     def convert(self, pages: list = None) -> Path:
         """Convert the PDF and return the path of the generated Markdown file."""
 
@@ -47,11 +66,10 @@ class PDF2MarkDown:
         options = dict(self.markdown_options)
         # options["page_chunks"] = True
 
-        markdown_pages: list[str] = []
-
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         self.output_path.write_text(
-            f"<!-- GENERATED FROM PDF FILE: {self.pdf_path} -->\n\n",
+            f"<!-- ORIGINAL_PDF_FILE:{self.pdf_path} -->\n\n"
+            f"<!-- ORIGINAL_PDF_FILE_CREATION_DATE:{self.get_pdf_creation_date()} -->\n\n",
             encoding="utf-8",
         )
         md_file = self.output_path.open("a", encoding="utf-8")
