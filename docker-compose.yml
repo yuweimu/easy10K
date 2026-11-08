@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: easy10k
+      POSTGRES_USER: easy10k
+      POSTGRES_PASSWORD: easy10k
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U easy10k -d easy10k"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  digest:
+    build:
+      context: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://easy10k:easy10k@postgres:5432/easy10k
+    command: ["python", "mddigest.py", "/data/reports/dongpeng-2026q3.md"]
+    volumes:
+      - ./reports:/data/reports:ro
+
+volumes:
+  postgres_data:
