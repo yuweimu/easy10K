@@ -175,10 +175,17 @@ class PDFDigest:
                 pages = list(range(total_pages))
 
         for page_number in pages:
-            print(f"Digesting page {page_number + 1}/{total_pages} ...")
+            print(
+                f"\rConverting page {page_number + 1}/{total_pages}...",
+                end="",
+                flush=True,
+            )
+            # print(f"Digesting page {page_number + 1}/{total_pages} ...")
             md_text = pymupdf4llm.to_markdown(self.pdf_path, pages = [page_number])
             for md_line in md_text.splitlines():
                 self.state_machine.process_md_line(md_line)
+
+        print(" done.")
 
 def main() -> None:
 
