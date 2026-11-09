@@ -22,8 +22,8 @@ class FinancialStatementLineItemDictTests(unittest.TestCase):
 
         items = FinancialStatementLineItemDict(source_path)
 
-        self.assertEqual(items.get_item_id("货币资金"), "101101101")
-        self.assertEqual(items.item_ids["流动资产"], "101101")
+        self.assertEqual(items.get_item_id("货币资金"), 101101101)
+        self.assertEqual(items.item_ids["流动资产"], 101101)
         self.assertIn("资产", items)
         self.assertEqual(items["资产"].name, "资产")
         self.assertEqual(items["资产"].english_name, "Assets")
@@ -85,7 +85,7 @@ class FinancialStatementLineItemDictTests(unittest.TestCase):
     def test_loads_default_source_file(self) -> None:
         items = FinancialStatementLineItemDict()
 
-        self.assertEqual(items.get_item_id("货币资金"), "101101101")
+        self.assertEqual(items.get_item_id("货币资金"), 101101101)
         self.assertEqual(items["货币资金"].english_name, "Monetary Funds")
         self.assertEqual(items["应收利息"].parent.name, "其他应收款")
 

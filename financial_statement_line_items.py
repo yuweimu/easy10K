@@ -5,7 +5,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class FinancialStatementLineItem:
     name: str
-    item_id: str
+    item_id: int
     english_name: str
     parent: "FinancialStatementLineItem | None" = None
 
@@ -21,8 +21,8 @@ class FinancialStatementLineItemDict:
             )
 
         self.items: dict[str, FinancialStatementLineItem] = {}
-        self.item_ids: dict[str, str] = {}
-        self._items_by_id: dict[str, FinancialStatementLineItem] = {}
+        self.item_ids: dict[str, int] = {}
+        self._items_by_id: dict[int, FinancialStatementLineItem] = {}
         self._load(Path(source_path))
 
     def _load(self, source_path: Path) -> None:
@@ -46,14 +46,21 @@ class FinancialStatementLineItemDict:
                     )
 
                 indentation = content[: len(content) - len(content.lstrip(" \t"))]
-                item_id, name, english_name = (
+                item_id_text, name, english_name = (
                     field.strip() for field in fields[0:3]
                 )
-                if not item_id or not name or not english_name:
+                if not item_id_text or not name or not english_name:
                     raise ValueError(
                         f"Invalid line-item definition at {source_path}:"
                         f"{line_number}: {raw_line.rstrip()!r}"
                     )
+                try:
+                    item_id = int(item_id_text)
+                except ValueError:
+                    raise ValueError(
+                        f"Invalid line-item definition at {source_path}:"
+                        f"{line_number}: {raw_line.rstrip()!r}"
+                    ) from None
                 indent = len(indentation.expandtabs(8))
                 if name in self.items:
                     raise ValueError(
@@ -81,7 +88,7 @@ class FinancialStatementLineItemDict:
     def __getitem__(self, name: str) -> FinancialStatementLineItem:
         return self.items[name]
 
-    def get_item_id(self, name: str) -> str:
+    def get_item_id(self, name: str) -> int:
         try:
             return self.item_ids[name]
         except KeyError:

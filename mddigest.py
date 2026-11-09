@@ -89,7 +89,7 @@ class TableParsingStateMachine:
 
     def _store_extracted_item(
         self,
-        item_id: str,
+        item_id: int,
         value: str,
         item_english_name: str,
     ) -> None:
@@ -115,7 +115,7 @@ class TableParsingStateMachine:
                     CREATE TABLE IF NOT EXISTS balance_sheet_items (
                         stock_code VARCHAR(6) NOT NULL,
                         reporting_date DATE NOT NULL,
-                        item_id TEXT NOT NULL,
+                        item_id INTEGER NOT NULL,
                         report_creation_time TEXT NOT NULL,
                         value NUMERIC(20, 2) NOT NULL,
                         item_english_name TEXT NOT NULL,
