@@ -26,13 +26,14 @@ def get_balance_sheet_items(stock_code: str) -> list[dict]:
         logger.warning(f"DATABASE_URL is not configured")
         raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
 
+    logger.info(f"get_balance_sheet_items {stock_code}")
     try:
         psycopg = importlib.import_module("psycopg")
         with psycopg.connect(database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT stock_code, reporting_date, item_id,
+                    SELECT reporting_date, item_id,
                            report_creation_time, amount
                     FROM balance_sheet_items
                     WHERE stock_code = %s
@@ -49,7 +50,6 @@ def get_balance_sheet_items(stock_code: str) -> list[dict]:
         ) from exc
 
     fields = (
-        "stock_code",
         "reporting_date",
         "item_id",
         "report_creation_time",
