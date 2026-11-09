@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from financial_statement_line_items import FinancialStatementLineItemDict
+from line_item_chart import FinancialStatementLineItemDict
 from mddigest import TableParsingStage, TableParsingStateMachine
 
 
@@ -98,7 +98,7 @@ class TableParsingStateMachineTests(unittest.TestCase):
     """Unit tests for ``TableParsingStateMachine`` in mddigest.py.
 
     The state machine resolves its line-item dictionary via the
-    CWD-relative path ``financial-statement-line-items.txt``, so these
+    CWD-relative path ``line-item-chart.txt``, so these
     tests must be run from the repository root (as the VS Code unittest
     configuration does).
     """

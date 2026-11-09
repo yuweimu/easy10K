@@ -17,7 +17,7 @@ class FinancialStatementLineItemDict:
     ) -> None:
         if source_path is None:
             source_path = Path(__file__).with_name(
-                "financial-statement-line-items.txt"
+                "line-item-chart.txt"
             )
 
         self.items: dict[str, FinancialStatementLineItem] = {}
@@ -31,7 +31,6 @@ class FinancialStatementLineItemDict:
                 f"Financial statement line-item file not found: {source_path}"
             )
 
-        parents: list[tuple[int, FinancialStatementLineItem]] = []
         with source_path.open(encoding="utf-8") as source:
             for line_number, raw_line in enumerate(source, start=1):
                 if not raw_line.strip():
@@ -45,7 +44,6 @@ class FinancialStatementLineItemDict:
                         f"{line_number}: {raw_line.rstrip()!r}"
                     )
 
-                indentation = content[: len(content) - len(content.lstrip(" \t"))]
                 item_id_text, name, english_name = (
                     field.strip() for field in fields[0:3]
                 )
@@ -61,16 +59,14 @@ class FinancialStatementLineItemDict:
                         f"Invalid line-item definition at {source_path}:"
                         f"{line_number}: {raw_line.rstrip()!r}"
                     ) from None
-                indent = len(indentation.expandtabs(8))
                 if name in self.items:
                     raise ValueError(
                         f"Duplicate line-item name at {source_path}:"
                         f"{line_number}: {name!r}"
                     )
 
-                while parents and parents[-1][0] >= indent:
-                    parents.pop()
-                parent = parents[-1][1] if parents else None
+                parent_id = item_id // 1000
+                parent = self._items_by_id.get(parent_id) if parent_id else None
                 item = self._items_by_id.get(item_id)
                 if item is None:
                     item = FinancialStatementLineItem(
@@ -79,7 +75,6 @@ class FinancialStatementLineItemDict:
                     self._items_by_id[item_id] = item
                 self.items[name] = item
                 self.item_ids[name] = item_id
-                parents.append((indent, item))
 
     def get(self, name: str) -> FinancialStatementLineItem | None:
         return self.items.get(name)
