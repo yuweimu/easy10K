@@ -1,10 +1,14 @@
 # main.py
+import importlib
+import logging
+import os
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-# from typing import Dict
 
 # 1. Initialize the FastAPI application
 app = FastAPI()
+logger = logging.getLogger(__name__)
 
 # 2. Define the structure of the data we expect (Pydantic Model)
 class WordInput(BaseModel):
@@ -12,6 +16,46 @@ class WordInput(BaseModel):
     word_input: str
 
 # --- API Endpoints ---
+
+@app.get("/balance_sheet_items/{stock_code}")
+def get_balance_sheet_items(stock_code: str) -> list[dict]:
+    """Return all balance-sheet items stored for a stock code."""
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        logger.warning(f"DATABASE_URL is not configured")
+        raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+
+    try:
+        psycopg = importlib.import_module("psycopg")
+        with psycopg.connect(database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT stock_code, reporting_date, item_id,
+                           report_creation_time, value, item_english_name
+                    FROM balance_sheet_items
+                    WHERE stock_code = %s
+                    ORDER BY reporting_date, item_id, report_creation_time
+                    """,
+                    (stock_code,),
+                )
+                rows = cursor.fetchall()
+    except Exception as exc:
+        logger.warning(f"database connect error:{exc}")
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to fetch balance-sheet items",
+        ) from exc
+
+    fields = (
+        "stock_code",
+        "reporting_date",
+        "item_id",
+        "report_creation_time",
+        "value",
+        "item_english_name",
+    )
+    return [dict(zip(fields, row)) for row in rows]
 
 @app.post("/submit/")
 def submit_word(data: WordInput):
@@ -22,7 +66,7 @@ def submit_word(data: WordInput):
     # The data is automatically validated by Pydantic before this line runs.
     word = data.word_input
     
-    print(f"Server received the word: {word}")
+    logger.info("Server received the word: %s", word)
 
     # Simulate successful processing
     return {

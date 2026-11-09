@@ -117,7 +117,7 @@ class TableParsingStateMachine:
                         reporting_date DATE NOT NULL,
                         item_id TEXT NOT NULL,
                         report_creation_time TEXT NOT NULL,
-                        value TEXT NOT NULL,
+                        value NUMERIC(20, 2) NOT NULL,
                         item_english_name TEXT NOT NULL,
                         UNIQUE (
                             stock_code,
@@ -157,7 +157,7 @@ class TableParsingStateMachine:
                     self.current_reporting_date,
                     item_id,
                     self.report_creation_time,
-                    value,
+                    value.replace(",", ""),
                     item_english_name,
                 ),
             )
@@ -268,7 +268,7 @@ class TableParsingStateMachine:
         elif len(fields) == 4:
             result = [fields[0], fields[1], fields[2].strip("*"), fields[3].strip("*")]
 
-        if self.is_number(result[2]) or self.is_number(result[3]):
+        if self.is_number(result[2]):
             item = self.line_item_dict.get(fields[0])
             if item:
                 print(
