@@ -45,5 +45,6 @@ htmlcov/
 
 # macOS
 .DS_Store
+node_modules/
 
 reports/

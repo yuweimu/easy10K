@@ -27,5 +27,17 @@ services:
     volumes:
       - ./reports:/data/reports:ro
 
+  api:
+    build:
+      context: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://easy10k:easy10k@postgres:5432/easy10k
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+
 volumes:
   postgres_data:
