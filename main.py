@@ -6,10 +6,12 @@ from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from line_item_chart import LineItemChart
 
 # 1. Initialize the FastAPI application
 app = FastAPI()
 logger = logging.getLogger(__name__)
+line_item_chart = LineItemChart()
 
 # 2. Define the structure of the data we expect (Pydantic Model)
 class WordInput(BaseModel):
@@ -17,6 +19,20 @@ class WordInput(BaseModel):
     word_input: str
 
 # --- API Endpoints ---
+
+
+@app.get("/line-item-chart")
+def get_line_item_chart() -> list[dict[str, int | str | None]]:
+    """Return the financial statement line-item chart as JSON."""
+    return [
+        {
+            "item_id": item.item_id,
+            "name_cn": item.name,
+            "name_en": item.english_name,
+        }
+
+        for item in line_item_chart._items_by_id.values()
+    ]
 
 @app.get("/balance_sheet_items/{stock_code}")
 def get_balance_sheet_items(stock_code: str) -> list[dict]:

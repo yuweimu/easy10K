@@ -7,7 +7,6 @@ class LineItem:
     name: str
     item_id: int
     english_name: str
-    parent: "LineItem | None" = None
 
 
 class LineItemChart:
@@ -64,17 +63,13 @@ class LineItemChart:
                         f"Duplicate line-item name at {source_path}:"
                         f"{line_number}: {name!r}"
                     )
-
-                parent_id = item_id // 1000
-                parent = self._items_by_id.get(parent_id) if parent_id else None
-                item = self._items_by_id.get(item_id)
-                if item is None:
-                    item = LineItem(
-                        name, item_id, english_name, parent
-                    )
-                    self._items_by_id[item_id] = item
-                self.items[name] = item
-                self.item_ids[name] = item_id
+                if item_id > 0:
+                    item = self._items_by_id.get(item_id)
+                    if item is None:
+                        item = LineItem(name, item_id, english_name)
+                        self._items_by_id[item_id] = item
+                    self.items[name] = item
+                    self.item_ids[name] = item_id
 
     def get(self, name: str) -> LineItem | None:
         return self.items.get(name)

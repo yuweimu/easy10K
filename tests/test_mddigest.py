@@ -48,23 +48,6 @@ class LineItemChartTests(unittest.TestCase):
         self.assertEqual(items.get("实收资本").name, "股本")
         self.assertEqual(items.get("实收资本").english_name, "Share Capital")
 
-    def test_builds_parent_relationships_from_indentation(self) -> None:
-        source_path = self.write_source(
-            "101|资产|Assets\n"
-            "\t101101|流动资产|Current Assets\n"
-            "\t\t101101207|应收款项|Receivables\n"
-            "\t\t\t101101207101|应收利息|Interest Receivable\n"
-            "\t101102|非流动资产|Non-current Assets\n"
-        )
-
-        items = LineItemChart(source_path)
-
-        self.assertIsNone(items["资产"].parent)
-        self.assertEqual(items["流动资产"].parent.name, "资产")
-        self.assertEqual(items["应收款项"].parent.name, "流动资产")
-        self.assertEqual(items["应收利息"].parent.name, "应收款项")
-        self.assertEqual(items["非流动资产"].parent.name, "资产")
-
     def test_get_returns_none_and_get_item_id_rejects_unknown_name(self) -> None:
         source_path = self.write_source("101|资产|Assets\n")
         items = LineItemChart(source_path)
@@ -91,7 +74,6 @@ class LineItemChartTests(unittest.TestCase):
 
         self.assertEqual(items.get_item_id("货币资金"), 101101101)
         self.assertEqual(items["货币资金"].english_name, "Monetary Funds")
-        self.assertEqual(items["应收利息"].parent.name, "其他应收款")
 
 
 class TableParsingStateMachineTests(unittest.TestCase):
