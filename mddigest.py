@@ -90,10 +90,12 @@ class TableParsingStateMachine:
     def _store_extracted_item(
         self,
         item_id: int,
-        value: str,
+        amount: str,
         item_english_name: str,
     ) -> None:
         """Upsert one extracted balance-sheet item into PostgreSQL."""
+        if item_id <= 0:
+            return
         if not self.database_url:
             return
 
@@ -117,7 +119,7 @@ class TableParsingStateMachine:
                         reporting_date DATE NOT NULL,
                         item_id INTEGER NOT NULL,
                         report_creation_time TEXT NOT NULL,
-                        value NUMERIC(20, 2) NOT NULL,
+                        amount NUMERIC(20, 2) NOT NULL,
                         item_english_name TEXT NOT NULL,
                         UNIQUE (
                             stock_code,
@@ -139,7 +141,7 @@ class TableParsingStateMachine:
                     reporting_date,
                     item_id,
                     report_creation_time,
-                    value,
+                    amount,
                     item_english_name
                 )
                 VALUES (%s, %s, %s, %s, %s, %s)
@@ -149,7 +151,7 @@ class TableParsingStateMachine:
                     item_id,
                     report_creation_time
                 ) DO UPDATE SET
-                    value = EXCLUDED.value,
+                    amount = EXCLUDED.amount,
                     item_english_name = EXCLUDED.item_english_name
                 """,
                 (
@@ -157,7 +159,7 @@ class TableParsingStateMachine:
                     self.current_reporting_date,
                     item_id,
                     self.report_creation_time,
-                    value.replace(",", ""),
+                    amount.replace(",", ""),
                     item_english_name,
                 ),
             )

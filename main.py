@@ -2,6 +2,7 @@
 import importlib
 import logging
 import os
+from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -32,7 +33,7 @@ def get_balance_sheet_items(stock_code: str) -> list[dict]:
                 cursor.execute(
                     """
                     SELECT stock_code, reporting_date, item_id,
-                           report_creation_time, value, item_english_name
+                           report_creation_time, amount
                     FROM balance_sheet_items
                     WHERE stock_code = %s
                     ORDER BY reporting_date, item_id, report_creation_time
@@ -52,8 +53,7 @@ def get_balance_sheet_items(stock_code: str) -> list[dict]:
         "reporting_date",
         "item_id",
         "report_creation_time",
-        "value",
-        "item_english_name",
+        "amount",
     )
     return [dict(zip(fields, row)) for row in rows]
 
