@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 
 import argparse
-from line_item_chart import FinancialStatementLineItemDict
+from line_item_chart import LineItemChart
 
 
 class TableParsingStage(StrEnum):
@@ -30,7 +30,7 @@ class TableParsingStateMachine:
         self.stock_code:str | None = None
         self.has_notes:bool = False
         self.table_caption_line: str | None = None
-        self.line_item_dict = FinancialStatementLineItemDict("line-item-chart.txt")
+        self.line_item_dict = LineItemChart("line-item-chart.txt")
         self.database_url = os.getenv("DATABASE_URL")
         self._db_connection = None
         self._db_table_ready = False

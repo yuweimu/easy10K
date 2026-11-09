@@ -5,11 +5,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from line_item_chart import FinancialStatementLineItemDict
+from line_item_chart import LineItemChart
 from mddigest import TableParsingStage, TableParsingStateMachine
 
 
-class FinancialStatementLineItemDictTests(unittest.TestCase):
+class LineItemChartTests(unittest.TestCase):
     def write_source(self, content: str) -> Path:
         temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(temporary_directory.cleanup)
@@ -24,7 +24,7 @@ class FinancialStatementLineItemDictTests(unittest.TestCase):
             "\t\t101101101|货币资金|Monetary Funds\n"
         )
 
-        items = FinancialStatementLineItemDict(source_path)
+        items = LineItemChart(source_path)
 
         self.assertEqual(items.get_item_id("货币资金"), 101101101)
         self.assertEqual(items.item_ids["流动资产"], 101101)
@@ -39,7 +39,7 @@ class FinancialStatementLineItemDictTests(unittest.TestCase):
             "\t\t301101|实收资本|Paid-in Capital\n"
         )
 
-        items = FinancialStatementLineItemDict(source_path)
+        items = LineItemChart(source_path)
 
         self.assertEqual(items.get("股本").name, "股本")
         self.assertEqual(items.get("股本").english_name, "Share Capital")
@@ -57,7 +57,7 @@ class FinancialStatementLineItemDictTests(unittest.TestCase):
             "\t101102|非流动资产|Non-current Assets\n"
         )
 
-        items = FinancialStatementLineItemDict(source_path)
+        items = LineItemChart(source_path)
 
         self.assertIsNone(items["资产"].parent)
         self.assertEqual(items["流动资产"].parent.name, "资产")
@@ -67,7 +67,7 @@ class FinancialStatementLineItemDictTests(unittest.TestCase):
 
     def test_get_returns_none_and_get_item_id_rejects_unknown_name(self) -> None:
         source_path = self.write_source("101|资产|Assets\n")
-        items = FinancialStatementLineItemDict(source_path)
+        items = LineItemChart(source_path)
 
         self.assertIsNone(items.get("不存在"))
         with self.assertRaisesRegex(KeyError, "Unknown financial statement"):
@@ -75,19 +75,19 @@ class FinancialStatementLineItemDictTests(unittest.TestCase):
 
     def test_rejects_missing_file(self) -> None:
         with self.assertRaises(FileNotFoundError):
-            FinancialStatementLineItemDict("/tmp/does-not-exist-line-items.txt")
+            LineItemChart("/tmp/does-not-exist-line-items.txt")
 
     def test_rejects_malformed_and_duplicate_definitions(self) -> None:
         malformed_path = self.write_source("资产\n")
         with self.assertRaisesRegex(ValueError, "Invalid line-item definition"):
-            FinancialStatementLineItemDict(malformed_path)
+            LineItemChart(malformed_path)
 
         duplicate_path = self.write_source("101|资产|Assets\n102|资产|Assets\n")
         with self.assertRaisesRegex(ValueError, "Duplicate line-item name"):
-            FinancialStatementLineItemDict(duplicate_path)
+            LineItemChart(duplicate_path)
 
     def test_loads_default_source_file(self) -> None:
-        items = FinancialStatementLineItemDict()
+        items = LineItemChart()
 
         self.assertEqual(items.get_item_id("货币资金"), 101101101)
         self.assertEqual(items["货币资金"].english_name, "Monetary Funds")

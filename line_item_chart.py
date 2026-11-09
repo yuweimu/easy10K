@@ -3,14 +3,14 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
-class FinancialStatementLineItem:
+class LineItem:
     name: str
     item_id: int
     english_name: str
-    parent: "FinancialStatementLineItem | None" = None
+    parent: "LineItem | None" = None
 
 
-class FinancialStatementLineItemDict:
+class LineItemChart:
     def __init__(
         self,
         source_path: str | Path | None = None,
@@ -20,9 +20,9 @@ class FinancialStatementLineItemDict:
                 "line-item-chart.txt"
             )
 
-        self.items: dict[str, FinancialStatementLineItem] = {}
+        self.items: dict[str, LineItem] = {}
         self.item_ids: dict[str, int] = {}
-        self._items_by_id: dict[int, FinancialStatementLineItem] = {}
+        self._items_by_id: dict[int, LineItem] = {}
         self._load(Path(source_path))
 
     def _load(self, source_path: Path) -> None:
@@ -69,18 +69,18 @@ class FinancialStatementLineItemDict:
                 parent = self._items_by_id.get(parent_id) if parent_id else None
                 item = self._items_by_id.get(item_id)
                 if item is None:
-                    item = FinancialStatementLineItem(
+                    item = LineItem(
                         name, item_id, english_name, parent
                     )
                     self._items_by_id[item_id] = item
                 self.items[name] = item
                 self.item_ids[name] = item_id
 
-    def get(self, name: str) -> FinancialStatementLineItem | None:
+    def get(self, name: str) -> LineItem | None:
         return self.items.get(name)
 
 
-    def __getitem__(self, name: str) -> FinancialStatementLineItem:
+    def __getitem__(self, name: str) -> LineItem:
         return self.items[name]
 
     def get_item_id(self, name: str) -> int:
