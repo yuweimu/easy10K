@@ -20,12 +20,20 @@ type BalanceSheetItem = {
 
 type ReportItem = BalanceSheetItem & {
   english_name: string;
+  indentLevel: number;
 };
 
 type GroupedReportItem = {
   item_id: number;
   english_name: string;
+  indentLevel: number;
   amountsByDate: Map<string, BalanceSheetItem["amount"]>;
+};
+
+type ChartItem = {
+  item_id: number;
+  english_name: string;
+  parent_item_id: number | null;
 };
 
 const AMOUNT_UNITS = {
@@ -62,12 +70,27 @@ function formatAmount(
     : String(amount);
 }
 
+function getIndentLevel(itemId: number, chartById: Map<number, ChartItem>): number {
+  let level = 0;
+  let parentId = chartById.get(itemId)?.parent_item_id ?? null;
+
+  while (parentId > 0 && chartById.has(parentId)) {
+    level += 1;
+    parentId = chartById.get(parentId)?.parent_item_id ?? null;
+  }
+
+  return level;
+}
+
 function App() {
-  const [stockCode, setStockCode] = useState("");
+  const [stockCode, setStockCode] = useState("605499");
   const [report, setReport] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [amountUnit, setAmountUnit] = useState<AmountUnit>("元");
+  const [collapsedItemIds, setCollapsedItemIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const reportingDates = useMemo(
     () => Array.from(new Set(report.map((item) => item.reporting_date))),
     [report],
@@ -83,13 +106,68 @@ function App() {
         grouped.set(item.item_id, {
           item_id: item.item_id,
           english_name: item.english_name,
+          indentLevel: item.indentLevel,
           amountsByDate: new Map([[item.reporting_date, item.amount]]),
         });
       }
     }
 
-    return Array.from(grouped.values());
+    const items = Array.from(grouped.values());
+    const itemsById = new Map(items.map((item) => [item.item_id, item]));
+    const childrenByParent = new Map<number, GroupedReportItem[]>();
+    const roots: GroupedReportItem[] = [];
+
+    for (const item of items) {
+      const parentId = Math.floor(item.item_id / 1000);
+      if (parentId > 0 && itemsById.has(parentId)) {
+        const children = childrenByParent.get(parentId) ?? [];
+        children.push(item);
+        childrenByParent.set(parentId, children);
+      } else {
+        roots.push(item);
+      }
+    }
+
+    const byItemId = (left: GroupedReportItem, right: GroupedReportItem) =>
+      left.item_id - right.item_id;
+    const ordered: GroupedReportItem[] = [];
+    const appendWithChildren = (item: GroupedReportItem) => {
+      ordered.push(item);
+      const children = childrenByParent.get(item.item_id) ?? [];
+      children.sort(byItemId).forEach(appendWithChildren);
+    };
+
+    roots.sort(byItemId).forEach(appendWithChildren);
+    return ordered;
   }, [report]);
+  const visibleReport = useMemo(() => {
+    return groupedReport.filter((item) => {
+      let parentId = Math.floor(item.item_id / 1000);
+      while (parentId > 0) {
+        if (collapsedItemIds.has(parentId)) return false;
+        parentId = Math.floor(parentId / 1000);
+      }
+      return true;
+    });
+  }, [collapsedItemIds, groupedReport]);
+  const itemIdsWithChildren = useMemo(
+    () =>
+      new Set(
+        groupedReport
+          .map((item) => Math.floor(item.item_id / 1000))
+          .filter((itemId) => itemId > 0),
+      ),
+    [groupedReport],
+  );
+
+  function toggleItem(itemId: number) {
+    setCollapsedItemIds((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
 
   async function loadReport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -106,12 +184,17 @@ function App() {
         ),
       ]);
 
-      const chartItems = Array.isArray(chart)
+      const chartItems: ChartItem[] = Array.isArray(chart)
         ? chart.map((item) => ({
             item_id: item.item_id,
             english_name: item.name_en ?? item.english_name ?? "Unknown item",
+            parent_item_id: Math.floor(item.item_id / 1000) || null,
           }))
-        : Object.values(chart);
+        : Object.values(chart).map((item) => ({
+            item_id: item.item_id,
+            english_name: item.english_name,
+            parent_item_id: Math.floor(item.item_id / 1000) || null,
+          }));
       const chartById = new Map(
         chartItems.map((item) => [item.item_id, item]),
       );
@@ -120,6 +203,7 @@ function App() {
         balanceSheetItems.map((item) => ({
           ...item,
           english_name: chartById.get(item.item_id)?.english_name ?? "Unknown item",
+          indentLevel: getIndentLevel(item.item_id, chartById),
         })),
       );
     } catch (requestError) {
@@ -190,18 +274,34 @@ function App() {
             <table>
               <thead>
                 <tr>
-                  <th>Item ID</th>
                   <th>Financial item</th>
                   {reportingDates.map((date) => (
-                    <th className="amount-column" key={date}>{date} ({amountUnit})</th>
+                    <th className="amount-column" key={date}>{date}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {groupedReport.map((item) => (
+                {visibleReport.map((item) => (
                   <tr key={item.item_id}>
-                    <td>{item.item_id}</td>
-                    <td className="item-name">{item.english_name}</td>
+                    <td
+                      className="item-name"
+                      style={{ paddingLeft: `${24 + item.indentLevel * 24}px` }}
+                    >
+                      {itemIdsWithChildren.has(item.item_id) ? (
+                        <button
+                          type="button"
+                          className="item-toggle"
+                          onClick={() => toggleItem(item.item_id)}
+                          aria-label={`${collapsedItemIds.has(item.item_id) ? "Show" : "Hide"} children of ${item.english_name}`}
+                          aria-expanded={!collapsedItemIds.has(item.item_id)}
+                        >
+                          {collapsedItemIds.has(item.item_id) ? "▶" : "▼"}
+                        </button>
+                      ) : (
+                        <span className="item-toggle-placeholder" />
+                      )}
+                      {item.english_name}
+                    </td>
                     {reportingDates.map((date) => (
                       <td className="amount-column" key={date}>
                         {formatAmount(item.amountsByDate.get(date) ?? null, amountUnit)}
