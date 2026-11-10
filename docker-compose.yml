@@ -31,8 +31,8 @@ services:
     build:
       context: .
     depends_on:
-      postgres:
-        condition: service_healthy
+      digest:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://easy10k:easy10k@postgres:5432/easy10k
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

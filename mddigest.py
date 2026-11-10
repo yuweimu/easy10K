@@ -55,7 +55,7 @@ class TableParsingStateMachine:
                 return True
 
         if not self.stock_code:
-            stock_code_match = re.match(
+            stock_code_match = re.search(
                 r"(?:证券|公司|股票)代码[：:]\s*(\d{6})", md_line
             )
             if stock_code_match:

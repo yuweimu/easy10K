@@ -118,7 +118,7 @@ function App() {
     const roots: GroupedReportItem[] = [];
 
     for (const item of items) {
-      const parentId = Math.floor(item.item_id / 1000);
+      const parentId = Math.floor(item.item_id / 100);
       if (parentId > 0 && itemsById.has(parentId)) {
         const children = childrenByParent.get(parentId) ?? [];
         children.push(item);
@@ -142,10 +142,10 @@ function App() {
   }, [report]);
   const visibleReport = useMemo(() => {
     return groupedReport.filter((item) => {
-      let parentId = Math.floor(item.item_id / 1000);
+      let parentId = Math.floor(item.item_id / 100);
       while (parentId > 0) {
         if (collapsedItemIds.has(parentId)) return false;
-        parentId = Math.floor(parentId / 1000);
+        parentId = Math.floor(parentId / 100);
       }
       return true;
     });
@@ -154,7 +154,7 @@ function App() {
     () =>
       new Set(
         groupedReport
-          .map((item) => Math.floor(item.item_id / 1000))
+          .map((item) => Math.floor(item.item_id / 100))
           .filter((itemId) => itemId > 0),
       ),
     [groupedReport],
@@ -188,12 +188,12 @@ function App() {
         ? chart.map((item) => ({
             item_id: item.item_id,
             label: item.name_cn ?? item.name_en ?? "Unknown item",
-            parent_item_id: Math.floor(item.item_id / 1000) || null,
+            parent_item_id: Math.floor(item.item_id / 100) || null,
           }))
         : Object.values(chart).map((item) => ({
             item_id: item.item_id,
             label: item.label,
-            parent_item_id: Math.floor(item.item_id / 1000) || null,
+            parent_item_id: Math.floor(item.item_id / 100) || null,
           }));
       const chartById = new Map(
         chartItems.map((item) => [item.item_id, item]),
