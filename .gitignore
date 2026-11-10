@@ -47,4 +47,6 @@ htmlcov/
 .DS_Store
 node_modules/
 
+.kilo
+
 reports/

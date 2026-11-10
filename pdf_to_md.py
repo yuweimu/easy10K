@@ -76,7 +76,7 @@ class PDF2MarkDown:
 
         for page_number in pages:
             print(
-                f"\rConverting page {page_number + 1}/{total_pages}...",
+                f"\rConverting page {page_number + 1}/{total_pages} " + "." * (page_number % 6 + 1) + " " * (5 - page_number % 6),
                 end="",
                 flush=True,
             )

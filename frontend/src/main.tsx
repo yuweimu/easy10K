@@ -110,7 +110,7 @@ function App() {
             placeholder="e.g. 600519"
             autoComplete="off"
           />
-          <button type="submit" disabled={loading || !stockCode.trim()}>
+          <button type="submit" disabled={loading || stockCode.trim().length != 6}>
             {loading ? "Loading…" : "Load report"}
           </button>
         </div>

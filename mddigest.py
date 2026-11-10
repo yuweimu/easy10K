@@ -191,12 +191,9 @@ class TableParsingStateMachine:
         dates = self.match_dates(md_line)
         if not dates or dates.count(dates[0]) > 1:
             print(
-                f"Warning: Found multiple or no dates in line "
-                f"{md_line}"
+                f"reporting_date not found in line {md_line}"
             )
-            self.stage = TableParsingStage.FAILED
-            print("Stage changed to FAILED")
-            return False
+            return True
 
         self.reporting_date = dates[0]
         print(f"reporting_date = {self.reporting_date}")
@@ -227,7 +224,8 @@ class TableParsingStateMachine:
             self.table_caption_line = page_line
             self.has_notes = len(fields) == 4
 
-            matches = re.findall(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日", page_line)
+            date_pattern = r"\*{0,2}(\d{4})\*{0,2}\s*年\s*\*{0,2}(\d{1,2})\*{0,2}\s*月\s*\*{0,2}(\d{1,2})\*{0,2}\s*日"
+            matches = re.findall(date_pattern, page_line)
             reporting_dates = [f"{y}-{m.zfill(2)}-{d.zfill(2)}" for y, m, d in matches]
             assert len(reporting_dates) == 2, "two dates expected in this line"
             self.current_reporting_date = reporting_dates[0]
