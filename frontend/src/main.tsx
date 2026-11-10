@@ -28,6 +28,16 @@ type GroupedReportItem = {
   amountsByDate: Map<string, BalanceSheetItem["amount"]>;
 };
 
+const AMOUNT_UNITS = {
+  元: 1,
+  千元: 1_000,
+  万元: 10_000,
+  百万元: 1_000_000,
+  亿元: 100_000_000,
+} as const;
+
+type AmountUnit = keyof typeof AMOUNT_UNITS;
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 
 async function getJson<T>(path: string): Promise<T> {
@@ -38,11 +48,17 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function formatAmount(amount: BalanceSheetItem["amount"]): string {
+function formatAmount(
+  amount: BalanceSheetItem["amount"],
+  unit: AmountUnit,
+): string {
   if (amount === null || amount === "") return "—";
-  const numericAmount = Number(amount);
+  const numericAmount = Number(amount) / AMOUNT_UNITS[unit];
   return Number.isFinite(numericAmount)
-    ? numericAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    ? numericAmount.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
     : String(amount);
 }
 
@@ -51,6 +67,7 @@ function App() {
   const [report, setReport] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [amountUnit, setAmountUnit] = useState<AmountUnit>("元");
   const reportingDates = useMemo(
     () => Array.from(new Set(report.map((item) => item.reporting_date))),
     [report],
@@ -151,7 +168,19 @@ function App() {
             <p className="eyebrow">BALANCE SHEET</p>
             <h2>{stockCode.trim() || "Company report"}</h2>
           </div>
-          <span className="item-count">{groupedReport.length} items</span>
+          <div className="report-tools">
+            <label htmlFor="amount-unit">Amount unit</label>
+            <select
+              id="amount-unit"
+              value={amountUnit}
+              onChange={(event) => setAmountUnit(event.target.value as AmountUnit)}
+            >
+              {Object.keys(AMOUNT_UNITS).map((unit) => (
+                <option value={unit} key={unit}>{unit}</option>
+              ))}
+            </select>
+            <span className="item-count">{groupedReport.length} items</span>
+          </div>
         </div>
 
         {groupedReport.length === 0 && !loading ? (
@@ -164,7 +193,7 @@ function App() {
                   <th>Item ID</th>
                   <th>Financial item</th>
                   {reportingDates.map((date) => (
-                    <th className="amount-column" key={date}>{date}</th>
+                    <th className="amount-column" key={date}>{date} ({amountUnit})</th>
                   ))}
                 </tr>
               </thead>
@@ -175,7 +204,7 @@ function App() {
                     <td className="item-name">{item.english_name}</td>
                     {reportingDates.map((date) => (
                       <td className="amount-column" key={date}>
-                        {formatAmount(item.amountsByDate.get(date) ?? null)}
+                        {formatAmount(item.amountsByDate.get(date) ?? null, amountUnit)}
                       </td>
                     ))}
                   </tr>
