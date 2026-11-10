@@ -4,12 +4,12 @@ import "./styles.css";
 
 type LineItem = {
   item_id: number;
-  english_name: string;
+  label: string;
   parent: string | null;
 };
 
 type LineItemChartResponse =
-  | Array<{ item_id: number; name_en?: string; english_name?: string }>
+  | Array<{ item_id: number; name_en?: string; name_cn?: string }>
   | Record<string, LineItem>;
 
 type BalanceSheetItem = {
@@ -19,20 +19,20 @@ type BalanceSheetItem = {
 };
 
 type ReportItem = BalanceSheetItem & {
-  english_name: string;
+  label: string;
   indentLevel: number;
 };
 
 type GroupedReportItem = {
   item_id: number;
-  english_name: string;
+  label: string;
   indentLevel: number;
   amountsByDate: Map<string, BalanceSheetItem["amount"]>;
 };
 
 type ChartItem = {
   item_id: number;
-  english_name: string;
+  label: string;
   parent_item_id: number | null;
 };
 
@@ -74,7 +74,7 @@ function getIndentLevel(itemId: number, chartById: Map<number, ChartItem>): numb
   let level = 0;
   let parentId = chartById.get(itemId)?.parent_item_id ?? null;
 
-  while (parentId > 0 && chartById.has(parentId)) {
+  while (parentId !== null && parentId > 0 && chartById.has(parentId)) {
     level += 1;
     parentId = chartById.get(parentId)?.parent_item_id ?? null;
   }
@@ -105,7 +105,7 @@ function App() {
       } else {
         grouped.set(item.item_id, {
           item_id: item.item_id,
-          english_name: item.english_name,
+          label: item.label,
           indentLevel: item.indentLevel,
           amountsByDate: new Map([[item.reporting_date, item.amount]]),
         });
@@ -187,12 +187,12 @@ function App() {
       const chartItems: ChartItem[] = Array.isArray(chart)
         ? chart.map((item) => ({
             item_id: item.item_id,
-            english_name: item.name_en ?? item.english_name ?? "Unknown item",
+            label: item.name_cn ?? item.name_en ?? "Unknown item",
             parent_item_id: Math.floor(item.item_id / 1000) || null,
           }))
         : Object.values(chart).map((item) => ({
             item_id: item.item_id,
-            english_name: item.english_name,
+            label: item.label,
             parent_item_id: Math.floor(item.item_id / 1000) || null,
           }));
       const chartById = new Map(
@@ -202,7 +202,7 @@ function App() {
       setReport(
         balanceSheetItems.map((item) => ({
           ...item,
-          english_name: chartById.get(item.item_id)?.english_name ?? "Unknown item",
+          label: chartById.get(item.item_id)?.label ?? "Unknown item",
           indentLevel: getIndentLevel(item.item_id, chartById),
         })),
       );
@@ -292,7 +292,7 @@ function App() {
                           type="button"
                           className="item-toggle"
                           onClick={() => toggleItem(item.item_id)}
-                          aria-label={`${collapsedItemIds.has(item.item_id) ? "Show" : "Hide"} children of ${item.english_name}`}
+                          aria-label={`${collapsedItemIds.has(item.item_id) ? "Show" : "Hide"} children of ${item.label}`}
                           aria-expanded={!collapsedItemIds.has(item.item_id)}
                         >
                           {collapsedItemIds.has(item.item_id) ? "▶" : "▼"}
@@ -300,7 +300,7 @@ function App() {
                       ) : (
                         <span className="item-toggle-placeholder" />
                       )}
-                      {item.english_name}
+                      {item.label}
                     </td>
                     {reportingDates.map((date) => (
                       <td className="amount-column" key={date}>
