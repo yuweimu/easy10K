@@ -1,4 +1,4 @@
-import { StrictMode, useState, type FormEvent } from "react";
+import { StrictMode, useMemo, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -15,12 +15,17 @@ type LineItemChartResponse =
 type BalanceSheetItem = {
   reporting_date: string;
   item_id: number;
-  report_creation_time: string;
   amount: number | string | null;
 };
 
 type ReportItem = BalanceSheetItem & {
   english_name: string;
+};
+
+type GroupedReportItem = {
+  item_id: number;
+  english_name: string;
+  amountsByDate: Map<string, BalanceSheetItem["amount"]>;
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
@@ -46,6 +51,28 @@ function App() {
   const [report, setReport] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const reportingDates = useMemo(
+    () => Array.from(new Set(report.map((item) => item.reporting_date))),
+    [report],
+  );
+  const groupedReport = useMemo(() => {
+    const grouped = new Map<number, GroupedReportItem>();
+
+    for (const item of report) {
+      const existing = grouped.get(item.item_id);
+      if (existing) {
+        existing.amountsByDate.set(item.reporting_date, item.amount);
+      } else {
+        grouped.set(item.item_id, {
+          item_id: item.item_id,
+          english_name: item.english_name,
+          amountsByDate: new Map([[item.reporting_date, item.amount]]),
+        });
+      }
+    }
+
+    return Array.from(grouped.values());
+  }, [report]);
 
   async function loadReport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -124,29 +151,33 @@ function App() {
             <p className="eyebrow">BALANCE SHEET</p>
             <h2>{stockCode.trim() || "Company report"}</h2>
           </div>
-          <span className="item-count">{report.length} items</span>
+          <span className="item-count">{groupedReport.length} items</span>
         </div>
 
-        {report.length === 0 && !loading ? (
+        {groupedReport.length === 0 && !loading ? (
           <div className="empty-state">Enter a stock code to load its report.</div>
         ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Reporting date</th>
+                  <th>Item ID</th>
                   <th>Financial item</th>
-                  <th>Report created</th>
-                  <th className="amount-column">Amount</th>
+                  {reportingDates.map((date) => (
+                    <th className="amount-column" key={date}>{date}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {report.map((item, index) => (
-                  <tr key={`${item.reporting_date}-${item.item_id}-${index}`}>
-                    <td>{item.reporting_date}</td>
+                {groupedReport.map((item) => (
+                  <tr key={item.item_id}>
+                    <td>{item.item_id}</td>
                     <td className="item-name">{item.english_name}</td>
-                    <td>{item.report_creation_time}</td>
-                    <td className="amount-column">{formatAmount(item.amount)}</td>
+                    {reportingDates.map((date) => (
+                      <td className="amount-column" key={date}>
+                        {formatAmount(item.amountsByDate.get(date) ?? null)}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>

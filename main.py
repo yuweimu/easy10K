@@ -50,7 +50,7 @@ def get_balance_sheet_items(stock_code: str) -> list[dict]:
                 cursor.execute(
                     """
                     SELECT reporting_date, item_id,
-                           report_creation_time, amount
+                           amount
                     FROM balance_sheet_items
                     WHERE stock_code = %s
                     ORDER BY reporting_date, item_id, report_creation_time
@@ -68,7 +68,6 @@ def get_balance_sheet_items(stock_code: str) -> list[dict]:
     fields = (
         "reporting_date",
         "item_id",
-        "report_creation_time",
         "amount",
     )
     return [dict(zip(fields, row)) for row in rows]
