@@ -1,4 +1,4 @@
-import { StrictMode, useMemo, useState, type FormEvent } from "react";
+import { Fragment, StrictMode, useEffect, useMemo, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -83,20 +83,108 @@ function getIndentLevel(itemId: number, chartById: Map<number, ChartItem>): numb
   return level;
 }
 
+function AmountTrend({ item, dates, unit, showDecimals, expanded = false, onClose }: {
+  item: GroupedReportItem;
+  dates: string[];
+  unit: AmountUnit;
+  showDecimals: boolean;
+  expanded?: boolean;
+  onClose?: () => void;
+}) {
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const labelWidth = Math.max(80, ...dates.map((date) =>
+    formatAmount(item.amountsByDate.get(date) ?? null, unit, showDecimals).length * 7 + 24));
+  const width = expanded ? Math.max(640, dates.length * labelWidth + 96) : 96;
+  const height = expanded ? 280 : 24;
+  const padding = expanded ? 48 : 3;
+  const bottom = expanded ? height - 30 : height - padding;
+  const axisTop = bottom - (bottom - (padding - 24)) * 1.1;
+  const axisRight = width - padding + 24 + 5;
+  const viewWidth = expanded ? Math.max(width, axisRight + 24) : width;
+  const values = dates.map((date) => {
+    const raw = item.amountsByDate.get(date);
+    return raw == null || String(raw).trim() === "" || !Number.isFinite(Number(raw))
+      ? null : Number(raw);
+  });
+  const valid = values.filter((value): value is number => value !== null);
+  if (!valid.length) return <span className="trend-empty">—</span>;
+  const min = Math.min(...valid);
+  const max = Math.max(...valid);
+  const axisMin = Math.min(0, min);
+  const axisMax = Math.max(0, max);
+  const range = axisMax - axisMin || 1;
+  const yFor = (value: number) => bottom - ((value - axisMin) / range) * (bottom - padding);
+  const columnSpacing = (width - padding * 2) / dates.length;
+  const columnWidth = Math.min(expanded ? 32 : 4, columnSpacing * 0.6) * 0.4;
+  const points = values.map((value, index) => value === null ? null : ({
+    x: padding + (index + 0.5) * columnSpacing,
+    y: yFor(value),
+  }));
+  return (<>
+    <span className={expanded ? "trend-plot" : undefined}>
+    <svg className={expanded ? "trend-chart" : "sparkline"} viewBox={`0 0 ${viewWidth} ${height}`}
+      role="img" aria-label={`${item.label} amount trend, ${dates[0]} to ${dates[dates.length - 1]}`}>
+      {expanded && <>
+        <line className="trend-axis" x1={padding} x2={padding} y1={axisTop} y2={bottom} />
+        <line className="trend-axis" x1={padding} x2={axisRight} y1={yFor(0)} y2={yFor(0)} />
+        <text x={padding - 10} y={yFor(0) + 4} textAnchor="end">0</text>
+        {dates.map((date, index) => (
+          <text key={date} x={padding + (index + 0.5) * columnSpacing}
+            y={height - 8} textAnchor="middle">{date}</text>
+        ))}
+      </>}
+      {points.map((point, index) => point && (
+        <g key={dates[index]}>
+        {expanded && <text className="trend-point-label" x={point.x}
+          y={point.y + ((values[index] ?? 0) < 0 ? 14 : -10)} textAnchor="middle">
+          {formatAmount(values[index], unit, showDecimals)}
+        </text>}
+        <rect className="trend-bar" x={point.x - columnWidth / 2}
+          y={Math.min(point.y, yFor(0))} width={columnWidth}
+          height={Math.max(Math.abs(point.y - yFor(0)), 1)}
+          fill="currentColor" tabIndex={expanded ? 0 : undefined}
+          onMouseEnter={expanded ? () => setSelectedDate(dates[index]) : undefined}
+          onFocus={expanded ? () => setSelectedDate(dates[index]) : undefined}
+          onClick={expanded ? () => setSelectedDate(dates[index]) : undefined}
+          aria-label={`${dates[index]}: ${formatAmount(values[index], unit, showDecimals)} ${unit}`}>
+          <title>{dates[index]}: {formatAmount(values[index], unit, showDecimals)} {unit}</title>
+        </rect>
+        </g>
+      ))}
+    </svg>
+    {expanded && onClose && <button type="button" className="trend-close"
+      aria-label="Close chart" title="Close chart" onClick={onClose}>×</button>}
+    </span>
+    {expanded && <p className="trend-value" aria-live="polite">
+      {selectedDate ? `${selectedDate}: ${formatAmount(item.amountsByDate.get(selectedDate) ?? null, unit, showDecimals)} ${unit}` : "Select a column to see its date and amount."}
+    </p>}
+    </>
+  );
+}
+
 function App() {
   const [stockCode, setStockCode] = useState("605499");
   const [report, setReport] = useState<ReportItem[]>([]);
+  const [reportStockCode, setReportStockCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [amountUnit, setAmountUnit] = useState<AmountUnit>("元");
+  const [amountUnit, setAmountUnit] = useState<AmountUnit>("百万元");
   const [showDecimals, setShowDecimals] = useState(true);
+  const [expandedTrendId, setExpandedTrendId] = useState<number | null>(null);
+  const [copyStatus, setCopyStatus] = useState<{ itemId: number; message: string } | null>(null);
+  useEffect(() => {
+    if (copyStatus?.message !== "Copied") return;
+    const timeout = window.setTimeout(() => setCopyStatus(null), 2_000);
+    return () => window.clearTimeout(timeout);
+  }, [copyStatus]);
   const [collapsedItemIds, setCollapsedItemIds] = useState<Set<number>>(
     () => new Set(),
   );
   const reportingDates = useMemo(
-    () => Array.from(new Set(report.map((item) => item.reporting_date))),
+    () => Array.from(new Set(report.map((item) => item.reporting_date))).sort().reverse(),
     [report],
   );
+  const trendDates = useMemo(() => [...reportingDates].sort(), [reportingDates]);
   const groupedReport = useMemo(() => {
     const grouped = new Map<number, GroupedReportItem>();
 
@@ -162,6 +250,22 @@ function App() {
     [groupedReport],
   );
 
+  async function copyItem(item: GroupedReportItem) {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify({
+        stock_code: reportStockCode,
+        label: item.label,
+        amount_unit: "元",
+        amounts_by_date: Object.fromEntries(reportingDates.map((date) => [
+          date, item.amountsByDate.get(date) ?? null,
+        ])),
+      }, null, 2));
+      setCopyStatus({ itemId: item.item_id, message: "Copied" });
+    } catch {
+      setCopyStatus({ itemId: item.item_id, message: "Copy failed. Please try again." });
+    }
+  }
+
   function toggleItem(itemId: number) {
     setCollapsedItemIds((current) => {
       const next = new Set(current);
@@ -177,6 +281,8 @@ function App() {
     if (!code) return;
 
     setLoading(true);
+    setExpandedTrendId(null);
+    setCopyStatus(null);
     setError(null);
     try {
       const [chart, balanceSheetItems] = await Promise.all([
@@ -201,6 +307,7 @@ function App() {
         chartItems.map((item) => [item.item_id, item]),
       );
 
+      setReportStockCode(code);
       setReport(
         balanceSheetItems.map((item) => ({
           ...item,
@@ -291,7 +398,11 @@ function App() {
               </thead>
               <tbody>
                 {visibleReport.map((item) => (
-                  <tr key={item.item_id}>
+                  <Fragment key={item.item_id}>
+                  <tr key={item.item_id} onDoubleClick={(event) => {
+                    if ((event.target as HTMLElement).closest("button")) return;
+                    setExpandedTrendId((current) => current === item.item_id ? null : item.item_id);
+                  }}>
                     <td
                       className="item-name"
                       style={{ paddingLeft: `${24 + item.indentLevel * 24}px` }}
@@ -310,6 +421,28 @@ function App() {
                         <span className="item-toggle-placeholder" />
                       )}
                       {item.label}
+                      <button type="button" className="trend-toggle"
+                        title="Show amount trend"
+                        aria-label={`${expandedTrendId === item.item_id ? "Hide" : "Show"} amount trend for ${item.label}`}
+                        aria-expanded={expandedTrendId === item.item_id}
+                        aria-controls={`trend-${item.item_id}`}
+                        onClick={() => setExpandedTrendId(expandedTrendId === item.item_id ? null : item.item_id)}>
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <path d="M2 2v12h12" stroke="currentColor" strokeWidth="1.2" />
+                          <path d="M5 11V8m4 3V5m4 6V3" stroke="currentColor" strokeWidth="2" />
+                        </svg>
+                      </button>
+                      <span className="copy-action">
+                      <button type="button" className="trend-toggle"
+                        title="Copy row as JSON" aria-label={`Copy ${item.label} as JSON`}
+                        onClick={() => void copyItem(item)}>
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <rect x="5" y="5" width="8" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" />
+                          <path d="M10 5V2H2v9h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                      {copyStatus?.itemId === item.item_id && <span className="copy-status" role="status">{copyStatus.message}</span>}
+                      </span>
                     </td>
                     {reportingDates.map((date) => (
                       <td className="amount-column" key={date}>
@@ -321,6 +454,19 @@ function App() {
                       </td>
                     ))}
                   </tr>
+                  {expandedTrendId === item.item_id && (
+                    <tr className="trend-detail-row" id={`trend-${item.item_id}`}>
+                      <td colSpan={reportingDates.length + 1}>
+                        <div className="trend-detail">
+                          <div className="trend-chart-scroll">
+                            <AmountTrend item={item} dates={trendDates} unit={amountUnit} showDecimals={showDecimals} expanded onClose={() => setExpandedTrendId(null)} />
+                          </div>
+                          <p>Oldest → newest · Zero baseline · Negative amounts extend below zero.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
