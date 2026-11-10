@@ -263,7 +263,6 @@ function App() {
                 <option value={unit} key={unit}>{unit}</option>
               ))}
             </select>
-            <span className="item-count">{groupedReport.length} items</span>
           </div>
         </div>
 

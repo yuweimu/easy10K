@@ -227,14 +227,18 @@ class TableParsingStateMachine:
             date_pattern = r"\*{0,2}(\d{4})\*{0,2}\s*年\s*\*{0,2}(\d{1,2})\*{0,2}\s*月\s*\*{0,2}(\d{1,2})\*{0,2}\s*日"
             matches = re.findall(date_pattern, page_line)
             reporting_dates = [f"{y}-{m.zfill(2)}-{d.zfill(2)}" for y, m, d in matches]
-            assert len(reporting_dates) == 2, "two dates expected in this line"
-            self.current_reporting_date = reporting_dates[0]
-            self.previous_reporting_date = reporting_dates[1]
-            print(
-                "curr/prev dates = "
-                f"{self.has_notes} {self.current_reporting_date} "
-                f"{self.previous_reporting_date}"
-            )
+            if len(reporting_dates) == 2:
+                assert self.reporting_date == reporting_dates[0], "date mismatch"
+                self.current_reporting_date = reporting_dates[1]
+                self.previous_reporting_date = reporting_dates[1]
+                print(
+                    "curr/prev dates = "
+                    f"{self.has_notes} {self.current_reporting_date} "
+                    f"{self.previous_reporting_date}"
+                )
+            else:
+                self.current_reporting_date = self.reporting_date
+                assert fields[2] == "期末余额" or fields == "期初余额", "unexpected line, please check"
 
             self.stage = TableParsingStage.BS_TABLE_ITEMS_EXTRACTION
             print("Stage changed to BS_TABLE_ITEMS_EXTRACTION")
