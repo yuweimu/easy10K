@@ -59,13 +59,14 @@ async function getJson<T>(path: string): Promise<T> {
 function formatAmount(
   amount: BalanceSheetItem["amount"],
   unit: AmountUnit,
+  showDecimals: boolean,
 ): string {
   if (amount === null || amount === "") return "—";
   const numericAmount = Number(amount) / AMOUNT_UNITS[unit];
   return Number.isFinite(numericAmount)
     ? numericAmount.toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+        minimumFractionDigits: showDecimals ? 2 : 0,
+        maximumFractionDigits: showDecimals ? 2 : 0,
       })
     : String(amount);
 }
@@ -88,6 +89,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [amountUnit, setAmountUnit] = useState<AmountUnit>("元");
+  const [showDecimals, setShowDecimals] = useState(true);
   const [collapsedItemIds, setCollapsedItemIds] = useState<Set<number>>(
     () => new Set(),
   );
@@ -263,6 +265,14 @@ function App() {
                 <option value={unit} key={unit}>{unit}</option>
               ))}
             </select>
+            <label className="decimal-toggle">
+              <input
+                type="checkbox"
+                checked={showDecimals}
+                onChange={(event) => setShowDecimals(event.target.checked)}
+              />
+              Show decimals
+            </label>
           </div>
         </div>
 
@@ -303,7 +313,11 @@ function App() {
                     </td>
                     {reportingDates.map((date) => (
                       <td className="amount-column" key={date}>
-                        {formatAmount(item.amountsByDate.get(date) ?? null, amountUnit)}
+                        {formatAmount(
+                          item.amountsByDate.get(date) ?? null,
+                          amountUnit,
+                          showDecimals,
+                        )}
                       </td>
                     ))}
                   </tr>
