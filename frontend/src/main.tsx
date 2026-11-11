@@ -48,6 +48,7 @@ type AmountUnit = keyof typeof AMOUNT_UNITS;
 const REPORT_TABS = ["Balance Sheet", "Income Statement", "Cash Flow Statement"] as const;
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
+const RECENT_SEARCHES_KEY = "easy10k.recent-searches";
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`);
@@ -167,6 +168,8 @@ function AmountTrend({ item, dates, unit, showDecimals, expanded = false, onClos
 function App() {
   const [activeTab, setActiveTab] = useState<typeof REPORT_TABS[number]>("Balance Sheet");
   const [stockCode, setStockCode] = useState("605499");
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [searchFocused, setSearchFocused] = useState(false);
   const [report, setReport] = useState<ReportItem[]>([]);
   const [reportStockCode, setReportStockCode] = useState("");
   const [loading, setLoading] = useState(false);
@@ -175,6 +178,20 @@ function App() {
   const [showDecimals, setShowDecimals] = useState(true);
   const [expandedTrendId, setExpandedTrendId] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState<{ itemId: number; message: string } | null>(null);
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(RECENT_SEARCHES_KEY) || "null");
+      if (Array.isArray(stored)) {
+        setRecentSearches(stored.filter((value): value is string => typeof value === "string").slice(0, 3));
+      }
+    } catch {
+      // Ignore malformed or unavailable local storage.
+    }
+  }, []);
+  const searchSuggestions = useMemo(() => {
+    const query = stockCode.trim();
+    return recentSearches.filter((value) => !query || value.includes(query));
+  }, [recentSearches, stockCode]);
   useEffect(() => {
     if (copyStatus?.message !== "Copied") return;
     const timeout = window.setTimeout(() => setCopyStatus(null), 2_000);
@@ -283,6 +300,16 @@ function App() {
     const code = stockCode.trim();
     if (!code) return;
 
+    setRecentSearches((current) => {
+      const next = [code, ...current.filter((value) => value !== code)].slice(0, 3);
+      try {
+        localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
+      } catch {
+        // Recent searches are a convenience and do not block loading reports.
+      }
+      return next;
+    });
+
     setLoading(true);
     setExpandedTrendId(null);
     setCopyStatus(null);
@@ -343,13 +370,40 @@ function App() {
       <form className="search-bar" onSubmit={loadReport}>
         <div className="search-controls">
           <label htmlFor="stock-code">Stock code</label>
-          <input
-            id="stock-code"
-            value={stockCode}
-            onChange={(event) => setStockCode(event.target.value)}
-            placeholder="e.g. 600519"
-            autoComplete="off"
-          />
+          <div className="search-input-wrap">
+            <input
+              id="stock-code"
+              value={stockCode}
+              onChange={(event) => setStockCode(event.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              placeholder="e.g. 600519"
+              autoComplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={searchFocused && searchSuggestions.length > 0}
+              aria-controls="recent-searches"
+            />
+            {searchFocused && searchSuggestions.length > 0 && (
+              <div id="recent-searches" className="search-suggestions" role="listbox" aria-label="Recent searches">
+                {searchSuggestions.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="option"
+                    aria-selected={value === stockCode.trim()}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setStockCode(value);
+                      setSearchFocused(false);
+                    }}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button type="submit" disabled={loading || stockCode.trim().length != 6}>
             {loading ? "Loading…" : "Load report"}
           </button>

@@ -22,7 +22,11 @@ h2 { font-size: 1.45rem; }
 label { color: #555970; display: block; font-size: 0.86rem; font-weight: 700; margin-bottom: 9px; }
 .search-controls { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .search-controls label { margin: 0; white-space: nowrap; }
+.search-input-wrap { position: relative; width: 150px; }
 .search-controls input { width: 150px; padding: 10px 12px; }
+.search-suggestions { position: absolute; z-index: 10; top: calc(100% + 6px); left: 0; right: 0; overflow: hidden; background: #fff; border: 1px solid #d6d3e4; border-radius: 10px; box-shadow: 0 8px 20px #29283f18; }
+.search-suggestions button { display: block; width: 100%; padding: 10px 12px; border: 0; background: #fff; color: #24283d; cursor: pointer; text-align: left; font: inherit; }
+.search-suggestions button:hover, .search-suggestions button[aria-selected="true"] { background: #f1effb; }
 .search-controls button { align-self: stretch; white-space: nowrap; }
 .search-bar .report-tools { margin-left: auto; }
 .search-bar select { height: 40px; }
