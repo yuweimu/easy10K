@@ -177,7 +177,7 @@ class TableParsingStateMachineTests(unittest.TestCase):
         machine = self.make_machine()
         self.assertTrue(self.process(machine, "  合并资产负债表  "))
         self.assertEqual(
-            machine.stage, TableParsingStage.BS_REPORTING_DATE_DETECTION
+            machine.stage, TableParsingStage.BS_REPORTING_METADATA_DETECTION
         )
 
     def test_detect_title_ignores_other_titles(self) -> None:
@@ -185,32 +185,50 @@ class TableParsingStateMachineTests(unittest.TestCase):
         self.assertTrue(self.process(machine, "合并利润表"))
         self.assertEqual(machine.stage, TableParsingStage.BS_TITLE_DETECTION)
 
-    def test_reporting_date_detection_success(self) -> None:
+    def test_reporting_metadata_detection_accepts_date_before_entity(self) -> None:
         machine = self.make_machine()
-        machine.stage = TableParsingStage.BS_REPORTING_DATE_DETECTION
+        machine.stage = TableParsingStage.BS_REPORTING_METADATA_DETECTION
         self.assertTrue(self.process(machine, "2026年9月30日"))
         self.assertEqual(machine.reporting_date, "2026-09-30")
         self.assertEqual(
-            machine.stage, TableParsingStage.BS_REPORTING_ENTITY_DETECTION
+            machine.stage, TableParsingStage.BS_REPORTING_METADATA_DETECTION
         )
 
-    def test_reporting_date_detection_fails_without_dates(self) -> None:
+    def test_reporting_metadata_detection_accepts_entity_before_date(self) -> None:
         machine = self.make_machine()
-        machine.stage = TableParsingStage.BS_REPORTING_DATE_DETECTION
-        self.assertFalse(self.process(machine, "未注明日期"))
-        self.assertEqual(machine.stage, TableParsingStage.FAILED)
-
-    def test_reporting_date_detection_fails_on_duplicate_dates(self) -> None:
-        machine = self.make_machine()
-        machine.stage = TableParsingStage.BS_REPORTING_DATE_DETECTION
-        self.assertFalse(
-            self.process(machine, "2026年9月30日至2026年9月30日")
+        machine.stage = TableParsingStage.BS_REPORTING_METADATA_DETECTION
+        self.assertTrue(
+            self.process(machine, "编制单位：某某股份有限公司 单位：元")
         )
-        self.assertEqual(machine.stage, TableParsingStage.FAILED)
+        self.assertEqual(machine.reporting_entity, "某某股份有限公司")
+        self.assertEqual(
+            machine.stage, TableParsingStage.BS_REPORTING_METADATA_DETECTION
+        )
+        self.assertTrue(self.process(machine, "2026年9月30日"))
+        self.assertEqual(machine.reporting_date, "2026-09-30")
+        self.assertEqual(
+            machine.stage, TableParsingStage.BS_TABLE_CAPTION_EXTRACTION
+        )
+
+    def test_reporting_metadata_detection_parses_both_fields_on_one_line(self) -> None:
+        machine = self.make_machine()
+        machine.stage = TableParsingStage.BS_REPORTING_METADATA_DETECTION
+        self.assertTrue(
+            self.process(
+                machine,
+                "编制单位：某某股份有限公司 截至2026年9月30日",
+            )
+        )
+        self.assertEqual(machine.reporting_date, "2026-09-30")
+        self.assertEqual(machine.reporting_entity, "某某股份有限公司")
+        self.assertEqual(
+            machine.stage, TableParsingStage.BS_TABLE_CAPTION_EXTRACTION
+        )
 
     def test_reporting_entity_detection(self) -> None:
         machine = self.make_machine()
-        machine.stage = TableParsingStage.BS_REPORTING_ENTITY_DETECTION
+        machine.stage = TableParsingStage.BS_REPORTING_METADATA_DETECTION
+        machine.reporting_date = "2026-09-30"
         self.assertTrue(
             self.process(machine, "编制单位：某某股份有限公司 单位：元")
         )
@@ -221,11 +239,11 @@ class TableParsingStateMachineTests(unittest.TestCase):
 
     def test_reporting_entity_detection_keeps_stage_on_mismatch(self) -> None:
         machine = self.make_machine()
-        machine.stage = TableParsingStage.BS_REPORTING_ENTITY_DETECTION
+        machine.stage = TableParsingStage.BS_REPORTING_METADATA_DETECTION
         self.assertTrue(self.process(machine, "单位：元"))
         self.assertIsNone(machine.reporting_entity)
         self.assertEqual(
-            machine.stage, TableParsingStage.BS_REPORTING_ENTITY_DETECTION
+            machine.stage, TableParsingStage.BS_REPORTING_METADATA_DETECTION
         )
 
     def test_table_caption_with_three_columns(self) -> None:

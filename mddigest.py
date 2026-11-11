@@ -11,8 +11,7 @@ from line_item_chart import LineItemChart
 class TableParsingStage(StrEnum):
     BS_TITLE_DETECTION = "bs_header_detection"
     BS_HEADER_EXTRACTION = "bs_header_extraction"
-    BS_REPORTING_DATE_DETECTION = "bs_date_detection"
-    BS_REPORTING_ENTITY_DETECTION = "bs_reporting_entity_detection"
+    BS_REPORTING_METADATA_DETECTION = "bs_reporting_metadata_detection"
     BS_TABLE_CAPTION_EXTRACTION = "bs_table_caption_extraction"
     BS_TABLE_ITEMS_EXTRACTION = "bs_table_items_extraction"
     BS_TABLE_COMPLETED = "bs_table_completed"
@@ -28,6 +27,7 @@ class TableParsingStateMachine:
         self.previous_reporting_date: str | None = None
         self.report_creation_time:str = ""
         self.stock_code:str | None = None
+        self.amount_unit: int | None = None
         self.has_notes:bool = False
         self.table_caption_line: str | None = None
         self.line_item_dict = LineItemChart("line-item-chart.txt")
@@ -37,8 +37,7 @@ class TableParsingStateMachine:
 
         self._handlers = {
             TableParsingStage.BS_TITLE_DETECTION: self._detect_title,
-            TableParsingStage.BS_REPORTING_DATE_DETECTION: self._detect_reporting_date,
-            TableParsingStage.BS_REPORTING_ENTITY_DETECTION: self._detect_reporting_entity,
+            TableParsingStage.BS_REPORTING_METADATA_DETECTION: self._detect_reporting_metadata,
             TableParsingStage.BS_TABLE_CAPTION_EXTRACTION: self._extract_table_caption,
             TableParsingStage.BS_TABLE_ITEMS_EXTRACTION: self._extract_table_item,
         }
@@ -56,7 +55,7 @@ class TableParsingStateMachine:
 
         if not self.stock_code:
             stock_code_match = re.search(
-                r"(?:证券|公司|股票)代码[：:]\s*(\d{6})", md_line
+                r"(?:证券|公司|股票)代码[：:|]\s*(\d{6})", md_line
             )
             if stock_code_match:
                 self.stock_code = stock_code_match.group(1)
@@ -90,7 +89,7 @@ class TableParsingStateMachine:
     def _store_extracted_item(
         self,
         item_id: int,
-        amount: str,
+        amount: str | float,
         item_english_name: str,
     ) -> None:
         """Upsert one extracted balance-sheet item into PostgreSQL."""
@@ -159,7 +158,7 @@ class TableParsingStateMachine:
                     self.current_reporting_date,
                     item_id,
                     self.report_creation_time,
-                    amount.replace(",", ""),
+                    str(amount).replace(",", ""),
                     item_english_name,
                 ),
             )
@@ -171,12 +170,13 @@ class TableParsingStateMachine:
             self._db_connection = None
 
     def _detect_title(self, md_line: str) -> bool:
-        if "合并资产负债表" == md_line.strip():
+        result = re.sub(r"[ \*0-9,、]", "", md_line)
+        if "合并资产负债表" in result and len(result) < len("合并资产负债表") + 3:
             print(
-                f"begin balance sheet line {md_line}"
+                f"begin balance sheet line {md_line} {len(result)}"
             )
-            self.stage = TableParsingStage.BS_REPORTING_DATE_DETECTION
-            print("Stage changed to BS_REPORTING_DATE_DETECTION")
+            self.stage = TableParsingStage.BS_REPORTING_METADATA_DETECTION
+            print("Stage changed to BS_REPORTING_METADATA_DETECTION")
         return True
 
     @staticmethod
@@ -187,26 +187,31 @@ class TableParsingStateMachine:
             for year, month, day in re.findall(pattern, line)
         ]
     
-    def _detect_reporting_date(self, md_line: str) -> bool:
+    @staticmethod
+    def get_amout_unit(unit_name) -> int:
+        UNIT_MAP = {"亿元": 100_000_000, "万元": 10_000, "千元": 1_000, "元": 1}
+        return UNIT_MAP.get(unit_name, 1)
+
+    def _detect_reporting_metadata(self, md_line: str) -> bool:
         dates = self.match_dates(md_line)
-        if not dates or dates.count(dates[0]) > 1:
-            print(
-                f"reporting_date not found in line {md_line}"
-            )
-            return True
+        if dates and dates.count(dates[0]) == 1 and self.reporting_date is None:
+            self.reporting_date = dates[0]
+            print(f"reporting_date = {self.reporting_date}")
 
-        self.reporting_date = dates[0]
-        print(f"reporting_date = {self.reporting_date}")
-        self.stage = TableParsingStage.BS_REPORTING_ENTITY_DETECTION
-        print("Stage changed to BS_REPORTING_ENTITY_DETECTION")
-        return True
-
-    def _detect_reporting_entity(self, md_line: str) -> bool:
         pattern = r"编制单位[：:]\s*(.+?公司)"
         match = re.search(pattern, md_line)
-        if match:
+        if match and self.reporting_entity is None:
             self.reporting_entity = match.group(1).strip()
             print(f"reporting_entity = {self.reporting_entity}")
+        if "单位" in md_line:
+            print("======");
+        pattern = r"单位\s*[：:]\s*(亿元|万元|千元|元)"
+        match = re.search(pattern, md_line)
+        if match and self.amount_unit is None:
+            self.amount_unit = self.get_amout_unit(match.group(1).strip())
+            print(f"amount_unit = {self.amount_unit}")
+
+        if self.reporting_date is not None and self.reporting_entity is not None and self.amount_unit is not None :
             self.stage = TableParsingStage.BS_TABLE_CAPTION_EXTRACTION
             print("Stage changed to BS_TABLE_CAPTION_EXTRACTION")
         return True
@@ -229,16 +234,17 @@ class TableParsingStateMachine:
             reporting_dates = [f"{y}-{m.zfill(2)}-{d.zfill(2)}" for y, m, d in matches]
             if len(reporting_dates) == 2:
                 assert self.reporting_date == reporting_dates[0], "date mismatch"
-                self.current_reporting_date = reporting_dates[1]
+                self.current_reporting_date = reporting_dates[0]
                 self.previous_reporting_date = reporting_dates[1]
                 print(
                     "curr/prev dates = "
                     f"{self.has_notes} {self.current_reporting_date} "
                     f"{self.previous_reporting_date}"
                 )
+                assert self.current_reporting_date == self.reporting_date, "reporting date mismatch"
             else:
                 self.current_reporting_date = self.reporting_date
-                assert fields[2] == "期末余额" or fields == "期初余额", "unexpected line, please check"
+                assert fields[2] in ("期末余额", "期初余额"), "unexpected line, please check"
 
             self.stage = TableParsingStage.BS_TABLE_ITEMS_EXTRACTION
             print("Stage changed to BS_TABLE_ITEMS_EXTRACTION")
@@ -273,6 +279,7 @@ class TableParsingStateMachine:
             result = [fields[0], fields[1], fields[2].strip("*"), fields[3].strip("*")]
 
         if self.is_number(result[2]):
+            amount = float(result[2].replace(",", ""))
             item = self.line_item_dict.get(fields[0])
             if item:
                 print(
@@ -282,7 +289,7 @@ class TableParsingStateMachine:
                 )
                 self._store_extracted_item(
                     item.item_id,
-                    result[2],
+                    amount * (self.amount_unit or 1),
                     item.english_name,
                 )
             else:
