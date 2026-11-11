@@ -45,6 +45,7 @@ const AMOUNT_UNITS = {
 } as const;
 
 type AmountUnit = keyof typeof AMOUNT_UNITS;
+const REPORT_TABS = ["Balance Sheet", "Income Statement", "Cash Flow Statement"] as const;
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 
@@ -125,6 +126,7 @@ function AmountTrend({ item, dates, unit, showDecimals, expanded = false, onClos
     <svg className={expanded ? "trend-chart" : "sparkline"} viewBox={`0 0 ${viewWidth} ${height}`}
       role="img" aria-label={`${item.label} amount trend, ${dates[0]} to ${dates[dates.length - 1]}`}>
       {expanded && <>
+        <text x={padding + 8} y={20}>{unit}</text>
         <line className="trend-axis" x1={padding} x2={padding} y1={axisTop} y2={bottom} />
         <line className="trend-axis" x1={padding} x2={axisRight} y1={yFor(0)} y2={yFor(0)} />
         <text x={padding - 10} y={yFor(0) + 4} textAnchor="end">0</text>
@@ -163,6 +165,7 @@ function AmountTrend({ item, dates, unit, showDecimals, expanded = false, onClos
 }
 
 function App() {
+  const [activeTab, setActiveTab] = useState<typeof REPORT_TABS[number]>("Balance Sheet");
   const [stockCode, setStockCode] = useState("605499");
   const [report, setReport] = useState<ReportItem[]>([]);
   const [reportStockCode, setReportStockCode] = useState("");
@@ -333,13 +336,13 @@ function App() {
         <p className="eyebrow">EASY10K</p>
         <h1>Financial report</h1>
         <p className="subtitle">
-          Search a company and view its balance-sheet items with English names.
+          Search a company and explore its financial statements.
         </p>
       </header>
 
       <form className="search-bar" onSubmit={loadReport}>
-        <label htmlFor="stock-code">Company stock code</label>
         <div className="search-controls">
+          <label htmlFor="stock-code">Stock code</label>
           <input
             id="stock-code"
             value={stockCode}
@@ -351,16 +354,6 @@ function App() {
             {loading ? "Loading…" : "Load report"}
           </button>
         </div>
-      </form>
-
-      {error && <p className="error-message">{error}</p>}
-
-      <section className="report-card" aria-live="polite">
-        <div className="report-heading">
-          <div>
-            <p className="eyebrow">BALANCE SHEET</p>
-            <h2>{stockCode.trim() || "Company report"}</h2>
-          </div>
           <div className="report-tools">
             <label htmlFor="amount-unit">Amount unit</label>
             <select
@@ -381,9 +374,45 @@ function App() {
               Show decimals
             </label>
           </div>
+      </form>
+
+      {error && <p className="error-message">{error}</p>}
+
+      <section className="report-card" aria-live="polite">
+        <div className="report-tabs" role="tablist" aria-label="Financial statements">
+          {REPORT_TABS.map((tab, index) => (
+            <button key={tab} type="button" role="tab" id={`report-tab-${index}`}
+              aria-selected={activeTab === tab} aria-controls="report-panel"
+              tabIndex={activeTab === tab ? 0 : -1}
+              onClick={() => setActiveTab(tab)}
+              onKeyDown={(event) => {
+                let nextIndex = index;
+                if (event.key === "ArrowRight") nextIndex = (index + 1) % REPORT_TABS.length;
+                else if (event.key === "ArrowLeft") nextIndex = (index + REPORT_TABS.length - 1) % REPORT_TABS.length;
+                else if (event.key === "Home") nextIndex = 0;
+                else if (event.key === "End") nextIndex = REPORT_TABS.length - 1;
+                else return;
+                event.preventDefault();
+                setActiveTab(REPORT_TABS[nextIndex]);
+                document.getElementById(`report-tab-${nextIndex}`)?.focus();
+              }}>{tab}</button>
+          ))}
+        </div>
+        <div id="report-panel" role="tabpanel" aria-labelledby={`report-tab-${REPORT_TABS.indexOf(activeTab)}`} tabIndex={0}>
+        <div className="report-heading">
+          <div>
+            <p className="eyebrow">{activeTab}</p>
+            <h2>{stockCode.trim() || "Company report"}</h2>
+          </div>
+
         </div>
 
-        {groupedReport.length === 0 && !loading ? (
+        {activeTab !== "Balance Sheet" ? (
+          <div className="empty-state statement-placeholder">
+            <h3>{activeTab}</h3>
+            <p>This report is coming soon.</p>
+          </div>
+        ) : groupedReport.length === 0 && !loading ? (
           <div className="empty-state">Enter a stock code to load its report.</div>
         ) : (
           <div className="table-wrap">
@@ -399,7 +428,9 @@ function App() {
               <tbody>
                 {visibleReport.map((item) => (
                   <Fragment key={item.item_id}>
-                  <tr key={item.item_id} onDoubleClick={(event) => {
+                  <tr key={item.item_id}
+                    className={`item-row${itemIdsWithChildren.has(item.item_id) ? " item-row-group" : ""}${expandedTrendId === item.item_id ? " item-row-expanded" : ""}`}
+                    onDoubleClick={(event) => {
                     if ((event.target as HTMLElement).closest("button")) return;
                     setExpandedTrendId((current) => current === item.item_id ? null : item.item_id);
                   }}>
@@ -461,7 +492,6 @@ function App() {
                           <div className="trend-chart-scroll">
                             <AmountTrend item={item} dates={trendDates} unit={amountUnit} showDecimals={showDecimals} expanded onClose={() => setExpandedTrendId(null)} />
                           </div>
-                          <p>Oldest → newest · Zero baseline · Negative amounts extend below zero.</p>
                         </div>
                       </td>
                     </tr>
@@ -472,6 +502,7 @@ function App() {
             </table>
           </div>
         )}
+        </div>
       </section>
     </main>
   );
