@@ -254,11 +254,29 @@ function App() {
   );
   const text = UI_TEXT[language];
   const [activeTab, setActiveTab] = useState<typeof REPORT_TABS[number]>("Balance Sheet");
-  const [stockCode, setStockCode] = useState("605499");
+  const [stockCode, setStockCode] = useState("300750");
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchFocused, setSearchFocused] = useState(false);
   const [report, setReport] = useState<ReportItem[]>([]);
   const [reportStockCode, setReportStockCode] = useState("");
+  const [previewDate, setPreviewDate] = useState<string | null>(null);
+  const [previewPosition, setPreviewPosition] = useState({ left: 0, top: 0 });
+  useEffect(() => {
+    if (!previewDate) return;
+    const updatePosition = () => {
+      const link = document.getElementById(`report-link-${previewDate}`);
+      if (!link) return;
+      const bounds = link.getBoundingClientRect();
+      setPreviewPosition({ left: bounds.right + 8, top: Math.max(8, bounds.top) });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [previewDate, language]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [amountUnit, setAmountUnit] = useState<AmountUnit>("百万元");
@@ -429,6 +447,7 @@ function App() {
       );
 
       setReportStockCode(code);
+      setPreviewDate(null);
       setReport(
         balanceSheetItems.map((item) => ({
           ...item,
@@ -550,6 +569,7 @@ function App() {
 
       {error && <p className="error-message">{error}</p>}
 
+      <div className="report-layout">
       <section className="report-card" aria-live="polite">
         <div className="report-tabs" role="tablist" aria-label={text.financialStatements}>
           {REPORT_TABS.map((tab, index) => (
@@ -596,10 +616,16 @@ function App() {
                     <th className="amount-column" key={date}>
                       {date}
                       <a className="report-link"
+                        id={`report-link-${date}`}
                         href={`/api/reports/${encodeURIComponent(reportStockCode)}/${encodeURIComponent(date)}`}
-                        target="_blank" rel="noopener noreferrer"
-                        title={language === "zh" ? "在新标签页打开报告" : "Open report in a new tab"}
-                        aria-label={language === "zh" ? `打开 ${date} 的报告（新标签页）` : `Open report for ${date} (new tab)`}>
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setPreviewDate((current) => current === date ? null : date);
+                        }}
+                        aria-expanded={previewDate === date}
+                        aria-controls="report-preview"
+                        title={language === "zh" ? "显示或隐藏报告" : "Show or hide report"}
+                        aria-label={language === "zh" ? `显示或隐藏 ${date} 的报告` : `Show or hide report for ${date}`}>
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                           <path d="M9 2h5v5M14 2 7 9M7 3H3v10h10V9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
@@ -687,6 +713,27 @@ function App() {
         )}
         </div>
       </section>
+      {previewDate && (
+        <div className="report-preview-panel" style={{
+          left: previewPosition.left,
+          top: previewPosition.top,
+        }}>
+        <div className="report-preview-header">
+        <h3>{language === "zh" ? "报告原文" : "Original Report"}</h3>
+        <button type="button" className="report-preview-close"
+          aria-label={language === "zh" ? "关闭报告" : "Close report"}
+          title={language === "zh" ? "关闭报告" : "Close report"}
+          onClick={() => setPreviewDate(null)}>×</button>
+        </div>
+        <iframe
+          id="report-preview"
+          className="report-preview"
+          src={`/api/reports/${encodeURIComponent(reportStockCode)}/${encodeURIComponent(previewDate)}`}
+          title={language === "zh" ? `${reportStockCode} ${previewDate} 财务报告` : `${reportStockCode} ${previewDate} financial report`}
+        />
+        </div>
+      )}
+      </div>
     </main>
   );
 }

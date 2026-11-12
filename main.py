@@ -3,10 +3,12 @@ import importlib
 import logging
 import os
 from decimal import Decimal
+from html import escape
 from pathlib import Path
 
+import markdown
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from line_item_chart import LineItemChart
 
@@ -24,9 +26,9 @@ class WordInput(BaseModel):
 # --- API Endpoints ---
 
 
-@app.get("/reports/{stock_code}/{reporting_date}")
-def get_report(stock_code: str, reporting_date: str) -> PlainTextResponse:
-    """Return the Markdown report for a stock and reporting date."""
+@app.get("/reports/{stock_code}/{reporting_date}", response_class=HTMLResponse)
+def get_report(stock_code: str, reporting_date: str) -> HTMLResponse:
+    """Render the Markdown report as a browser-readable HTML page."""
     report_path = (REPORTS_DIR / stock_code / f"{reporting_date}.md").resolve()
     reports_dir = REPORTS_DIR.resolve()
     if not report_path.is_relative_to(reports_dir):
@@ -35,9 +37,35 @@ def get_report(stock_code: str, reporting_date: str) -> PlainTextResponse:
     if not report_path.is_file():
         raise HTTPException(status_code=404, detail="Report not found")
 
-    return PlainTextResponse(
+    content = markdown.markdown(
         report_path.read_text(encoding="utf-8"),
-        media_type="text/markdown",
+        extensions=["tables", "fenced_code"],
+    )
+    title = escape(f"{stock_code} · {reporting_date}")
+    return HTMLResponse(
+        f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title}</title>
+  <style>
+    body {{ font-family: system-ui, sans-serif; max-width: 1100px;
+            margin: 40px auto; padding: 0 20px; line-height: 1.7; color: #24283d; }}
+    table {{ border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; }}
+    th, td {{ border: 1px solid #ddd; padding: 8px 12px; }}
+    th {{ background: #f4f3f9; }}
+    img {{ max-width: 100%; }}
+    pre {{ overflow-x: auto; padding: 16px; background: #f4f3f9; }}
+    h1, h2, h3 {{ line-height: 1.3; }}
+  </style>
+</head>
+<body><main>{content}</main></body>
+</html>""",
+        headers={
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 @app.get("/line-item-chart")
