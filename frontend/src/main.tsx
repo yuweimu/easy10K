@@ -700,10 +700,21 @@ function App() {
                         }}
                         aria-expanded={previewDate === date}
                         aria-controls="report-preview"
-                        title={language === "zh" ? "显示或隐藏报告" : "Show or hide report"}
-                        aria-label={language === "zh" ? `显示或隐藏 ${date} 的报告` : `Show or hide report for ${date}`}>
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                          <path d="M9 2h5v5M14 2 7 9M7 3H3v10h10V9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                        title={language === "zh"
+                          ? (previewDate === date ? "关闭报告原文" : "查看报告原文")
+                          : (previewDate === date ? "Close original report" : "View original report")}
+                        aria-label={language === "zh"
+                          ? `${previewDate === date ? "关闭" : "查看"} ${date} 的报告原文`
+                          : `${previewDate === date ? "Close" : "View"} original report for ${date}`}>
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          {previewDate === date ? (
+                            <path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                          ) : (
+                            <g stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M9 1.5H3v13h10v-9L9 1.5ZM9 1.5v4h4" />
+                              <path d="M5.5 6h5M5.5 9h5" />
+                            </g>
+                          )}
                         </svg>
                       </a>
                     </th>
