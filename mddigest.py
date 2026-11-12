@@ -259,6 +259,11 @@ class TableParsingStateMachine:
             return False
         
     def _extract_table_item(self, page_line: str) -> bool:
+        if re.search(r"负债和.*权益.*总计", page_line):
+            self.stage = TableParsingStage.BS_TABLE_COMPLETED
+            print("Stage changed to BS_TABLE_COMPLETED")
+            return True
+
         if len(page_line) < 10 or page_line[0] != "|":
             return True
 
@@ -298,9 +303,6 @@ class TableParsingStateMachine:
         else:
             print(f"Skip BS item: {page_line}")
 
-        if re.search(r"负债.*权益.*", result[0]):
-            self.stage = TableParsingStage.BS_TABLE_COMPLETED
-            print("Stage changed to BS_TABLE_COMPLETED")
         return True
 
 
