@@ -19,7 +19,8 @@ type BalanceSheetItem = {
 };
 
 type ReportItem = BalanceSheetItem & {
-  label: string;
+  labelCn: string;
+  labelEn: string;
   indentLevel: number;
 };
 
@@ -33,6 +34,8 @@ type GroupedReportItem = {
 type ChartItem = {
   item_id: number;
   label: string;
+  labelCn: string;
+  labelEn: string;
   parent_item_id: number | null;
 };
 
@@ -299,7 +302,7 @@ function App() {
       } else {
         grouped.set(item.item_id, {
           item_id: item.item_id,
-          label: item.label,
+          label: language === "zh" ? item.labelCn : item.labelEn,
           indentLevel: item.indentLevel,
           amountsByDate: new Map([[item.reporting_date, item.amount]]),
         });
@@ -333,7 +336,7 @@ function App() {
 
     roots.sort(byItemId).forEach(appendWithChildren);
     return ordered;
-  }, [report]);
+  }, [language, report]);
   const visibleReport = useMemo(() => {
     return groupedReport.filter((item) => {
       let parentId = Math.floor(item.item_id / 100);
@@ -409,12 +412,16 @@ function App() {
       const chartItems: ChartItem[] = Array.isArray(chart)
         ? chart.map((item) => ({
             item_id: item.item_id,
-          label: item.name_cn ?? item.name_en ?? text.unknownItem,
+            label: (language === "zh" ? item.name_cn ?? item.name_en : item.name_en ?? item.name_cn) ?? text.unknownItem,
+            labelCn: item.name_cn ?? item.name_en ?? text.unknownItem,
+            labelEn: item.name_en ?? item.name_cn ?? text.unknownItem,
             parent_item_id: Math.floor(item.item_id / 100) || null,
           }))
         : Object.values(chart).map((item) => ({
             item_id: item.item_id,
             label: item.label,
+            labelCn: item.label,
+            labelEn: item.label,
             parent_item_id: Math.floor(item.item_id / 100) || null,
           }));
       const chartById = new Map(
@@ -425,7 +432,8 @@ function App() {
       setReport(
         balanceSheetItems.map((item) => ({
           ...item,
-          label: chartById.get(item.item_id)?.label ?? text.unknownItem,
+          labelCn: chartById.get(item.item_id)?.labelCn ?? text.unknownItem,
+          labelEn: chartById.get(item.item_id)?.labelEn ?? text.unknownItem,
           indentLevel: getIndentLevel(item.item_id, chartById),
         })),
       );
@@ -444,6 +452,32 @@ function App() {
   return (
     <main className="page-shell">
       <header className="page-header">
+        <div className="language-switcher">
+          <div className="language-toggle" role="group" aria-label={text.language}>
+            <button
+              type="button"
+              className={language === "en" ? "active" : ""}
+              aria-pressed={language === "en"}
+              onClick={() => {
+                setLanguage("en");
+                localStorage.setItem("easy10k.language", "en");
+              }}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              className={language === "zh" ? "active" : ""}
+              aria-pressed={language === "zh"}
+              onClick={() => {
+                setLanguage("zh");
+                localStorage.setItem("easy10k.language", "zh");
+              }}
+            >
+              中文
+            </button>
+          </div>
+        </div>
         <p className="eyebrow">EASY10K</p>
         <h1>{text.financialReport}</h1>
         <p className="subtitle">
@@ -512,15 +546,6 @@ function App() {
               {text.showDecimals}
             </label>
           </div>
-          <label className="language-switcher" htmlFor="language-select">{text.language}</label>
-          <select id="language-select" value={language} onChange={(event) => {
-            const nextLanguage = event.target.value as Language;
-            setLanguage(nextLanguage);
-            localStorage.setItem("easy10k.language", nextLanguage);
-          }}>
-            <option value="en">{text.english}</option>
-            <option value="zh">{text.chinese}</option>
-          </select>
       </form>
 
       {error && <p className="error-message">{error}</p>}

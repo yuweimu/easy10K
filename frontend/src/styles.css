@@ -11,7 +11,13 @@
 body { margin: 0; min-width: 320px; }
 
 .page-shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0 80px; }
-.page-header { margin-bottom: 28px; }
+.page-header { position: relative; margin-bottom: 28px; }
+.language-switcher { position: absolute; top: 0; right: 0; display: flex; align-items: center; gap: 8px; }
+.language-toggle { display: flex; gap: 2px; padding: 2px; background: #eeecf8; border-radius: 999px; }
+.language-toggle button { min-height: 0; padding: 5px 9px; border-radius: 999px; background: transparent; color: #6860ad; font-size: 0.72rem; font-weight: 700; }
+.language-toggle button.active { background: #6860ad; color: #fff; }
+.language-toggle button:not(:disabled):hover { filter: none; background: #dcd9f1; }
+.language-toggle button.active:not(:disabled):hover { background: #6860ad; }
 .eyebrow { color: #6860ad; font-size: 0.72rem; font-weight: 650; letter-spacing: 0.16em; margin: 0 0 10px; }
 h1, h2 { margin: 0; letter-spacing: -0.04em; }
 h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.15; font-weight: 650; }
