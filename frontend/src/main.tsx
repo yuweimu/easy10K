@@ -46,6 +46,84 @@ const AMOUNT_UNITS = {
 
 type AmountUnit = keyof typeof AMOUNT_UNITS;
 const REPORT_TABS = ["Balance Sheet", "Income Statement", "Cash Flow Statement"] as const;
+const TAB_LABELS = {
+  en: {
+    "Balance Sheet": "Balance Sheet",
+    "Income Statement": "Income Statement",
+    "Cash Flow Statement": "Cash Flow Statement",
+  },
+  zh: {
+    "Balance Sheet": "资产负债表",
+    "Income Statement": "利润表",
+    "Cash Flow Statement": "现金流量表",
+  },
+} as const;
+type Language = "en" | "zh";
+
+const UI_TEXT = {
+  en: {
+    financialReport: "Financial report",
+    subtitle: "Search a company and explore its financial statements.",
+    stockCode: "Stock code",
+    loadReport: "Load report",
+    loading: "Loading…",
+    amountUnit: "Amount unit",
+    showDecimals: "Show decimals",
+    financialStatements: "Financial statements",
+    companyReport: "Company report",
+    comingSoon: "This report is coming soon.",
+    enterStockCode: "Enter a stock code to load its report.",
+    financialItem: "Financial item",
+    recentSearches: "Recent searches",
+    closeChart: "Close chart",
+    selectColumn: "Select a column to see its date and amount.",
+    showChildren: "Show",
+    hideChildren: "Hide",
+    childrenOf: "children of",
+    showTrend: "Show amount trend",
+    hideTrend: "Hide amount trend",
+    amountTrendFor: "amount trend for",
+    copyRow: "Copy row as JSON",
+    copied: "Copied",
+    copyFailed: "Copy failed. Please try again.",
+    unknownItem: "Unknown item",
+    loadFailed: "Unable to load the financial report",
+    language: "Language",
+    english: "English",
+    chinese: "中文",
+  },
+  zh: {
+    financialReport: "财务报告",
+    subtitle: "搜索公司并查看其财务报表。",
+    stockCode: "股票代码",
+    loadReport: "加载报告",
+    loading: "加载中…",
+    amountUnit: "金额单位",
+    showDecimals: "显示小数",
+    financialStatements: "财务报表",
+    companyReport: "公司报告",
+    comingSoon: "该报表即将推出。",
+    enterStockCode: "请输入股票代码以加载报告。",
+    financialItem: "财务项目",
+    recentSearches: "最近搜索",
+    closeChart: "关闭图表",
+    selectColumn: "选择一列以查看日期和金额。",
+    showChildren: "显示",
+    hideChildren: "隐藏",
+    childrenOf: "的子项目",
+    showTrend: "显示金额趋势",
+    hideTrend: "隐藏金额趋势",
+    amountTrendFor: "的金额趋势",
+    copyRow: "复制此行 JSON",
+    copied: "已复制",
+    copyFailed: "复制失败，请重试。",
+    unknownItem: "未知项目",
+    loadFailed: "无法加载财务报告",
+    language: "语言",
+    english: "English",
+    chinese: "中文",
+  },
+} as const;
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 const RECENT_SEARCHES_KEY = "easy10k.recent-searches";
@@ -85,14 +163,16 @@ function getIndentLevel(itemId: number, chartById: Map<number, ChartItem>): numb
   return level;
 }
 
-function AmountTrend({ item, dates, unit, showDecimals, expanded = false, onClose }: {
+function AmountTrend({ item, dates, unit, showDecimals, language, expanded = false, onClose }: {
   item: GroupedReportItem;
   dates: string[];
   unit: AmountUnit;
   showDecimals: boolean;
+  language: Language;
   expanded?: boolean;
   onClose?: () => void;
 }) {
+  const text = UI_TEXT[language];
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const labelWidth = Math.max(80, ...dates.map((date) =>
     formatAmount(item.amountsByDate.get(date) ?? null, unit, showDecimals).length * 7 + 24));
@@ -125,7 +205,7 @@ function AmountTrend({ item, dates, unit, showDecimals, expanded = false, onClos
   return (<>
     <span className={expanded ? "trend-plot" : undefined}>
     <svg className={expanded ? "trend-chart" : "sparkline"} viewBox={`0 0 ${viewWidth} ${height}`}
-      role="img" aria-label={`${item.label} amount trend, ${dates[0]} to ${dates[dates.length - 1]}`}>
+      role="img" aria-label={`${item.label} ${language === "zh" ? "金额趋势" : "amount trend"}, ${dates[0]} ${language === "zh" ? "至" : "to"} ${dates[dates.length - 1]}`}>
       {expanded && <>
         <text x={padding + 8} y={20}>{unit}</text>
         <line className="trend-axis" x1={padding} x2={padding} y1={axisTop} y2={bottom} />
@@ -156,16 +236,20 @@ function AmountTrend({ item, dates, unit, showDecimals, expanded = false, onClos
       ))}
     </svg>
     {expanded && onClose && <button type="button" className="trend-close"
-      aria-label="Close chart" title="Close chart" onClick={onClose}>×</button>}
+      aria-label={text.closeChart} title={text.closeChart} onClick={onClose}>×</button>}
     </span>
     {expanded && <p className="trend-value" aria-live="polite">
-      {selectedDate ? `${selectedDate}: ${formatAmount(item.amountsByDate.get(selectedDate) ?? null, unit, showDecimals)} ${unit}` : "Select a column to see its date and amount."}
+      {selectedDate ? `${selectedDate}: ${formatAmount(item.amountsByDate.get(selectedDate) ?? null, unit, showDecimals)} ${unit}` : text.selectColumn}
     </p>}
     </>
   );
 }
 
 function App() {
+  const [language, setLanguage] = useState<Language>(() =>
+    localStorage.getItem("easy10k.language") === "zh" ? "zh" : "en",
+  );
+  const text = UI_TEXT[language];
   const [activeTab, setActiveTab] = useState<typeof REPORT_TABS[number]>("Balance Sheet");
   const [stockCode, setStockCode] = useState("605499");
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -193,10 +277,10 @@ function App() {
     return recentSearches.filter((value) => !query || value.includes(query));
   }, [recentSearches, stockCode]);
   useEffect(() => {
-    if (copyStatus?.message !== "Copied") return;
+    if (copyStatus?.message !== text.copied) return;
     const timeout = window.setTimeout(() => setCopyStatus(null), 2_000);
     return () => window.clearTimeout(timeout);
-  }, [copyStatus]);
+  }, [copyStatus, text.copied]);
   const [collapsedItemIds, setCollapsedItemIds] = useState<Set<number>>(
     () => new Set(),
   );
@@ -280,9 +364,9 @@ function App() {
           date, item.amountsByDate.get(date) ?? null,
         ])),
       }, null, 2));
-      setCopyStatus({ itemId: item.item_id, message: "Copied" });
+      setCopyStatus({ itemId: item.item_id, message: text.copied });
     } catch {
-      setCopyStatus({ itemId: item.item_id, message: "Copy failed. Please try again." });
+      setCopyStatus({ itemId: item.item_id, message: text.copyFailed });
     }
   }
 
@@ -325,7 +409,7 @@ function App() {
       const chartItems: ChartItem[] = Array.isArray(chart)
         ? chart.map((item) => ({
             item_id: item.item_id,
-            label: item.name_cn ?? item.name_en ?? "Unknown item",
+          label: item.name_cn ?? item.name_en ?? text.unknownItem,
             parent_item_id: Math.floor(item.item_id / 100) || null,
           }))
         : Object.values(chart).map((item) => ({
@@ -341,7 +425,7 @@ function App() {
       setReport(
         balanceSheetItems.map((item) => ({
           ...item,
-          label: chartById.get(item.item_id)?.label ?? "Unknown item",
+          label: chartById.get(item.item_id)?.label ?? text.unknownItem,
           indentLevel: getIndentLevel(item.item_id, chartById),
         })),
       );
@@ -350,7 +434,7 @@ function App() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to load the financial report",
+          : text.loadFailed,
       );
     } finally {
       setLoading(false);
@@ -361,15 +445,15 @@ function App() {
     <main className="page-shell">
       <header className="page-header">
         <p className="eyebrow">EASY10K</p>
-        <h1>Financial report</h1>
+        <h1>{text.financialReport}</h1>
         <p className="subtitle">
-          Search a company and explore its financial statements.
+          {text.subtitle}
         </p>
       </header>
 
       <form className="search-bar" onSubmit={loadReport}>
         <div className="search-controls">
-          <label htmlFor="stock-code">Stock code</label>
+          <label htmlFor="stock-code">{text.stockCode}</label>
           <div className="search-input-wrap">
             <input
               id="stock-code"
@@ -377,7 +461,7 @@ function App() {
               onChange={(event) => setStockCode(event.target.value)}
               onFocus={() => setSearchFocused(true)}
               onBlur={() => setSearchFocused(false)}
-              placeholder="e.g. 600519"
+              placeholder={language === "zh" ? "例如 600519" : "e.g. 600519"}
               autoComplete="off"
               role="combobox"
               aria-autocomplete="list"
@@ -385,7 +469,7 @@ function App() {
               aria-controls="recent-searches"
             />
             {searchFocused && searchSuggestions.length > 0 && (
-              <div id="recent-searches" className="search-suggestions" role="listbox" aria-label="Recent searches">
+              <div id="recent-searches" className="search-suggestions" role="listbox" aria-label={text.recentSearches}>
                 {searchSuggestions.map((value) => (
                   <button
                     key={value}
@@ -405,18 +489,18 @@ function App() {
             )}
           </div>
           <button type="submit" disabled={loading || stockCode.trim().length != 6}>
-            {loading ? "Loading…" : "Load report"}
+            {loading ? text.loading : text.loadReport}
           </button>
         </div>
           <div className="report-tools">
-            <label htmlFor="amount-unit">Amount unit</label>
+            <label htmlFor="amount-unit">{text.amountUnit}</label>
             <select
               id="amount-unit"
               value={amountUnit}
               onChange={(event) => setAmountUnit(event.target.value as AmountUnit)}
             >
               {Object.keys(AMOUNT_UNITS).map((unit) => (
-                <option value={unit} key={unit}>{unit}</option>
+                <option value={unit} key={unit}>{language === "zh" ? unit : `${unit} CNY`}</option>
               ))}
             </select>
             <label className="decimal-toggle">
@@ -425,15 +509,24 @@ function App() {
                 checked={showDecimals}
                 onChange={(event) => setShowDecimals(event.target.checked)}
               />
-              Show decimals
+              {text.showDecimals}
             </label>
           </div>
+          <label className="language-switcher" htmlFor="language-select">{text.language}</label>
+          <select id="language-select" value={language} onChange={(event) => {
+            const nextLanguage = event.target.value as Language;
+            setLanguage(nextLanguage);
+            localStorage.setItem("easy10k.language", nextLanguage);
+          }}>
+            <option value="en">{text.english}</option>
+            <option value="zh">{text.chinese}</option>
+          </select>
       </form>
 
       {error && <p className="error-message">{error}</p>}
 
       <section className="report-card" aria-live="polite">
-        <div className="report-tabs" role="tablist" aria-label="Financial statements">
+        <div className="report-tabs" role="tablist" aria-label={text.financialStatements}>
           {REPORT_TABS.map((tab, index) => (
             <button key={tab} type="button" role="tab" id={`report-tab-${index}`}
               aria-selected={activeTab === tab} aria-controls="report-panel"
@@ -449,14 +542,14 @@ function App() {
                 event.preventDefault();
                 setActiveTab(REPORT_TABS[nextIndex]);
                 document.getElementById(`report-tab-${nextIndex}`)?.focus();
-              }}>{tab}</button>
+              }}>{TAB_LABELS[language][tab]}</button>
           ))}
         </div>
         <div id="report-panel" role="tabpanel" aria-labelledby={`report-tab-${REPORT_TABS.indexOf(activeTab)}`} tabIndex={0}>
         <div className="report-heading">
           <div>
-            <p className="eyebrow">{activeTab}</p>
-            <h2>{stockCode.trim() || "Company report"}</h2>
+            <p className="eyebrow">{TAB_LABELS[language][activeTab]}</p>
+            <h2>{stockCode.trim() || text.companyReport}</h2>
           </div>
 
         </div>
@@ -464,16 +557,16 @@ function App() {
         {activeTab !== "Balance Sheet" ? (
           <div className="empty-state statement-placeholder">
             <h3>{activeTab}</h3>
-            <p>This report is coming soon.</p>
+            <p>{text.comingSoon}</p>
           </div>
         ) : groupedReport.length === 0 && !loading ? (
-          <div className="empty-state">Enter a stock code to load its report.</div>
+          <div className="empty-state">{text.enterStockCode}</div>
         ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Financial item</th>
+                  <th>{text.financialItem}</th>
                   {reportingDates.map((date) => (
                     <th className="amount-column" key={date}>{date}</th>
                   ))}
@@ -497,7 +590,7 @@ function App() {
                           type="button"
                           className="item-toggle"
                           onClick={() => toggleItem(item.item_id)}
-                          aria-label={`${collapsedItemIds.has(item.item_id) ? "Show" : "Hide"} children of ${item.label}`}
+                          aria-label={`${collapsedItemIds.has(item.item_id) ? text.showChildren : text.hideChildren} ${item.label} ${text.childrenOf}`}
                           aria-expanded={!collapsedItemIds.has(item.item_id)}
                         >
                           {collapsedItemIds.has(item.item_id) ? "▶" : "▼"}
@@ -507,8 +600,8 @@ function App() {
                       )}
                       {item.label}
                       <button type="button" className="trend-toggle"
-                        title="Show amount trend"
-                        aria-label={`${expandedTrendId === item.item_id ? "Hide" : "Show"} amount trend for ${item.label}`}
+                        title={expandedTrendId === item.item_id ? text.hideTrend : text.showTrend}
+                        aria-label={`${expandedTrendId === item.item_id ? text.hideTrend : text.showTrend} ${item.label}${language === "zh" ? text.amountTrendFor : ` ${text.amountTrendFor}`}`}
                         aria-expanded={expandedTrendId === item.item_id}
                         aria-controls={`trend-${item.item_id}`}
                         onClick={() => setExpandedTrendId(expandedTrendId === item.item_id ? null : item.item_id)}>
@@ -519,7 +612,7 @@ function App() {
                       </button>
                       <span className="copy-action">
                       <button type="button" className="trend-toggle"
-                        title="Copy row as JSON" aria-label={`Copy ${item.label} as JSON`}
+                        title={text.copyRow} aria-label={`${text.copyRow}: ${item.label}`}
                         onClick={() => void copyItem(item)}>
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                           <rect x="5" y="5" width="8" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" />
@@ -544,7 +637,7 @@ function App() {
                       <td colSpan={reportingDates.length + 1}>
                         <div className="trend-detail">
                           <div className="trend-chart-scroll">
-                            <AmountTrend item={item} dates={trendDates} unit={amountUnit} showDecimals={showDecimals} expanded onClose={() => setExpandedTrendId(null)} />
+                            <AmountTrend item={item} dates={trendDates} unit={amountUnit} showDecimals={showDecimals} language={language} expanded onClose={() => setExpandedTrendId(null)} />
                           </div>
                         </div>
                       </td>
