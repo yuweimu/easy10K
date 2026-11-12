@@ -10,5 +10,6 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
 COPY main.py mddigest.py line_item_chart.py line-item-chart.txt ./
+COPY markdown ./markdown
 
 CMD ["python", "mddigest.py"]

@@ -3,8 +3,10 @@ import importlib
 import logging
 import os
 from decimal import Decimal
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from line_item_chart import LineItemChart
 
@@ -12,6 +14,7 @@ from line_item_chart import LineItemChart
 app = FastAPI()
 logger = logging.getLogger(__name__)
 line_item_chart = LineItemChart()
+REPORTS_DIR = Path(__file__).resolve().parent / "markdown"
 
 # 2. Define the structure of the data we expect (Pydantic Model)
 class WordInput(BaseModel):
@@ -20,6 +23,22 @@ class WordInput(BaseModel):
 
 # --- API Endpoints ---
 
+
+@app.get("/reports/{stock_code}/{reporting_date}")
+def get_report(stock_code: str, reporting_date: str) -> PlainTextResponse:
+    """Return the Markdown report for a stock and reporting date."""
+    report_path = (REPORTS_DIR / stock_code / f"{reporting_date}.md").resolve()
+    reports_dir = REPORTS_DIR.resolve()
+    if not report_path.is_relative_to(reports_dir):
+        raise HTTPException(status_code=400, detail="Invalid report path")
+
+    if not report_path.is_file():
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    return PlainTextResponse(
+        report_path.read_text(encoding="utf-8"),
+        media_type="text/markdown",
+    )
 
 @app.get("/line-item-chart")
 def get_line_item_chart() -> list[dict[str, int | str | None]]:
