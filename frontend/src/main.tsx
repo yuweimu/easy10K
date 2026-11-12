@@ -1,4 +1,4 @@
-import { Fragment, StrictMode, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Fragment, StrictMode, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -261,13 +261,89 @@ function App() {
   const [reportStockCode, setReportStockCode] = useState("");
   const [previewDate, setPreviewDate] = useState<string | null>(null);
   const [previewPosition, setPreviewPosition] = useState({ left: 0, top: 0 });
+  const [previewSize, setPreviewSize] = useState({ width: 600, height: 500 });
+  const [previewInteracting, setPreviewInteracting] = useState(false);
+  const [previewMaximized, setPreviewMaximized] = useState(false);
+  const previewMaximizedRef = useRef(false);
+  const previewDetached = useRef(false);
+  const previewGesture = useRef<{
+    mode: "drag" | "resize"; direction: string; x: number; y: number;
+    left: number; top: number; width: number; height: number;
+  } | null>(null);
+
+  function startPreviewGesture(event: ReactPointerEvent<HTMLElement>, mode: "drag" | "resize", direction = "se") {
+    if (previewMaximized || event.button !== 0 || (event.target as HTMLElement).closest("button, a")) return;
+    const panel = event.currentTarget.closest(".report-preview-panel");
+    if (!panel) return;
+    event.preventDefault();
+    const bounds = panel.getBoundingClientRect();
+    previewGesture.current = {
+      mode, direction, x: event.clientX, y: event.clientY,
+      left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height,
+    };
+    previewDetached.current = true;
+    setPreviewInteracting(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function movePreview(event: ReactPointerEvent<HTMLDivElement>) {
+    const gesture = previewGesture.current;
+    if (!gesture) return;
+    const dx = event.clientX - gesture.x;
+    const dy = event.clientY - gesture.y;
+    if (gesture.mode === "drag") {
+      setPreviewPosition({
+        left: Math.max(window.innerWidth * 0.2, Math.min(window.innerWidth - gesture.width, gesture.left + dx)),
+        top: Math.max(0, Math.min(window.innerHeight - 60, gesture.top + dy)),
+      });
+    } else {
+      let { left, top, width, height } = gesture;
+      const right = left + width;
+      const bottom = top + height;
+      if (gesture.direction.includes("e")) {
+        width = Math.max(240, Math.min(window.innerWidth - left, width + dx));
+      }
+      if (gesture.direction.includes("s")) {
+        height = Math.max(160, Math.min(window.innerHeight - top, height + dy));
+      }
+      if (gesture.direction.includes("w")) {
+        left = Math.max(window.innerWidth * 0.2, Math.min(right - 240, left + dx));
+        width = right - left;
+      }
+      if (gesture.direction.includes("n")) {
+        top = Math.max(0, Math.min(bottom - 160, top + dy));
+        height = bottom - top;
+      }
+      setPreviewPosition({ left, top });
+      setPreviewSize({ width, height });
+    }
+  }
+
+  function endPreviewGesture() {
+    previewGesture.current = null;
+    setPreviewInteracting(false);
+  }
   useEffect(() => {
     if (!previewDate) return;
+    previewDetached.current = false;
     const updatePosition = () => {
+      if (previewDetached.current || previewMaximizedRef.current) return;
       const link = document.getElementById(`report-link-${previewDate}`);
       if (!link) return;
       const bounds = link.getBoundingClientRect();
-      setPreviewPosition({ left: bounds.right + 8, top: Math.max(8, bounds.top) });
+      const firstRow = link.closest("table")?.querySelector("tbody tr");
+      const header = document.querySelector(".report-preview-header");
+      const contentTop = firstRow?.getBoundingClientRect().top ?? bounds.bottom;
+      const headerHeight = header?.getBoundingClientRect().height ?? 0;
+      const left = Math.max(window.innerWidth * 0.2, bounds.right + 8);
+      setPreviewPosition({
+        left,
+        top: Math.max(8, contentTop - headerHeight),
+      });
+      setPreviewSize({
+        width: Math.max(240, window.innerWidth - left - 20),
+        height: Math.max(160, window.innerHeight - Math.max(8, contentTop - headerHeight) - 20),
+      });
     };
     updatePosition();
     window.addEventListener("resize", updatePosition);
@@ -569,7 +645,7 @@ function App() {
 
       {error && <p className="error-message">{error}</p>}
 
-      <div className="report-layout">
+      <div className={`report-layout${previewDate ? " report-layout-preview-open" : ""}`}>
       <section className="report-card" aria-live="polite">
         <div className="report-tabs" role="tablist" aria-label={text.financialStatements}>
           {REPORT_TABS.map((tab, index) => (
@@ -714,23 +790,59 @@ function App() {
         </div>
       </section>
       {previewDate && (
-        <div className="report-preview-panel" style={{
+        <div className={`report-preview-panel${previewMaximized ? " report-preview-maximized" : ""}`} style={previewMaximized ? {
+          left: 0, top: 0, width: "100%", height: "100dvh",
+        } : {
           left: previewPosition.left,
           top: previewPosition.top,
-        }}>
-        <div className="report-preview-header">
-        <h3>{language === "zh" ? "报告原文" : "Original Report"}</h3>
+          width: previewSize.width,
+          height: previewSize.height,
+        }} onPointerMove={movePreview} onPointerUp={endPreviewGesture}
+          onPointerCancel={endPreviewGesture} onLostPointerCapture={endPreviewGesture}>
+        <div className="report-preview-header" onPointerDown={(event) => startPreviewGesture(event, "drag")}>
+        <h3>{language === "zh" ? "报告原文" : "Original Report"} · {reportStockCode} · {previewDate}</h3>
+        <div className="report-preview-actions">
+        <a className="report-preview-close report-preview-open"
+          href={`/api/reports/${encodeURIComponent(reportStockCode)}/${encodeURIComponent(previewDate)}`}
+          target="_blank" rel="noopener noreferrer"
+          aria-label={language === "zh" ? "在新标签页打开报告" : "Open report in a new tab"}
+          title={language === "zh" ? "在新标签页打开报告" : "Open report in a new tab"}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M9 2h5v5M14 2 7 9M7 3H3v10h10V9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </a>
+        <button type="button" className="report-preview-close"
+          aria-label={language === "zh" ? (previewMaximized ? "还原" : "最大化") : (previewMaximized ? "Restore" : "Maximize")}
+          title={language === "zh" ? (previewMaximized ? "还原" : "最大化") : (previewMaximized ? "Restore" : "Maximize")}
+          aria-pressed={previewMaximized}
+          onClick={() => {
+            previewDetached.current = true;
+            previewMaximizedRef.current = !previewMaximized;
+            setPreviewMaximized(!previewMaximized);
+          }}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            {previewMaximized ? <path d="M5 5V2h9v9h-3M2 5h9v9H2z" stroke="currentColor" strokeWidth="1.3" />
+              : <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.3" />}
+          </svg>
+        </button>
         <button type="button" className="report-preview-close"
           aria-label={language === "zh" ? "关闭报告" : "Close report"}
           title={language === "zh" ? "关闭报告" : "Close report"}
           onClick={() => setPreviewDate(null)}>×</button>
         </div>
+        </div>
         <iframe
           id="report-preview"
           className="report-preview"
-          src={`/api/reports/${encodeURIComponent(reportStockCode)}/${encodeURIComponent(previewDate)}`}
+          src={`/api/reports/${encodeURIComponent(reportStockCode)}/${encodeURIComponent(previewDate)}#combined-balance-sheet`}
           title={language === "zh" ? `${reportStockCode} ${previewDate} 财务报告` : `${reportStockCode} ${previewDate} financial report`}
         />
+        {previewInteracting && <div className="report-preview-shield" />}
+        {!previewMaximized && ["n", "s", "e", "w", "ne", "nw", "se", "sw"].map((direction) => (
+          <div key={direction} className={`report-preview-resize report-preview-resize-${direction}`}
+            title={language === "zh" ? "拖动调整大小" : "Drag to resize"}
+            onPointerDown={(event) => startPreviewGesture(event, "resize", direction)} />
+        ))}
         </div>
       )}
       </div>
