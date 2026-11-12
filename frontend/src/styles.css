@@ -64,6 +64,9 @@ select:focus { border-color: #6860ad; outline: 2px solid #6860ad33; }
 table { border-collapse: collapse; min-width: 720px; width: 100%; }
 th, td { border-top: 1px solid #e4e2ee; padding: 7px 16px; text-align: left; white-space: nowrap; }
 th { background: #29283f; color: #f4f2fc; border-top-color: #3b3958; font-size: 0.73rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.report-link { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; margin-left: 6px; padding: 3px; border-radius: 4px; color: inherit; }
+.report-link:hover { background: #ffffff22; }
+.report-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 td { color: #555970; font-size: 0.92rem; }
 .item-name { color: #24283d; font-weight: 500; }
 .item-row { transition: background-color 120ms ease; }

@@ -3,9 +3,9 @@
 
 11|资产|Assets
 	1101|流动资产|Current Assets
-		110101|货币资金|Monetary Funds
+		110101|货币资金|Cash and Cash Equivalents
 		110102|结算备付金|Settlement Reserves
-		110103|拆出资金|Funds Lent
+		110103|拆出资金|Loans to Other Banks
 		110104|交易性金融资产|Trading Financial Assets
 		110105|衍生金融资产|Derivative Financial Assets
 

@@ -180,7 +180,7 @@ function AmountTrend({ item, dates, unit, showDecimals, language, expanded = fal
   const labelWidth = Math.max(80, ...dates.map((date) =>
     formatAmount(item.amountsByDate.get(date) ?? null, unit, showDecimals).length * 7 + 24));
   const width = expanded ? Math.max(640, dates.length * labelWidth + 96) : 96;
-  const height = expanded ? 280 : 24;
+  const height = expanded ? 336 : 24;
   const padding = expanded ? 48 : 3;
   const bottom = expanded ? height - 30 : height - padding;
   const axisTop = bottom - (bottom - (padding - 24)) * 1.1;
@@ -593,7 +593,18 @@ function App() {
                 <tr>
                   <th>{text.financialItem}</th>
                   {reportingDates.map((date) => (
-                    <th className="amount-column" key={date}>{date}</th>
+                    <th className="amount-column" key={date}>
+                      {date}
+                      <a className="report-link"
+                        href={`/api/reports/${encodeURIComponent(reportStockCode)}/${encodeURIComponent(date)}`}
+                        target="_blank" rel="noopener noreferrer"
+                        title={language === "zh" ? "在新标签页打开报告" : "Open report in a new tab"}
+                        aria-label={language === "zh" ? `打开 ${date} 的报告（新标签页）` : `Open report for ${date} (new tab)`}>
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <path d="M9 2h5v5M14 2 7 9M7 3H3v10h10V9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </a>
+                    </th>
                   ))}
                 </tr>
               </thead>
