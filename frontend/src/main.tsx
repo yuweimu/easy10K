@@ -573,7 +573,16 @@ function App() {
             </button>
           </div>
         </div>
-        <p className="eyebrow">EASY10K</p>
+        <div className="brand-lockup">
+          <span className="brand-mark" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M5 17V11M12 17V5M19 17V8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+            </svg>
+          </span>
+          <span className="brand-name">EASY10K</span>
+          <span className="brand-divider" />
+          <span className="brand-description">{language === "zh" ? "财务研究工作台" : "Financial research workspace"}</span>
+        </div>
         <h1>{text.financialReport}</h1>
         <p className="subtitle">
           {text.subtitle}
@@ -584,6 +593,10 @@ function App() {
         <div className="search-controls">
           <label htmlFor="stock-code">{text.stockCode}</label>
           <div className="search-input-wrap">
+            <svg className="search-icon" width="17" height="17" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.6" />
+              <path d="m13 13 4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
             <input
               id="stock-code"
               value={stockCode}
@@ -617,8 +630,9 @@ function App() {
               </div>
             )}
           </div>
-          <button type="submit" disabled={loading || stockCode.trim().length != 6}>
+          <button className="load-report-button" type="submit" disabled={loading || stockCode.trim().length != 6}>
             {loading ? text.loading : text.loadReport}
+            {!loading && <span aria-hidden="true">→</span>}
           </button>
         </div>
           <div className="report-tools">
@@ -646,7 +660,7 @@ function App() {
       {error && <p className="error-message">{error}</p>}
 
       <div className={`report-layout${previewDate ? " report-layout-preview-open" : ""}`}>
-      <section className="report-card" aria-live="polite">
+      <section className="report-card" aria-live="polite" aria-busy={loading}>
         <div className="report-tabs" role="tablist" aria-label={text.financialStatements}>
           {REPORT_TABS.map((tab, index) => (
             <button key={tab} type="button" role="tab" id={`report-tab-${index}`}
@@ -670,18 +684,32 @@ function App() {
         <div className="report-heading">
           <div>
             <p className="eyebrow">{TAB_LABELS[language][activeTab]}</p>
-            <h2>{stockCode.trim() || text.companyReport}</h2>
+            <h2>{reportStockCode || text.companyReport}</h2>
           </div>
-
+          {activeTab === "Balance Sheet" && groupedReport.length > 0 && (
+            <div className="report-summary">
+              <span className="report-data-badge"><span aria-hidden="true" />{language === "zh" ? "已加载" : "Report loaded"}</span>
+              <span>{groupedReport.length} {language === "zh" ? "个项目" : "items"}</span>
+              <span>{reportingDates.length} {language === "zh" ? "个报告期" : "periods"}</span>
+            </div>
+          )}
         </div>
 
         {activeTab !== "Balance Sheet" ? (
           <div className="empty-state statement-placeholder">
-            <h3>{activeTab}</h3>
+            <h3>{TAB_LABELS[language][activeTab]}</h3>
             <p>{text.comingSoon}</p>
           </div>
-        ) : groupedReport.length === 0 && !loading ? (
-          <div className="empty-state">{text.enterStockCode}</div>
+        ) : groupedReport.length === 0 ? (
+          <div className="empty-state">
+            <span className={`empty-state-symbol${loading ? " is-loading" : ""}`} aria-hidden="true">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                <path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <h3>{loading ? text.loading : (language === "zh" ? "从一份报告开始" : "Start with a company report")}</h3>
+            <p>{loading ? (language === "zh" ? "正在整理财务数据…" : "Preparing your financial data…") : text.enterStockCode}</p>
+          </div>
         ) : (
           <div className="table-wrap">
             <table>

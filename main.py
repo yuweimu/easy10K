@@ -1,9 +1,6 @@
 # main.py
-import importlib
 import logging
-import os
 import secrets
-from decimal import Decimal
 from html import escape
 from pathlib import Path
 
@@ -12,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from line_item_chart import LineItemChart
+from line_item_storage import LineItemStorage
 
 # 1. Initialize the FastAPI application
 app = FastAPI()
@@ -164,40 +162,21 @@ def get_line_item_chart() -> list[dict[str, int | str | None]]:
 @app.get("/balance_sheet_items/{stock_code}")
 def get_balance_sheet_items(stock_code: str) -> list[dict]:
     """Return all balance-sheet items stored for a stock code."""
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
+    storage = LineItemStorage()
+    if not storage.database_url:
         logger.warning(f"DATABASE_URL is not configured")
         raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
 
     logger.info(f"get_balance_sheet_items {stock_code}")
     try:
-        psycopg = importlib.import_module("psycopg")
-        with psycopg.connect(database_url) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT reporting_date, item_id,
-                           amount
-                    FROM balance_sheet_items
-                    WHERE stock_code = %s
-                    ORDER BY reporting_date, item_id, report_creation_time
-                    """,
-                    (stock_code,),
-                )
-                rows = cursor.fetchall()
+        with storage:
+            return storage.get_balance_sheet_items(stock_code)
     except Exception as exc:
         logger.warning(f"database connect error:{exc}")
         raise HTTPException(
             status_code=503,
             detail="Unable to fetch balance-sheet items",
         ) from exc
-
-    fields = (
-        "reporting_date",
-        "item_id",
-        "amount",
-    )
-    return [dict(zip(fields, row)) for row in rows]
 
 @app.post("/submit/")
 def submit_word(data: WordInput):

@@ -72,8 +72,8 @@ class LineItemChartTests(unittest.TestCase):
     def test_loads_default_source_file(self) -> None:
         items = LineItemChart()
 
-        self.assertEqual(items.get_item_id("货币资金"), 101101101)
-        self.assertEqual(items["货币资金"].english_name, "Monetary Funds")
+        self.assertEqual(items.get_item_id("货币资金"), 110101)
+        self.assertEqual(items["货币资金"].english_name, "Cash and Cash Equivalents")
 
 
 class TableParsingStateMachineTests(unittest.TestCase):
@@ -90,7 +90,7 @@ class TableParsingStateMachineTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             machine = TableParsingStateMachine()
         # Keep the tests independent of a live PostgreSQL instance.
-        machine.database_url = None
+        machine.storage.database_url = None
         return machine
 
     def process(self, machine: TableParsingStateMachine, md_line: str) -> bool:
@@ -400,7 +400,7 @@ class TableParsingStateMachineTests(unittest.TestCase):
     def test_close_without_database_connection_is_noop(self) -> None:
         machine = self.make_machine()
         machine.close()
-        self.assertIsNone(machine._db_connection)
+        self.assertIsNone(machine.storage._connection)
 
 
 if __name__ == "__main__":

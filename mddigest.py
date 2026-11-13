@@ -1,11 +1,10 @@
 import re
-import os
-import importlib
 from enum import StrEnum
 from pathlib import Path
 
 import argparse
 from line_item_chart import LineItemChart
+from line_item_storage import LineItemStorage
 
 
 class TableParsingStage(StrEnum):
@@ -31,9 +30,7 @@ class TableParsingStateMachine:
         self.has_notes:bool = False
         self.table_caption_line: str | None = None
         self.line_item_dict = LineItemChart("line-item-chart.txt")
-        self.database_url = os.getenv("DATABASE_URL")
-        self._db_connection = None
-        self._db_table_ready = False
+        self.storage = LineItemStorage()
 
         self._handlers = {
             TableParsingStage.BS_TITLE_DETECTION: self._detect_title,
@@ -92,82 +89,18 @@ class TableParsingStateMachine:
         amount: str | float,
         item_english_name: str,
     ) -> None:
-        """Upsert one extracted balance-sheet item into PostgreSQL."""
-        if item_id <= 0:
-            return
-        if not self.database_url:
-            return
-
-        if self._db_connection is None:
-            try:
-                psycopg = importlib.import_module("psycopg")
-            except ImportError as exc:
-                raise RuntimeError(
-                    "PostgreSQL persistence requires psycopg; "
-                    "install the project requirements first"
-                ) from exc
-
-            self._db_connection = psycopg.connect(self.database_url)
-
-        if not self._db_table_ready:
-            with self._db_connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS balance_sheet_items (
-                        stock_code VARCHAR(6) NOT NULL,
-                        reporting_date DATE NOT NULL,
-                        item_id INTEGER NOT NULL,
-                        report_creation_time TEXT NOT NULL,
-                        amount NUMERIC(20, 2) NOT NULL,
-                        item_english_name TEXT NOT NULL,
-                        UNIQUE (
-                            stock_code,
-                            reporting_date,
-                            item_id,
-                            report_creation_time
-                        )
-                    )
-                    """
-                )
-            self._db_connection.commit()
-            self._db_table_ready = True
-
-        with self._db_connection.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO balance_sheet_items (
-                    stock_code,
-                    reporting_date,
-                    item_id,
-                    report_creation_time,
-                    amount,
-                    item_english_name
-                )
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (
-                    stock_code,
-                    reporting_date,
-                    item_id,
-                    report_creation_time
-                ) DO UPDATE SET
-                    amount = EXCLUDED.amount,
-                    item_english_name = EXCLUDED.item_english_name
-                """,
-                (
-                    self.stock_code,
-                    self.current_reporting_date,
-                    item_id,
-                    self.report_creation_time,
-                    str(amount).replace(",", ""),
-                    item_english_name,
-                ),
-            )
-        self._db_connection.commit()
+        """Pass an extracted item and its report metadata to storage."""
+        self.storage.store_item(
+            self.stock_code,
+            self.current_reporting_date,
+            item_id,
+            self.report_creation_time,
+            amount,
+            item_english_name,
+        )
 
     def close(self) -> None:
-        if self._db_connection is not None:
-            self._db_connection.close()
-            self._db_connection = None
+        self.storage.close()
 
     def _detect_title(self, md_line: str) -> bool:
         result = re.sub(r"[ \*0-9,、]", "", md_line)
