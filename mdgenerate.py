@@ -27,7 +27,7 @@ class PDF2MarkDown:
         self.output_path = (
             Path(output_path)
             if output_path is not None
-            else self.pdf_path.with_suffix(".md")
+            else self.pdf_path if self.pdf_path.is_dir() else self.pdf_path.with_suffix(".md")
         )
         self.markdown_options = markdown_options
 
@@ -49,15 +49,31 @@ class PDF2MarkDown:
             print(f"creationDate not found: {e}")
             return None
 
-    def convert(self, pages: list = None) -> Path:
-        """Convert the PDF and return the path of the generated Markdown file."""
+    def convert(self, pages: list[int] | None = None) -> Path | list[Path]:
+        """Convert one PDF, or recursively convert a directory in sorted order."""
+        if self.pdf_path.is_dir():
+            if self.output_path.exists() and not self.output_path.is_dir():
+                raise NotADirectoryError(f"Output must be a directory: {self.output_path}")
+            sources = sorted(
+                path for path in self.pdf_path.rglob("*")
+                if path.is_file() and path.suffix.lower() == ".pdf"
+            )
+            outputs: list[Path] = []
+            for source in sources:
+                destination = self.output_path / source.relative_to(self.pdf_path).with_suffix(".md")
+                converter = PDF2MarkDown(source, destination, **self.markdown_options)
+                outputs.append(converter._convert_file(pages))
+            return outputs
+        return self._convert_file(pages)
 
+    def _convert_file(self, pages: list[int] | None = None) -> Path:
+        """Convert a single file without sharing document state across reports."""
         if not self.pdf_path.is_file():
             raise FileNotFoundError(f"PDF file not found: {self.pdf_path}")
 
         total_pages = 0
         if pages:
-            total_pages = pages.count
+            total_pages = len(pages)
         else:
             with pymupdf.open(self.pdf_path) as document:
                 total_pages = document.page_count
@@ -72,19 +88,16 @@ class PDF2MarkDown:
             f"<!-- ORIGINAL_PDF_FILE_CREATION_DATE:{self.get_pdf_creation_date()} -->\n\n",
             encoding="utf-8",
         )
-        md_file = self.output_path.open("a", encoding="utf-8")
-
-        for page_number in pages:
-            print(
-                f"\rConverting page {page_number + 1}/{total_pages} " + "." * (page_number % 6 + 1) + " " * (5 - page_number % 6),
-                end="",
-                flush=True,
-            )
-            # print(f"Digesting page {page_number + 1}/{total_pages} ...")
-            page_markdown = pymupdf4llm.to_markdown(self.pdf_path, **options, pages = [page_number])
-            
-            md_file.write(f"<!-- PDF_PAGE: {page_number+1}/{total_pages} -->\n\n")
-            md_file.write(page_markdown)
+        with self.output_path.open("a", encoding="utf-8") as md_file:
+            for page_number in pages:
+                print(
+                    f"\rConverting page {page_number + 1}/{total_pages} " + "." * (page_number % 6 + 1) + " " * (5 - page_number % 6),
+                    end="",
+                    flush=True,
+                )
+                page_markdown = pymupdf4llm.to_markdown(self.pdf_path, **options, pages=[page_number])
+                md_file.write(f"<!-- PDF_PAGE: {page_number+1}/{total_pages} -->\n\n")
+                md_file.write(page_markdown)
         print(" done.")
 
         return self.output_path
@@ -98,20 +111,21 @@ def main() -> None:
     """Run PDF-to-Markdown conversion from the command line."""
 
     parser = argparse.ArgumentParser(
-        description="Convert a PDF to Markdown with searchable page markers."
+        description="Convert a PDF or recursively convert a directory of PDFs to Markdown."
     )
-    parser.add_argument("pdf_path", type=Path, help="Path to the input PDF file")
+    parser.add_argument("pdf_path", type=Path, help="Input PDF file or directory to search recursively")
     parser.add_argument(
         "-o",
         "--output",
         dest="output_path",
         type=Path,
-        help="Path for the generated Markdown file (defaults to the PDF path with .md)",
+        help="Output file for a single PDF, or output directory preserving subfolders for directory input; defaults to beside each PDF",
     )
     args = parser.parse_args()
 
-    output_path = PDF2MarkDown(args.pdf_path, args.output_path).convert()
-    print(f"Generated Markdown: {output_path}")
+    output = PDF2MarkDown(args.pdf_path, args.output_path).convert()
+    for output_path in output if isinstance(output, list) else [output]:
+        print(f"Generated Markdown: {output_path}")
 
 
 if __name__ == "__main__":
