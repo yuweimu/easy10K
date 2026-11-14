@@ -6,6 +6,8 @@ Run from any directory:
 
 Source reports are never modified. Full report copies are saved in preprocessed
 with an invisible __reportanchor-index anchor before the table of contents, if found.
+Linked contents entries are also copied into a hidden REPORT_NAVIGATION comment
+immediately after the original PDF creation-date metadata, when present.
 """
 
 import argparse
@@ -14,6 +16,7 @@ from dataclasses import dataclass
 from html import escape, unescape
 from pathlib import Path
 
+from line_item_chart import LineItemChart
 
 PROJECT_DIR = Path(__file__).resolve().parent
 SECTION_ANCHORS = {
@@ -43,6 +46,126 @@ SECTION_ANCHORS = {
 def normalize_section_title(title: str) -> str:
     title = re.sub(r"^第\s*[一二三四五六七八九十百零〇\d]+\s*[节章]\s*", "", title)
     return re.sub(r"[\s*`_#、，,:：。．.（）()]", "", title).casefold()
+
+def indent_balance_sheet(text: str, chart: LineItemChart | None = None) -> str:
+    """Format balance-sheet names by hierarchy and right-align monospaced numbers."""
+    chart = chart if chart is not None else LineItemChart()
+
+    def normalize_name(value: str) -> str:
+        value = re.sub(r"<[^>]*>", "", unescape(value))
+        return re.sub(r"[\s*`_]", "", value).replace("：", ":").rstrip(":")
+
+    def format_number(cell: str) -> str:
+        if 'class="balance-sheet-number"' in cell:
+            return cell
+        value = cell.strip()
+        plain = re.sub(r"[*_]", "", value)
+        number = r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?"
+        if not re.fullmatch(rf"(?:{number}|\({number}\))", plain):
+            return cell
+        content = escape(plain)
+        if (value.startswith("**") and value.endswith("**")) or (value.startswith("__") and value.endswith("__")):
+            content = f"<strong>{content}</strong>"
+        leading = cell[:len(cell) - len(cell.lstrip())]
+        trailing = cell[len(cell.rstrip()):]
+        return (
+            f'{leading}<span class="balance-sheet-number" '
+            'style="display:block;text-align:right;font-family:ui-monospace,monospace;'
+            f'font-variant-numeric:tabular-nums">{content}</span>{trailing}'
+        )
+
+    item_ids = {normalize_name(name): item.item_id for name, item in chart.items.items()}
+    spacer = re.compile(r'<span class="balance-sheet-indent"[^>]*></span>')
+    result: list[str] = []
+    in_balance_sheet = False
+    in_comment = False
+    fence: str | None = None
+    for line in text.splitlines(keepends=True):
+        marker = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if marker:
+            if fence is None:
+                fence = marker.group(1)
+            elif marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
+                fence = None
+            result.append(line)
+            continue
+        if fence is not None:
+            result.append(line)
+            continue
+        if "<!--" in line:
+            in_comment = True
+        if in_comment:
+            if "-->" in line:
+                in_comment = False
+            result.append(line)
+            continue
+
+        heading = re.sub(r"^#{1,6}\s*", "", normalize_name(line))
+        heading = re.sub(r"^[（(]?[一二三四五六七八九十百零〇\d]+[）)、.．]*", "", heading)
+        if re.fullmatch(r"(?:合并|母公司|公司)?资产负债表(?:[（(]续(?:表)?[）)])?", heading):
+            in_balance_sheet = True
+        elif re.fullmatch(r"(?:合并|母公司|公司)?(?:利润表|现金流量表|所有者权益变动表|股东权益变动表|财务报表附注)", heading):
+            in_balance_sheet = False
+
+        if in_balance_sheet and line.lstrip().startswith("|"):
+            # Markdown alignment applies to both captions and the body cells.
+            if re.fullmatch(r"\s*\|(?:\s*:?-+:?\s*\|)+\s*", line):
+                fields = line.split("|")
+                fields[1] = ":---"
+                for column in range(2, len(fields) - 1):
+                    fields[column] = "---:"
+                result.append("|".join(fields))
+                continue
+            cell_start = line.index("|") + 1
+            cell_end = line.find("|", cell_start)
+            if cell_end != -1:
+                label = spacer.sub("", line[cell_start:cell_end])
+                name = normalize_name(label)
+                item_id = item_ids.get(name)
+                if item_id is None:
+                    item_id = item_ids.get(re.sub(r"^其中:?", "", name))
+                if item_id is not None and item_id > 0:
+                    depth = max(0, len(str(item_id)) // 2 - 1)
+                    indent = (
+                        f'<span class="balance-sheet-indent" data-item-id="{item_id}" '
+                        f'data-item-depth="{depth}" aria-hidden="true" '
+                        f'style="display:inline-block;width:{depth * 1.5:g}em"></span>'
+                    )
+                    line = line[:cell_start] + indent + label + line[cell_end:]
+                if re.fullmatch(r"负债[和及与].*权益(?:总计|合计)", name):
+                    in_balance_sheet = False
+                fields = line.split("|")
+                for column in range(2, len(fields)):
+                    fields[column] = format_number(fields[column])
+                line = "|".join(fields)
+        result.append(line)
+    return "".join(result)
+
+def add_report_navigation(text: str, entries: list[str]) -> str:
+    """Copy only section link elements into hidden navigation metadata."""
+    if not entries:
+        return text
+    metadata_pattern = r"(?m)^[ \t]*<!--\s*ORIGINAL_PDF_FILE_CREATION_DATE:[^\r\n]*-->[ \t]*(?:\r?\n|$)"
+    if not re.search(metadata_pattern, text):
+        return text
+    text = re.sub(
+        r"(?m)^[ \t]*<!--\s*REPORT_NAVIGATION:[\s\S]*?-->[ \t]*(?:\r?\n|$)",
+        "", text,
+    )
+    links = [
+        link
+        for entry in entries
+        for link in re.findall(r'<a href="#__reportanchor-[^"\r\n]+">.*?</a>', entry)
+    ]
+    if not links:
+        return text
+    metadata = re.search(metadata_pattern, text)
+    newline = "\r\n" if metadata.group().endswith("\r\n") else "\n"
+    block = "<!-- REPORT_NAVIGATION:" + newline
+    block += newline.join(links)
+    block += newline + "-->" + newline
+    prefix = "" if metadata.group().endswith("\n") else newline
+    return text[:metadata.end()] + prefix + block + text[metadata.end():]
 
 
 def add_index_section_anchors(text: str) -> str:
@@ -135,6 +258,7 @@ def add_index_section_anchors(text: str) -> str:
                 existing.add(anchor)
 
     result = []
+    navigation_lines: list[str] = []
     for index, line in enumerate(lines):
         newline = "\r\n" if line.endswith("\r\n") else "\n"
         for anchor in insertions.get(index, []):
@@ -154,8 +278,10 @@ def add_index_section_anchors(text: str) -> str:
                 else:
                     content = line.rstrip("\r\n")
                     line = link_entry(content, anchor) + line[len(content):]
+        if index in contents_lines:
+            navigation_lines.append(line)
         result.append(line)
-    return "".join(result)
+    return add_report_navigation("".join(result), navigation_lines)
 
 @dataclass
 class CompanyProfile:
@@ -210,10 +336,11 @@ def main() -> None:
         parser.error("Preprocessed directory must be outside the source Markdown directory")
 
     paths = sorted(input_dir.glob("*/*.md"))
+    chart = LineItemChart()
     index_files = 0
     for source in paths:
         text = source.read_text(encoding="utf-8")
-        processed = add_index_section_anchors(add_report_index_anchor(text))
+        processed = indent_balance_sheet(add_index_section_anchors(add_report_index_anchor(text)), chart)
         relative_path = source.relative_to(input_dir)
         report_destination = preprocessed_dir / relative_path
         report_destination.parent.mkdir(parents=True, exist_ok=True)

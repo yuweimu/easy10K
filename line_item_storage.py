@@ -57,8 +57,8 @@ class LineItemStorage:
         amount: str | float | Decimal,
         item_english_name: str,
     ) -> None:
-        """Upsert an item; skip persistence when no database is configured."""
-        if item_id <= 0 or not self.database_url:
+        """Upsert an item, excluding ignored IDs and unconfigured persistence."""
+        if item_id <= 0 or item_id == 99000001 or not self.database_url:
             return
         self._ensure_table()
         connection = self._connect()

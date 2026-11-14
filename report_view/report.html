@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <style>${styles}</style>
+</head>
+<body>
+  <aside class="report-navigation" aria-label="报告导航 / Report navigation" hidden>
+    <button class="report-navigation-toggle" type="button" aria-expanded="true"
+            aria-controls="report-navigation-links">目录 / Contents <span aria-hidden="true">⌃</span></button>
+    <nav id="report-navigation-links" aria-label="报告章节 / Report sections"></nav>
+  </aside>
+  <div class="report-scroll" id="report-document" tabindex="0"><main class="report-content">${content}</main></div>
+  <div class="report-page-indicator" role="status" aria-live="polite" hidden></div>
+  <div class="report-scrollbar" role="scrollbar" tabindex="0" aria-label="Report scroll position"
+       aria-controls="report-document" aria-orientation="vertical" aria-valuemin="0"
+       aria-valuemax="0" aria-valuenow="0"><div class="report-scrollbar-thumb"></div></div>
+  <script nonce="${script_nonce}">${script}</script>
+</body>
+</html>

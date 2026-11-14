@@ -9,7 +9,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-COPY main.py mddigest.py line_item_chart.py line_item_storage.py line-item-chart.txt ./
+COPY main.py mddigest.py line_item_chart.py line_item_storage.py report_renderer.py line-item-chart.txt ./
+COPY report_view ./report_view
 COPY markdown ./markdown
 COPY preprocessed ./preprocessed
 
