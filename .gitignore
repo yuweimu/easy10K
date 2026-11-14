@@ -51,5 +51,6 @@ node_modules/
 
 reports/
 markdown/
+preprocessed/
 
 test_*

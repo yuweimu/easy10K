@@ -15,7 +15,7 @@ from line_item_storage import LineItemStorage
 app = FastAPI()
 logger = logging.getLogger(__name__)
 line_item_chart = LineItemChart()
-REPORTS_DIR = Path(__file__).resolve().parent / "markdown"
+REPORTS_DIR = Path(__file__).resolve().parent / "preprocessed"
 
 # 2. Define the structure of the data we expect (Pydantic Model)
 class WordInput(BaseModel):

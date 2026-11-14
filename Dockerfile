@@ -11,5 +11,6 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY main.py mddigest.py line_item_chart.py line_item_storage.py line-item-chart.txt ./
 COPY markdown ./markdown
+COPY preprocessed ./preprocessed
 
 CMD ["python", "mddigest.py"]
