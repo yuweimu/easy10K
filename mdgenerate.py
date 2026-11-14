@@ -36,13 +36,12 @@ class PDF2MarkDown:
         self.markdown_options = markdown_options
         self.force = force
 
-    def get_pdf_creation_date(self):
+    def get_pdf_creation_date(self, document=None):
         try:
-            doc = pymupdf.open(self.pdf_path)
-            metadata = doc.metadata
-            doc.close()
-            
-            creation_date = metadata.get("creationDate")
+            if document is None:
+                with pymupdf.open(self.pdf_path) as opened_document:
+                    return self.get_pdf_creation_date(opened_document)
+            creation_date = (document.metadata or {}).get("creationDate") or ""
 
             m = re.match(r"D:(\d{14})", creation_date)
             # PDF 日期格式通常为 "D:YYYYMMDDHHmmss..."，这里简单返回原始字符串
@@ -79,54 +78,52 @@ class PDF2MarkDown:
             print(f"Skipped existing Markdown: {self.output_path}")
             return self.output_path
 
-        total_pages = 0
-        if pages:
-            total_pages = len(pages)
-        else:
-            with pymupdf.open(self.pdf_path) as document:
-                total_pages = document.page_count
-                pages = list(range(total_pages))
+        with pymupdf.open(self.pdf_path) as document:
+            total_pages = document.page_count
+            pages = list(range(total_pages)) if pages is None else list(pages)
 
-        options = dict(self.markdown_options)
-        # options["page_chunks"] = True
+            options = dict(self.markdown_options)
+            # Legacy extraction otherwise scans the entire PDF on every page call.
+            if options.get("hdr_info") is None and hasattr(pymupdf4llm, "IdentifyHeaders"):
+                options["hdr_info"] = pymupdf4llm.IdentifyHeaders(document)
 
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary_path: Path | None = None
-        try:
-            # Use the destination filesystem so publishing the completed file is atomic.
-            with tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-8", dir=self.output_path.parent,
-                prefix=f".{self.output_path.name}.", suffix=".tmp", delete=False,
-            ) as md_file:
-                temporary_path = Path(md_file.name)
-                md_file.write(
-                    f"<!-- ORIGINAL_PDF_FILE:{self.pdf_path} -->\n\n"
-                    f"<!-- ORIGINAL_PDF_FILE_CREATION_DATE:{self.get_pdf_creation_date()} -->\n\n"
-                )
-                for page_number in pages:
-                    print(
-                        f"\rConverting {self.pdf_path}: {page_number + 1}/{total_pages} " + "." * (page_number % 6 + 1) + " " * (5 - page_number % 6),
-                        end="",
-                        flush=True,
+            self.output_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path: Path | None = None
+            try:
+                # Use the destination filesystem so publishing the completed file is atomic.
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", dir=self.output_path.parent,
+                    prefix=f".{self.output_path.name}.", suffix=".tmp", delete=False,
+                ) as md_file:
+                    temporary_path = Path(md_file.name)
+                    md_file.write(
+                        f"<!-- ORIGINAL_PDF_FILE:{self.pdf_path} -->\n\n"
+                        f"<!-- ORIGINAL_PDF_FILE_CREATION_DATE:{self.get_pdf_creation_date(document)} -->\n\n"
                     )
-                    page_markdown = pymupdf4llm.to_markdown(self.pdf_path, **options, pages=[page_number])
-                    md_file.write(f"<!-- PDF_PAGE: {page_number+1}/{total_pages} -->\n\n")
-                    md_file.write(page_markdown)
-            if self.force:
-                temporary_path.replace(self.output_path)
-            else:
-                # A hard link publishes atomically without overwriting a concurrent output.
-                try:
-                    os.link(temporary_path, self.output_path)
-                except FileExistsError:
-                    print(f"Skipped existing Markdown: {self.output_path}")
-                    return self.output_path
-        finally:
-            if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
-        print(" done.")
+                    for page_number in pages:
+                        print(
+                            f"\rConverting {self.pdf_path}: {page_number + 1}/{total_pages} " + "." * (page_number % 6 + 1) + " " * (5 - page_number % 6),
+                            end="",
+                            flush=True,
+                        )
+                        page_markdown = pymupdf4llm.to_markdown(document, **options, pages=[page_number])
+                        md_file.write(f"<!-- PDF_PAGE: {page_number+1}/{total_pages} -->\n\n")
+                        md_file.write(page_markdown)
+                if self.force:
+                    temporary_path.replace(self.output_path)
+                else:
+                    # A hard link publishes atomically without overwriting a concurrent output.
+                    try:
+                        os.link(temporary_path, self.output_path)
+                    except FileExistsError:
+                        print(f"Skipped existing Markdown: {self.output_path}")
+                        return self.output_path
+            finally:
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
+            print(" done.")
 
-        return self.output_path
+            return self.output_path
 
     # ``generate`` is a convenient alias for callers that think of this as a
     # document-generation operation rather than a format conversion.
