@@ -3,8 +3,15 @@
 import importlib
 import os
 from decimal import Decimal
+from pathlib import Path
 from types import TracebackType
 from typing import Self
+
+from dotenv import load_dotenv
+
+
+# Resolve beside the program, independently of the working directory.
+load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 
 
 class LineItemStorage:

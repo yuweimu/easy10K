@@ -5,96 +5,98 @@
 11|资产|Assets
 	1101|流动资产|Current Assets
 		110101|货币资金|Cash and Cash Equivalents
-		110102|结算备付金|Settlement Reserves
-		110103|拆出资金|Loans to Other Banks
-		110104|交易性金融资产|Trading Financial Assets
-		110105|衍生金融资产|Derivative Financial Assets
+		110103|结算备付金|Settlement Reserves
+		110105|拆出资金|Loans to Other Banks
+		110107|交易性金融资产|Trading Financial Assets
+		110109|衍生金融资产|Derivative Financial Assets
 
 		110111|应收票据|Notes Receivable
-		110112|应收账款|Accounts Receivable
-		110113|应收款项融资|Receivables Financing
-		110114|应收保费|Premiums Receivable
-		110115|应收分保账款|Reinsurance Accounts Receivable
-		110116|应收分保合同准备金|Reinsurance Contract Reserves Receivable
-		110117|其他应收款|Other Receivables
-			11011701|应收利息|Interest Receivable
-			11011702|应收股利|Dividends Receivable
+		110113|应收账款|Accounts Receivable
+		110115|应收款项融资|Receivables Financing
+		110117|预付款项|Prepayments
 
-		110121|预付款项|Prepayments
+		110121|应收保费|Premiums Receivable
+		110123|应收分保账款|Reinsurance Accounts Receivable
+		110125|应收分保合同准备金|Reinsurance Contract Reserves Receivable
 
-		110122|买入返售金融资产|Financial Assets Purchased under Resale Agreements
-		110123|存货|Inventories
-		110124|合同资产|Contract Assets
-		110125|持有待售资产|Assets Held for Sale
-		110126|一年内到期的非流动资产|Non-current Assets Due within One Year
-		110131|其他流动资产|Other Current Assets
+		110128|其他应收款|Other Receivables
+			11012801|应收利息|Interest Receivable
+			11012802|应收股利|Dividends Receivable
+
+
+		110130|买入返售金融资产|Financial Assets Purchased under Resale Agreements
+		110132|存货|Inventories
+		110134|合同资产|Contract Assets
+		110136|持有待售资产|Assets Held for Sale
+		110138|一年内到期的非流动资产|Non-current Assets Due within One Year
+		110150|其他流动资产|Other Current Assets
 	1101|流动资产合计|Total Current Assets
 
 	1102|非流动资产|Non-current Assets
 		110201|发放贷款和垫款|Loans and Advances
-		110202|债权投资|Debt Investments
-		110203|其他债权投资|Other Debt Investments
+		110203|债权投资|Debt Investments
+		110205|其他债权投资|Other Debt Investments
+
 		110211|长期应收款|Long-term Receivables
-		110212|长期股权投资|Long-term Equity Investments
-		110213|其他权益工具投资|Other Equity Instrument Investments
-		110214|其他非流动金融资产|Other Non-current Financial Assets
-		110215|投资性房地产|Investment Properties
+		110213|长期股权投资|Long-term Equity Investments
+		110215|其他权益工具投资|Other Equity Instrument Investments
+		110217|其他非流动金融资产|Other Non-current Financial Assets
+		110219|投资性房地产|Investment Properties
 
-		110221|固定资产|Property, Plant and Equipment
-		110222|在建工程|Construction in Progress
-		110223|使用权资产|Right-of-use Assets
-		110224|无形资产|Intangible Assets
-		110225|生产性生物资产|Productive Biological Assets
-		110226|油气资产|Oil and Gas Assets
-
-		110231|开发支出|Development Costs
-		110232|商誉|Goodwill
-		110233|长期待摊费用|Long-term Deferred Expenses
-		110234|递延所得税资产|Deferred Tax Assets
-		110235|其他非流动资产|Other Non-current Assets
+		110231|固定资产|Property, Plant and Equipment
+		110233|在建工程|Construction in Progress
+		110235|生产性生物资产|Productive Biological Assets
+		110237|油气资产|Oil and Gas Assets
+		110239|使用权资产|Right-of-use Assets
+		110242|无形资产|Intangible Assets
+		110253|开发支出|Development Costs
+		110257|商誉|Goodwill
+		110259|长期待摊费用|Long-term Deferred Expenses
+		110261|递延所得税资产|Deferred Tax Assets
+		110266|其他非流动资产|Other Non-current Assets
 	1102|非流动资产合计|Total Non-current Assets
 11|资产总计|Total Assets
 
 21|负债|Liabilities
 	2101|流动负债|Current Liabilities
 		210101|短期借款|Short-term Borrowings
-		210102|向中央银行借款|Borrowings from the Central Bank
-		210103|拆入资金|Funds Borrowed
-		210104|交易性金融负债|Trading Financial Liabilities
-		210105|衍生金融负债|Derivative Financial Liabilities
+		210103|向中央银行借款|Borrowings from the Central Bank
+		210105|拆入资金|Funds Borrowed
+		210107|交易性金融负债|Trading Financial Liabilities
+		210109|衍生金融负债|Derivative Financial Liabilities
 		210111|应付票据|Notes Payable
-		210112|应付账款|Accounts Payable
-		210113|预收款项|Advances from Customers
-		210114|合同负债|Contract Liabilities
+		210113|应付账款|Accounts Payable
+		210115|预收款项|Advances from Customers
+		210117|合同负债|Contract Liabilities
 		210121|卖出回购金融资产款|Financial Assets Sold under Repurchase Agreements
-		210122|吸收存款及同业存放|Deposits from Customers and Banks
-		210123|代理买卖证券款|Funds from Brokerage Services
-		210124|代理承销证券款|Funds from Underwriting Services
+		210123|吸收存款及同业存放|Deposits from Customers and Banks
+		210125|代理买卖证券款|Funds from Brokerage Services
+		210127|代理承销证券款|Funds from Underwriting Services
 		210131|应付职工薪酬|Employee Benefits Payable
-		210132|应交税费|Taxes Payable
-		210133|其他应付款|Other Payables
-			21013301|应付利息|Interest Payable
-			21013302|应付股利|Dividends Payable
-		210134|应付手续费及佣金|Fees and Commissions Payable
-		210135|应付分保账款|Reinsurance Accounts Payable
-		210136|持有待售负债|Liabilities Held for Sale
-		210137|一年内到期的非流动负债|Non-current Liabilities Due within One Year
-		210138|其他流动负债|Other Current Liabilities
+		210133|应交税费|Taxes Payable
+		210135|其他应付款|Other Payables
+			21013501|应付利息|Interest Payable
+			21013502|应付股利|Dividends Payable
+		210141|应付手续费及佣金|Fees and Commissions Payable
+		210143|应付分保账款|Reinsurance Accounts Payable
+		210145|持有待售负债|Liabilities Held for Sale
+		210147|一年内到期的非流动负债|Non-current Liabilities Due within One Year
+		210149|其他流动负债|Other Current Liabilities
 	2101|流动负债合计|Total Current Liabilities
 
 	2102|非流动负债|Non-current Liabilities
 		210201|长期借款|Long-term Borrowings
-		210202|应付债券|Bonds Payable
-			21020201|优先股|Preference Shares
-			21020202|永续债|Perpetual Bonds
-		210203|租赁负债|Lease Liabilities
-		210204|长期应付款|Long-term Payables
-		210205|长期应付职工薪酬|Long-term Employee Benefits Payable
-		210206|预计负债|Provisions
-		210207|递延收益|Deferred Income
-		210208|递延所得税负债|Deferred Tax Liabilities
-		210211|保险合同准备金|Insurance Contract Reserves
-		210221|其他非流动负债|Other Non-current Liabilities
+		210203|应付债券|Bonds Payable
+			21020301|优先股|Preference Shares
+			21020302|永续债|Perpetual Bonds
+		210205|租赁负债|Lease Liabilities
+		210207|长期应付款|Long-term Payables
+		210209|长期应付职工薪酬|Long-term Employee Benefits Payable
+		210221|预计负债|Provisions
+		210225|递延收益|Deferred Income
+		210228|递延所得税负债|Deferred Tax Liabilities
+		210232|保险合同准备金|Insurance Contract Reserves
+		210235|其他非流动负债|Other Non-current Liabilities
 	2102|非流动负债合计|Total Non-current Liabilities
 21|负债合计|Total Liabilities
 

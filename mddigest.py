@@ -242,30 +242,37 @@ class TableParsingStateMachine:
 class MDDigest:
     def __init__(self, md_path: str | Path) -> None:
         self.md_path = Path(md_path)
-        self.state_machine = TableParsingStateMachine()
+        self.state_machine: TableParsingStateMachine | None = None
 
     def process_document(self) -> None:
-        if not self.md_path.is_file():
-            raise FileNotFoundError(f"Markdown file not found: {self.md_path}")
+        """Digest a single report or all Markdown reports beneath a directory."""
+        if self.md_path.is_dir():
+            paths = sorted(path for path in self.md_path.rglob("*.md") if path.is_file())
+        elif self.md_path.is_file():
+            paths = [self.md_path]
+        else:
+            raise FileNotFoundError(f"Markdown file or directory not found: {self.md_path}")
 
-        md_lines = self.md_path.read_text(encoding="utf-8").splitlines()
-        try:
-            for line in md_lines:
-                self.state_machine.process_md_line(line)
-        finally:
-            self.state_machine.close()
+        for path in paths:
+            # Reports must not share parsing stages, metadata, or storage state.
+            self.state_machine = TableParsingStateMachine()
+            try:
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    self.state_machine.process_md_line(line)
+            finally:
+                self.state_machine.close()
 
 def main() -> None:
 
     parser = argparse.ArgumentParser(
-        description="Convert a PDF to Markdown with searchable page markers."
+        description="Digest a Markdown report or recursively digest a directory of reports."
     )
     parser.add_argument(
         "md_path",
         type=Path,
         nargs="?",
-        default=Path("reports/dongpeng-2026q3.md"),
-        help="Path to the input MD file",
+        default=Path("reports/"),
+        help="Path to an input MD file or a directory to search recursively",
     )
     args = parser.parse_args()
 
