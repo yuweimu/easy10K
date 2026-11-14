@@ -141,31 +141,69 @@ def indent_balance_sheet(text: str, chart: LineItemChart | None = None) -> str:
         result.append(line)
     return "".join(result)
 
-def add_report_navigation(text: str, entries: list[str]) -> str:
+def add_report_navigation(text: str, entries: list[str], *, prepend_if_no_metadata: bool = False) -> str:
     """Copy only section link elements into hidden navigation metadata."""
     if not entries:
         return text
     metadata_pattern = r"(?m)^[ \t]*<!--\s*ORIGINAL_PDF_FILE_CREATION_DATE:[^\r\n]*-->[ \t]*(?:\r?\n|$)"
-    if not re.search(metadata_pattern, text):
+    if not re.search(metadata_pattern, text) and not prepend_if_no_metadata:
         return text
     text = re.sub(
         r"(?m)^[ \t]*<!--\s*REPORT_NAVIGATION:[\s\S]*?-->[ \t]*(?:\r?\n|$)",
         "", text,
     )
     links = [
-        link
+        re.sub(
+            r"(<a\b[^>]*>)(.*?)(</a>)",
+            lambda match: match.group(1) + match.group(2).replace("*", "") + match.group(3),
+            link,
+        )
         for entry in entries
-        for link in re.findall(r'<a href="#__reportanchor-[^"\r\n]+">.*?</a>', entry)
+        for link in re.findall(r'<a href="#__reportanchor-[^"\r\n]+"(?:\s+[^>\r\n]*)?>.*?</a>', entry)
     ]
     if not links:
         return text
     metadata = re.search(metadata_pattern, text)
-    newline = "\r\n" if metadata.group().endswith("\r\n") else "\n"
+    newline = "\r\n" if (metadata and metadata.group().endswith("\r\n")) or (not metadata and "\r\n" in text) else "\n"
     block = "<!-- REPORT_NAVIGATION:" + newline
     block += newline.join(links)
     block += newline + "-->" + newline
+    if metadata is None:
+        return block + text
     prefix = "" if metadata.group().endswith("\n") else newline
     return text[:metadata.end()] + prefix + block + text[metadata.end():]
+
+
+def add_numbered_section_navigation(text: str, visible: list[tuple[int, str]]) -> str:
+    """Build fallback navigation from standalone Chinese-numbered headings."""
+    existing = set(re.findall(r'''\b(?:id|name)\s*=\s*["']([^"']+)["']''', text))
+    aliases = {normalize_section_title(title): anchor for title, anchor in SECTION_ANCHORS.items()}
+    insertions: dict[int, str] = {}
+    occurrences: dict[str, int] = {}
+    links: list[str] = []
+    for index, line in visible:
+        title = re.sub(r"^#{1,6}\s+", "", re.sub(r"[*_`]", "", line)).strip()
+        heading = re.match(r"^[一二三四五六七八九十百零〇]+\s*、\s*(.+)$", title)
+        if not heading or re.search(r"[.．…·]{2,}", title):
+            continue
+        name = normalize_section_title(heading.group(1))
+        slug = re.sub(r"[^\w-]+", "-", name).strip("-")
+        if not slug:
+            continue
+        base = aliases.get(name, f"__reportanchor-section-{slug}")
+        occurrences[base] = occurrences.get(base, 0) + 1
+        anchor = base if occurrences[base] == 1 else f"{base}-{occurrences[base]}"
+        if anchor not in existing:
+            insertions[index] = anchor
+            existing.add(anchor)
+        links.append(f'<a href="#{escape(anchor, quote=True)}">{escape(title)} ↗</a>')
+    result: list[str] = []
+    for index, line in enumerate(text.splitlines(keepends=True)):
+        if index in insertions:
+            newline = "\r\n" if line.endswith("\r\n") else "\n"
+            result.append(f'<a id="{insertions[index]}"></a>{newline}{newline}')
+        result.append(line)
+    return add_report_navigation("".join(result), links, prepend_if_no_metadata=True)
 
 
 def add_index_section_anchors(text: str) -> str:
@@ -207,7 +245,7 @@ def add_index_section_anchors(text: str) -> str:
     contents_index = next((index for index, line in visible
                            if normalize_section_title(line) in {"目录", "contents", "tableofcontents", "index"}), None)
     if contents_index is None:
-        return text
+        return add_numbered_section_navigation(text, visible)
 
     entries: set[str] = set()
     contents_lines: dict[int, str] = {}
@@ -236,6 +274,7 @@ def add_index_section_anchors(text: str) -> str:
     aliases = {normalize_section_title(title): anchor for title, anchor in SECTION_ANCHORS.items()}
     existing = set(re.findall(r'''\b(?:id|name)\s*=\s*["']([^"']+)["']''', text))
     insertions: dict[int, list[str]] = {}
+    section_headings: dict[int, tuple[str, int]] = {}
     for index, line in visible:
         if index == contents_index or index in contents_lines or not line or line.startswith("|"):
             continue
@@ -253,12 +292,62 @@ def add_index_section_anchors(text: str) -> str:
             if normalized not in entries:
                 continue
             anchor = aliases.get(normalized, f"__reportanchor-section-{normalized}")
+            heading = re.match(r"^(#{1,6})\s+", line)
+            section_headings[index] = (anchor, len(heading.group(1)) if heading else 0)
             if anchor not in existing:
                 insertions.setdefault(index, []).append(anchor)
                 existing.add(anchor)
 
+    # PDF exports often use plain "一、..." headings instead of Markdown levels.
+    children: dict[str, list[str]] = {}
+    occurrences: dict[tuple[str, str], int] = {}
+    parent: str | None = None
+    parent_level = 0
+    for index, line in visible:
+        if index in section_headings:
+            parent, parent_level = section_headings[index]
+            continue
+        if index == contents_index:
+            parent = None
+        if parent is None or index in contents_lines or not line or line.startswith(("|", "<")):
+            continue
+        clean = re.sub(r"[*_`]", "", line)
+        heading = re.match(r"^(#{1,6})\s+", clean)
+        level = len(heading.group(1)) if heading else 0
+        title = re.sub(r"^#{1,6}\s+", "", clean).strip()
+        numbered = re.match(r"^[一二三四五六七八九十百零〇]+\s*[、．.]\s*", title)
+        deeper_numbered = re.match(r"^(?:[（(]|\d+[、．.])", title)
+        is_child = bool(numbered) or (
+            parent_level > 0 and level == parent_level + 1 and not deeper_numbered
+        )
+        if re.search(r"[.．…·]{2,}|适用|不适用", title):
+            continue
+        if not is_child:
+            if (level and parent_level and level <= parent_level) or re.match(r"^第.+[节章]", title):
+                parent = None
+            continue
+        if numbered:
+            name = title[numbered.end():]
+        else:
+            name = title
+        slug = re.sub(r"[^\w-]+", "-", normalize_section_title(name)).strip("-")
+        if not slug:
+            continue
+        key = (parent, slug)
+        occurrences[key] = occurrences.get(key, 0) + 1
+        suffix = f"-{occurrences[key]}" if occurrences[key] > 1 else ""
+        anchor = f"{parent}-subsection-{slug}{suffix}"
+        if anchor not in existing:
+            insertions.setdefault(index, []).append(anchor)
+            existing.add(anchor)
+        children.setdefault(parent, []).append(
+            f'<a href="#{escape(anchor, quote=True)}" data-navigation-level="2" '
+            f'data-parent-anchor="{escape(parent, quote=True)}">{escape(title)} ↗</a>'
+        )
+
     result = []
     navigation_lines: list[str] = []
+    linked_parents: set[str] = set()
     for index, line in enumerate(lines):
         newline = "\r\n" if line.endswith("\r\n") else "\n"
         for anchor in insertions.get(index, []):
@@ -280,6 +369,9 @@ def add_index_section_anchors(text: str) -> str:
                     line = link_entry(content, anchor) + line[len(content):]
         if index in contents_lines:
             navigation_lines.append(line)
+            if anchor not in linked_parents:
+                navigation_lines.extend(children.get(anchor, []))
+                linked_parents.add(anchor)
         result.append(line)
     return add_report_navigation("".join(result), navigation_lines)
 

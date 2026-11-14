@@ -99,7 +99,9 @@ Generated reports include:
 
 - A `__reportanchor-index` anchor at the contents heading, where present.
 - Stable section anchors such as `__reportanchor-financial-statements`.
+- Parent-scoped second-level subtitle anchors, shown as indented child links in the viewer navigation.
 - Contents links to matching sections.
+- For reports without contents, navigation built from standalone Chinese-numbered headings such as `一、主要财务数据`.
 - A hidden `REPORT_NAVIGATION` comment after `ORIGINAL_PDF_FILE_CREATION_DATE`, containing only section-link elements when that metadata and contents are present.
 - Balance-sheet item indentation and numeric/caption alignment.
 

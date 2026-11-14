@@ -98,9 +98,8 @@ updateScrollbar();
   const toggle = panel.querySelector('button');
   const navigation = panel.querySelector('nav');
   const metadata = comments.find(comment => /^\s*REPORT_NAVIGATION:/.test(comment.data));
-  if (!metadata) return;
   const template = document.createElement('template');
-  template.innerHTML = metadata.data.replace(/^\s*REPORT_NAVIGATION:/, '');
+  template.innerHTML = metadata ? metadata.data.replace(/^\s*REPORT_NAVIGATION:/, '') : '';
   const sections = [];
   const seen = new Set();
   for (const source of template.content.querySelectorAll('a[href]')) {
@@ -112,13 +111,32 @@ updateScrollbar();
     if (!label) continue;
     const link = document.createElement('a');
     link.setAttribute('href', href);
+    const isChild = source.getAttribute('data-navigation-level') === '2';
+    const parentAnchor = isChild ? source.getAttribute('data-parent-anchor') : null;
+    if (isChild) {
+      link.setAttribute('data-navigation-level', '2');
+      link.hidden = true;
+    }
     link.textContent = label.replace(/[.．…·]{2,}\s*/g, ' · ').replace(/\s*↗\s*$/, '');
     link.title = label;
     navigation.append(link);
-    sections.push({ link, target });
+    sections.push({ link, target, isChild, parentAnchor });
     seen.add(href);
   }
-  if (!sections.length) return;
+  if (!sections.length) {
+    const message = document.createElement('p');
+    message.className = 'report-navigation-empty';
+    message.textContent = '此报告暂无目录导航 / No navigation available';
+    navigation.append(message);
+  }
+  const childrenByParent = new Map();
+  for (const section of sections) {
+    if (!section.isChild) continue;
+    if (!childrenByParent.has(section.parentAnchor)) childrenByParent.set(section.parentAnchor, []);
+    childrenByParent.get(section.parentAnchor).push(section);
+  }
+  const manualExpansion = new Map();
+  let previousParentId = null;
   function setExpanded(expanded) {
     toggle.setAttribute('aria-expanded', String(expanded));
     navigation.hidden = !expanded;
@@ -185,21 +203,47 @@ updateScrollbar();
   navigation.addEventListener('click', event => {
     const link = event.target.closest('a');
     if (!link) return;
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const section = sections.find(section => section.link === link);
+    const children = section && !section.isChild ? childrenByParent.get(section.target.id) : null;
+    if (children?.length) {
+      manualExpansion.set(section.target.id, !children.some(child => !child.link.hidden));
+      updateActiveSection();
+    }
     // Native fragment navigation also updates the existing page indicator.
-    if (narrow()) setExpanded(false);
+    if (narrow() && !children?.length) setExpanded(false);
   });
   function updateActiveSection() {
     const top = viewport.getBoundingClientRect().top + 2;
     let active = null;
     let nearest = -Infinity;
+    let activeParent = null;
+    let nearestParent = -Infinity;
     for (const section of sections) {
       const position = section.target.getBoundingClientRect().top;
       if (position <= top && position >= nearest) {
         active = section;
         nearest = position;
       }
+      if (!section.isChild && position <= top && position >= nearestParent) {
+        activeParent = section;
+        nearestParent = position;
+      }
+    }
+    const parentId = activeParent?.target.id ?? null;
+    if (parentId !== previousParentId) {
+      manualExpansion.delete(previousParentId);
+      previousParentId = parentId;
+    }
+    function isExpanded(id) {
+      return manualExpansion.get(id) ?? (id === parentId);
     }
     for (const section of sections) {
+      if (section.isChild) {
+        section.link.hidden = !isExpanded(section.parentAnchor);
+      } else if (childrenByParent.has(section.target.id)) {
+        section.link.setAttribute('aria-expanded', String(isExpanded(section.target.id)));
+      }
       if (section === active) section.link.setAttribute('aria-current', 'location');
       else section.link.removeAttribute('aria-current');
     }
