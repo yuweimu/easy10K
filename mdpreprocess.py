@@ -17,6 +17,8 @@ from html import escape, unescape
 from pathlib import Path
 
 from line_item_chart import LineItemChart
+from line_item_storage import LineItemStorage
+from report_metadata import extract_report_identifiers
 
 PROJECT_DIR = Path(__file__).resolve().parent
 SECTION_ANCHORS = {
@@ -376,12 +378,35 @@ def add_index_section_anchors(text: str) -> str:
     return add_report_navigation("".join(result), navigation_lines)
 
 @dataclass
-class CompanyProfile:
+class PreprocessProfile:
     stock_code: str
     reporting_date: str
-    stock_name: str
-    major_accounting_data: str
-    company_name: str = ""
+    pdf_creation_time: str
+    markdown_file: str
+    preprocessed_file: str
+
+    def is_valid(self) -> bool:
+        """All three registry keys must be nonblank strings."""
+        return all(
+            isinstance(value, str) and bool(value.strip())
+            for value in (self.stock_code, self.reporting_date, self.pdf_creation_time)
+        )
+
+    @classmethod
+    def from_markdown(cls, source: Path, destination: Path, text: str) -> "PreprocessProfile":
+        """Extract report identifiers using the digest's content-based rules."""
+        creation_time = re.search(
+            r"(?m)^\s*<!--\s*ORIGINAL_PDF_FILE_CREATION_DATE:\s*([^\r\n]*?)\s*-->[ \t]*$",
+            text,
+        )
+        stock_code, reporting_date = extract_report_identifiers(text)
+        return cls(
+            pdf_creation_time=creation_time.group(1).strip() if creation_time else "",
+            stock_code=stock_code,
+            reporting_date=reporting_date,
+            markdown_file=str(source.resolve()),
+            preprocessed_file=str(destination.resolve()),
+        )
 
 
 def add_report_index_anchor(text: str) -> str:
@@ -414,7 +439,7 @@ def add_report_index_anchor(text: str) -> str:
     return text
 
 
-def main() -> None:
+def main() -> list[PreprocessProfile]:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-dir", type=Path, default=PROJECT_DIR / "markdown")
     parser.add_argument("--preprocessed-dir", type=Path, default=PROJECT_DIR / "preprocessed",
@@ -430,17 +455,33 @@ def main() -> None:
     paths = sorted(input_dir.glob("*/*.md"))
     chart = LineItemChart()
     index_files = 0
-    for source in paths:
-        text = source.read_text(encoding="utf-8")
-        processed = indent_balance_sheet(add_index_section_anchors(add_report_index_anchor(text)), chart)
-        relative_path = source.relative_to(input_dir)
-        report_destination = preprocessed_dir / relative_path
-        report_destination.parent.mkdir(parents=True, exist_ok=True)
-        report_destination.write_text(processed, encoding="utf-8")
-        has_index = bool(re.search(r'''\b(?:id|name)\s*=\s*["']__reportanchor-index["']''', processed))
-        index_files += int(has_index)
-        print(f"Preprocessed ({'index anchored' if has_index else 'no index found'}): {report_destination}")
-    print(f"Saved {len(paths)} report copies; {index_files} have __reportanchor-index anchors.")
+    profiles: list[PreprocessProfile] = []
+    with LineItemStorage() as storage:
+        for source in paths:
+            text = source.read_text(encoding="utf-8")
+            relative_path = source.relative_to(input_dir)
+            profile = PreprocessProfile.from_markdown(source, preprocessed_dir / relative_path, text)
+            if not profile.is_valid():
+                print(f"Skipped invalid profile: {source}")
+                continue
+            processed = indent_balance_sheet(add_index_section_anchors(add_report_index_anchor(text)), chart)
+            report_destination = Path(profile.preprocessed_file)
+            report_destination.parent.mkdir(parents=True, exist_ok=True)
+            report_destination.write_text(processed, encoding="utf-8")
+            storage.store_report_profile(
+                stock_code=profile.stock_code,
+                reporting_date=profile.reporting_date,
+                pdf_creation_time=profile.pdf_creation_time,
+                markdown_file=profile.markdown_file,
+                preprocessed_file=profile.preprocessed_file,
+            )
+            profiles.append(profile)
+            print(profile)
+            has_index = bool(re.search(r'''\b(?:id|name)\s*=\s*["']__reportanchor-index["']''', processed))
+            index_files += int(has_index)
+            print(f"Preprocessed ({'index anchored' if has_index else 'no index found'}): {report_destination}")
+    print(f"Saved {len(profiles)} report copies; {index_files} have __reportanchor-index anchors.")
+    return profiles
 
 
 if __name__ == "__main__":

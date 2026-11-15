@@ -19,6 +19,7 @@ class LineItemStorage:
         self.database_url = database_url if database_url is not None else os.getenv("DATABASE_URL")
         self._connection = None
         self._table_ready = False
+        self._report_registry_ready = False
 
     def _connect(self):
         if not self.database_url:
@@ -54,6 +55,68 @@ class LineItemStorage:
             )
         connection.commit()
         self._table_ready = True
+
+    def ensure_report_registry(self) -> None:
+        """Create the registry and add the update timestamp to existing tables."""
+        if self._report_registry_ready:
+            return
+        connection = self._connect()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS report_registry (
+                    stock_code VARCHAR(6) NOT NULL,
+                    reporting_date DATE NOT NULL,
+                    pdf_creation_time TEXT NOT NULL,
+                    pdf_url TEXT,
+                    pdf_hash TEXT,
+                    markdown_file TEXT,
+                    preprocessed_file TEXT,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (stock_code, reporting_date, pdf_creation_time)
+                )
+                """
+            )
+            cursor.execute(
+                "ALTER TABLE report_registry ADD COLUMN IF NOT EXISTS "
+                "updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP"
+            )
+        connection.commit()
+        self._report_registry_ready = True
+
+    def store_report_profile(
+        self,
+        stock_code: str,
+        reporting_date: str,
+        pdf_creation_time: str,
+        markdown_file: str | None,
+        preprocessed_file: str | None,
+    ) -> None:
+        """Upsert preprocessing paths while preserving existing PDF metadata."""
+        if not all(isinstance(value, str) and value.strip()
+                   for value in (stock_code, reporting_date, pdf_creation_time)):
+            raise ValueError("Report registry keys must be nonblank strings")
+        if not self.database_url:
+            return
+        self.ensure_report_registry()
+        connection = self._connect()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO report_registry (
+                    stock_code, reporting_date, pdf_creation_time,
+                    markdown_file, preprocessed_file, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (stock_code, reporting_date, pdf_creation_time)
+                DO UPDATE SET
+                    markdown_file = EXCLUDED.markdown_file,
+                    preprocessed_file = EXCLUDED.preprocessed_file,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (stock_code, reporting_date, pdf_creation_time, markdown_file, preprocessed_file),
+            )
+        connection.commit()
 
     def store_item(
         self,
@@ -110,6 +173,7 @@ class LineItemStorage:
             self._connection.close()
             self._connection = None
         self._table_ready = False
+        self._report_registry_ready = False
 
     def __enter__(self) -> Self:
         return self

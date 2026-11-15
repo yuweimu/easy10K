@@ -5,6 +5,7 @@ from pathlib import Path
 import argparse
 from line_item_chart import LineItemChart
 from line_item_storage import LineItemStorage
+from report_metadata import is_balance_sheet_title, match_dates, match_stock_code
 
 
 class TableParsingStage(StrEnum):
@@ -51,11 +52,9 @@ class TableParsingStateMachine:
                 return True
 
         if not self.stock_code:
-            stock_code_match = re.search(
-                r"(?:证券|公司|股票)代码[：:|]\s*(\d{6})", md_line
-            )
-            if stock_code_match:
-                self.stock_code = stock_code_match.group(1)
+            stock_code = match_stock_code(md_line)
+            if stock_code:
+                self.stock_code = stock_code
                 return True
 
         page_match = re.match(
@@ -103,10 +102,9 @@ class TableParsingStateMachine:
         self.storage.close()
 
     def _detect_title(self, md_line: str) -> bool:
-        result = re.sub(r"[ \*0-9,、]", "", md_line)
-        if "合并资产负债表" in result and len(result) < len("合并资产负债表") + 3:
+        if is_balance_sheet_title(md_line):
             print(
-                f"begin balance sheet line {md_line} {len(result)}"
+                f"begin balance sheet line {md_line}"
             )
             self.stage = TableParsingStage.BS_REPORTING_METADATA_DETECTION
             print("Stage changed to BS_REPORTING_METADATA_DETECTION")
@@ -114,11 +112,7 @@ class TableParsingStateMachine:
 
     @staticmethod
     def match_dates(line: str) -> list[str]:
-        pattern = r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日"
-        return [
-            f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-            for year, month, day in re.findall(pattern, line)
-        ]
+        return match_dates(line)
     
     @staticmethod
     def get_amout_unit(unit_name) -> int:
