@@ -57,7 +57,7 @@ class LineItemStorage:
         self._table_ready = True
 
     def ensure_report_registry(self) -> None:
-        """Create the registry and add the update timestamp to existing tables."""
+        """Create or migrate the registry and its digestion timestamp trigger."""
         if self._report_registry_ready:
             return
         connection = self._connect()
@@ -72,14 +72,42 @@ class LineItemStorage:
                     pdf_hash TEXT,
                     markdown_file TEXT,
                     preprocessed_file TEXT,
+                    digestion_status TEXT NOT NULL DEFAULT 'PENDING'
+                        CHECK (digestion_status IN ('PENDING', 'ERROR', 'DONE')),
+                    digestion_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (stock_code, reporting_date, pdf_creation_time)
                 )
                 """
             )
             cursor.execute(
-                "ALTER TABLE report_registry ADD COLUMN IF NOT EXISTS "
-                "updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                """
+                ALTER TABLE report_registry
+                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS digestion_status TEXT NOT NULL DEFAULT 'PENDING'
+                        CHECK (digestion_status IN ('PENDING', 'ERROR', 'DONE')),
+                    ADD COLUMN IF NOT EXISTS digestion_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                """
+            )
+            cursor.execute(
+                """
+                CREATE OR REPLACE FUNCTION report_registry_set_digestion_time()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    NEW.digestion_time = CURRENT_TIMESTAMP;
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql
+                """
+            )
+            cursor.execute(
+                """
+                CREATE OR REPLACE TRIGGER report_registry_digestion_status_changed
+                BEFORE UPDATE OF digestion_status ON report_registry
+                FOR EACH ROW
+                WHEN (OLD.digestion_status IS DISTINCT FROM NEW.digestion_status)
+                EXECUTE FUNCTION report_registry_set_digestion_time()
+                """
             )
         connection.commit()
         self._report_registry_ready = True
@@ -115,6 +143,34 @@ class LineItemStorage:
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (stock_code, reporting_date, pdf_creation_time, markdown_file, preprocessed_file),
+            )
+        connection.commit()
+
+    def update_digestion_status(
+        self,
+        stock_code: str | None,
+        reporting_date: str | None,
+        pdf_creation_time: str | None,
+        status: str,
+    ) -> None:
+        """Update only the matching report version; the trigger timestamps changes."""
+        if status not in {"PENDING", "ERROR", "DONE"}:
+            raise ValueError(f"Invalid digestion status: {status}")
+        if not self.database_url or not all(
+            isinstance(value, str) and value.strip()
+            for value in (stock_code, reporting_date, pdf_creation_time)
+        ):
+            return
+        self.ensure_report_registry()
+        connection = self._connect()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE report_registry
+                SET digestion_status = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE stock_code = %s AND reporting_date = %s AND pdf_creation_time = %s
+                """,
+                (status, stock_code, reporting_date, pdf_creation_time),
             )
         connection.commit()
 

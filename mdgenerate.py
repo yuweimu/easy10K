@@ -1,6 +1,7 @@
 """Convert PDF documents to Markdown while preserving page boundaries."""
 
 import argparse
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -78,6 +79,11 @@ class PDF2MarkDown:
             print(f"Skipped existing Markdown: {self.output_path}")
             return self.output_path
 
+        with self.pdf_path.open("rb") as pdf_file:
+            pdf_hash = hashlib.file_digest(
+                pdf_file, lambda: hashlib.md5(usedforsecurity=False),
+            ).hexdigest()
+
         with pymupdf.open(self.pdf_path) as document:
             total_pages = document.page_count
             pages = list(range(total_pages)) if pages is None else list(pages)
@@ -98,6 +104,7 @@ class PDF2MarkDown:
                     temporary_path = Path(md_file.name)
                     md_file.write(
                         f"<!-- ORIGINAL_PDF_FILE:{self.pdf_path} -->\n\n"
+                        f"<!-- ORIGINAL_PDF_FILE_HASH:{pdf_hash} -->\n\n"
                         f"<!-- ORIGINAL_PDF_FILE_CREATION_DATE:{self.get_pdf_creation_date(document)} -->\n\n"
                     )
                     for page_number in pages:

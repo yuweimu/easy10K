@@ -153,6 +153,14 @@ class TableParsingStateMachineTests(unittest.TestCase):
         self.assertTrue(self.process(machine, "<!-- PDF_PAGE: 3/120 -->"))
         self.assertEqual(machine.stage, TableParsingStage.BS_TITLE_DETECTION)
 
+    def test_page_progress_includes_report_path(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            machine = TableParsingStateMachine("reports/example.md")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertTrue(machine.process_as_metadata("<!-- PDF_PAGE: 3/120 -->"))
+        self.assertIn("Digesting reports/example.md page 3/120", output.getvalue())
+
     def test_process_as_metadata_returns_false_for_content_lines(self) -> None:
         machine = self.make_machine()
         self.assertFalse(machine.process_as_metadata("合并资产负债表"))
