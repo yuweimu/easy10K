@@ -19,9 +19,7 @@ def extract_pdf_metadata(text: str) -> dict[str, str]:
 
 
 def match_stock_code(line: str) -> str | None:
-    if "股票代码" in line:
-        print("=========")
-    match = re.search(r"(?:证券|公司|股票)代码[：:|]\s*(\d{6})", line)
+    match = re.search(r"(?:证券|公司|股票)代码\s*[：:|]?\s*(\d{6})", line.replace("*", ""))
     return match.group(1) if match else None
 
 

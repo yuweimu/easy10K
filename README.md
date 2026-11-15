@@ -51,6 +51,8 @@ Without `DATABASE_URL`, digestion can parse reports but does not persist items. 
 
 ### 1. Convert PDFs to Markdown
 
+On a conversion error, available Markdown (including partial output) is saved beside the source PDF with the same basename for investigation. An existing sibling Markdown file is backed up as `{basename}.previous-*.md` before replacement. Errors are recorded as `PDF2MD_ERROR` when the registry is available and the required PDF keys are known; the batch continues with the next file.
+
 Use stock-code subdirectories and reporting-date filenames for reports intended for the viewer:
 
 ```text

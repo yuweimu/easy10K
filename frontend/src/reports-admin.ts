@@ -63,15 +63,24 @@ function render(items: Report[]): void {
         }
       } catch { /* Local markers are displayed as plain text. */ }
     }
-    tr.append(cell(report.stock_code, true), cell(report.reporting_date, true),
-      cell(report.pdf_creation_time, true), status,
-      cell(timestamp(report.updated_at)), cell(report.pdf_hash, true), download,
-      cell(report.pdf_local_path, true), cell(report.markdown_file, true), cell(report.preprocessed_file, true));
+    const hash = cell(report.pdf_hash, true);
+    hash.textContent = report.pdf_hash.slice(0, 6);
+    const markdown = cell(report.markdown_file, true);
+    if (report.markdown_file) markdown.textContent = report.markdown_file.split(/[\\/]/).pop() || report.markdown_file;
+    const pdf = cell(report.pdf_local_path, true);
+    if (report.pdf_local_path) {
+      const filename = report.pdf_local_path.split(/[\\/]/).pop() || report.pdf_local_path;
+      pdf.textContent = filename.length > 16 ? `${filename.slice(0, 16)}…` : filename;
+    }
+    tr.append(hash, cell(report.stock_code, true), cell(report.reporting_date, true),
+      status,
+      download, pdf, markdown,
+      cell(report.preprocessed_file, true), cell(timestamp(report.updated_at)));
     rows.append(tr);
   }
   if (!items.length) {
     const td = cell("No reports registered yet.");
-    td.colSpan = 10;
+    td.colSpan = 9;
     td.className = "empty";
     const tr = document.createElement("tr");
     tr.append(td);

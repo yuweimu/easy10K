@@ -5,6 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 import tempfile
 from typing import Any
@@ -78,16 +79,100 @@ class PDF2MarkDown:
         """Convert a single file without sharing document state across reports."""
         if not self.pdf_path.is_file():
             raise FileNotFoundError(f"PDF file not found: {self.pdf_path}")
+        context: dict[str, Any] = {}
+        try:
+            return self._convert_file_impl(pages, context)
+        except Exception as exc:
+            print(f"Skipped {self.pdf_path.resolve()}: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            diagnostic = self._save_failed_markdown(context, exc)
+            creation = context.get("pdf_creation_time")
+            if context.get("pdf_hash") and isinstance(creation, str) and creation.strip():
+                try:
+                    with LineItemStorage() as storage:
+                        storage.store_report_profile(
+                            pdf_hash=context["pdf_hash"], pdf_creation_time=creation,
+                            pdf_download_url="local", pdf_local_path=str(self.pdf_path.resolve()),
+                            markdown_file=str(diagnostic.resolve()) if diagnostic else None,
+                            preprocessed_file=None,
+                        )
+                        storage.update_digestion_status(context["pdf_hash"], creation, "PDF2MD_ERROR")
+                except Exception as registry_error:
+                    print(f"Unable to record PDF2MD_ERROR: {registry_error}", file=sys.stderr)
+            else:
+                print("Cannot record PDF2MD_ERROR: PDF hash or creation time is missing", file=sys.stderr)
+            return None
+        finally:
+            temporary_path = context.get("temporary_path")
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError as cleanup_error:
+                    print(f"Unable to clean up {temporary_path}: {cleanup_error}", file=sys.stderr)
+
+    def _save_failed_markdown(self, context: dict[str, Any], error: Exception) -> Path | None:
+        """Publish available Markdown beside the PDF, backing up any existing copy."""
+        destination = self.pdf_path.with_suffix(".md")
+        temporary: Path | None = None
+        try:
+            source = context.get("published_path") or context.get("temporary_path")
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=destination.parent, prefix=f".{destination.name}.", suffix=".tmp", delete=False,
+            ) as output:
+                temporary = Path(output.name)
+                if source is not None and source.is_file():
+                    with source.open("rb") as markdown:
+                        shutil.copyfileobj(markdown, output)
+                else:
+                    output.write((
+                        f"<!-- ORIGINAL_PDF_FILE:{self.pdf_path.resolve()} -->\n"
+                        f"<!-- ORIGINAL_PDF_FILE_HASH:{context.get('pdf_hash', '')} -->\n"
+                        f"<!-- ORIGINAL_PDF_FILE_CREATION_DATE:{context.get('pdf_creation_time', '')} -->\n"
+                        f"\nConversion failed before Markdown was available: {type(error).__name__}: {error}\n"
+                    ).encode("utf-8"))
+            if destination.exists():
+                with tempfile.NamedTemporaryFile(
+                    dir=destination.parent, prefix=f"{destination.stem}.previous-", suffix=".md", delete=False,
+                ) as backup:
+                    backup_path = Path(backup.name)
+                shutil.copy2(destination, backup_path)
+                print(f"Backed up existing Markdown: {backup_path.resolve()}", file=sys.stderr)
+            temporary.replace(destination)
+            print(f"Saved investigation Markdown: {destination.resolve()}", file=sys.stderr)
+            return destination
+        except Exception as save_error:
+            print(f"Unable to save investigation Markdown: {save_error}", file=sys.stderr)
+            # Keep the original conversion temporary file if the fallback could not be saved.
+            retained = context.pop("temporary_path", None)
+            if retained is not None and retained.is_file():
+                print(f"Retained conversion temporary file: {retained.resolve()}", file=sys.stderr)
+            return None
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def _convert_file_impl(self, pages: list[int] | None, context: dict[str, Any]) -> Path | None:
         if not self._default_output and self.output_path.is_file() and not self.force:
             print(f"Skipped existing Markdown: {self.output_path.resolve()}")
             return self.output_path
 
         with pymupdf.open(self.pdf_path) as document:
             pdf_creation_time = self.get_pdf_creation_date(document)
+            context["pdf_creation_time"] = pdf_creation_time
             with self.pdf_path.open("rb") as pdf_file:
                 pdf_hash = hashlib.file_digest(
                     pdf_file, lambda: hashlib.md5(usedforsecurity=False),
                 ).hexdigest()
+            context["pdf_hash"] = pdf_hash
+            previous_status = None
+            if isinstance(pdf_creation_time, str) and pdf_creation_time.strip():
+                with LineItemStorage() as storage:
+                    previous_status = storage.get_report_digestion_status(pdf_hash, pdf_creation_time)
+                if not self.force and previous_status is not None and previous_status != "PDF2MD_ERROR":
+                    print(f"Skipped registered PDF ({previous_status}): {self.pdf_path.resolve()}")
+                    return None
             total_pages = document.page_count
             pages = list(range(total_pages)) if pages is None else list(pages)
 
@@ -144,25 +229,9 @@ class PDF2MarkDown:
                     except FileExistsError:
                         print(f"Skipped existing Markdown: {self.output_path.resolve()}")
                         return self.output_path
-            except ValueError as exc:
-                print(f"Skipped {self.pdf_path.resolve()}: ValueError: {exc}", file=sys.stderr, flush=True)
-                if isinstance(pdf_creation_time, str) and pdf_creation_time.strip():
-                    with LineItemStorage() as storage:
-                        storage.store_report_profile(
-                            pdf_hash=pdf_hash,
-                            pdf_creation_time=pdf_creation_time,
-                            pdf_download_url="local",
-                            pdf_local_path=str(self.pdf_path.resolve()),
-                            markdown_file=None,
-                            preprocessed_file=None,
-                        )
-                        storage.update_digestion_status(pdf_hash, pdf_creation_time, "PDF2MD_ERROR")
-                else:
-                    print("Cannot record PDF2MD_ERROR: PDF creation time is missing", file=sys.stderr)
-                return None
             finally:
-                if temporary_path is not None:
-                    temporary_path.unlink(missing_ok=True)
+                context["temporary_path"] = temporary_path
+            context["published_path"] = self.output_path
             if isinstance(pdf_creation_time, str) and pdf_creation_time.strip():
                 with LineItemStorage() as storage:
                     storage.store_report_profile(
@@ -173,6 +242,8 @@ class PDF2MarkDown:
                         markdown_file=str(self.output_path.resolve()),
                         preprocessed_file=None,
                     )
+                    if previous_status == "PDF2MD_ERROR":
+                        storage.update_digestion_status(pdf_hash, pdf_creation_time, "PENDING")
             else:
                 print(f"Skipped registry entry (missing PDF creation time): {self.pdf_path.resolve()}")
             print(" done.")
@@ -190,7 +261,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert a PDF or recursively convert a directory of PDFs to Markdown."
     )
-    parser.add_argument("pdf_path", type=Path, nargs="?", default=Path("reports/"),
+    parser.add_argument("pdf_path", type=Path, nargs="?", default=Path("reports/久立特材2026q1.pdf"),
                         help="Input PDF file or directory to search recursively (default: reports/)")
     parser.add_argument(
         "--force", action="store_true", help="Overwrite existing Markdown files (otherwise skip them)",

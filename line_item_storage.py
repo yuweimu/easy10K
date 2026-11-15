@@ -143,6 +143,19 @@ class LineItemStorage:
             )
         connection.commit()
 
+    def get_report_digestion_status(self, pdf_hash: str, pdf_creation_time: str) -> str | None:
+        """Look up one PDF version before conversion; None means no registry entry."""
+        if not self.database_url or not pdf_hash or not pdf_creation_time:
+            return None
+        self.ensure_report_registry()
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                "SELECT digestion_status FROM report_registry WHERE pdf_hash = %s AND pdf_creation_time = %s",
+                (pdf_hash, pdf_creation_time),
+            )
+            row = cursor.fetchone()
+        return row[0] if row is not None else None
+
     def update_digestion_status(
         self,
         pdf_hash: str | None,
