@@ -78,8 +78,7 @@ class LineItemStorage:
                     pdf_local_path TEXT,
                     markdown_file TEXT,
                     preprocessed_file TEXT,
-                    digestion_status TEXT NOT NULL DEFAULT 'PENDING'
-                        CHECK (digestion_status IN ('PENDING', 'ERROR', 'DONE')),
+                    digestion_status TEXT NOT NULL DEFAULT 'PENDING',
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (pdf_hash, pdf_creation_time)
                 )
@@ -93,6 +92,9 @@ class LineItemStorage:
             )
             cursor.execute(
                 "DROP FUNCTION IF EXISTS report_registry_set_digestion_time()"
+            )
+            cursor.execute(
+                "ALTER TABLE report_registry DROP CONSTRAINT IF EXISTS report_registry_digestion_status_check"
             )
         connection.commit()
         self._report_registry_ready = True
@@ -148,8 +150,6 @@ class LineItemStorage:
         status: str,
     ) -> None:
         """Insert or update a report's status and updated_at timestamp."""
-        if status not in {"PENDING", "ERROR", "DONE"}:
-            raise ValueError(f"Invalid digestion status: {status}")
         if not self.database_url or not all(
             isinstance(value, str) and value.strip()
             for value in (pdf_hash, pdf_creation_time)
