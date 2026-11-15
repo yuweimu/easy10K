@@ -5,6 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 from typing import Any
 
@@ -54,7 +55,7 @@ class PDF2MarkDown:
             print(f"creationDate not found: {e}")
             return None
 
-    def convert(self, pages: list[int] | None = None) -> Path | list[Path]:
+    def convert(self, pages: list[int] | None = None) -> Path | list[Path] | None:
         """Convert one PDF, or recursively convert a directory in sorted order."""
         if self.pdf_path.is_dir():
             if self.output_path.exists() and not self.output_path.is_dir():
@@ -67,11 +68,13 @@ class PDF2MarkDown:
             for source in sources:
                 destination = None if self._default_output else self.output_path / source.relative_to(self.pdf_path).with_suffix(".md")
                 converter = PDF2MarkDown(source, destination, force=self.force, **self.markdown_options)
-                outputs.append(converter._convert_file(pages))
+                output = converter._convert_file(pages)
+                if output is not None:
+                    outputs.append(output)
             return outputs
         return self._convert_file(pages)
 
-    def _convert_file(self, pages: list[int] | None = None) -> Path:
+    def _convert_file(self, pages: list[int] | None = None) -> Path | None:
         """Convert a single file without sharing document state across reports."""
         if not self.pdf_path.is_file():
             raise FileNotFoundError(f"PDF file not found: {self.pdf_path}")
@@ -89,14 +92,13 @@ class PDF2MarkDown:
             pages = list(range(total_pages)) if pages is None else list(pages)
 
             options = dict(self.markdown_options)
-            # Legacy extraction otherwise scans the entire PDF on every page call.
-            if options.get("hdr_info") is None and hasattr(pymupdf4llm, "IdentifyHeaders"):
-                options["hdr_info"] = pymupdf4llm.IdentifyHeaders(document)
-
             staging_dir = Path("reports/markdown") if self._default_output else self.output_path.parent
             staging_dir.mkdir(parents=True, exist_ok=True)
             temporary_path: Path | None = None
             try:
+                # Legacy extraction otherwise scans the entire PDF on every page call.
+                if options.get("hdr_info") is None and hasattr(pymupdf4llm, "IdentifyHeaders"):
+                    options["hdr_info"] = pymupdf4llm.IdentifyHeaders(document)
                 # Use the destination filesystem so publishing the completed file is atomic.
                 with tempfile.NamedTemporaryFile(
                     mode="w", encoding="utf-8", dir=staging_dir,
@@ -142,6 +144,22 @@ class PDF2MarkDown:
                     except FileExistsError:
                         print(f"Skipped existing Markdown: {self.output_path.resolve()}")
                         return self.output_path
+            except ValueError as exc:
+                print(f"Skipped {self.pdf_path.resolve()}: ValueError: {exc}", file=sys.stderr, flush=True)
+                if isinstance(pdf_creation_time, str) and pdf_creation_time.strip():
+                    with LineItemStorage() as storage:
+                        storage.store_report_profile(
+                            pdf_hash=pdf_hash,
+                            pdf_creation_time=pdf_creation_time,
+                            pdf_download_url="local",
+                            pdf_local_path=str(self.pdf_path.resolve()),
+                            markdown_file=None,
+                            preprocessed_file=None,
+                        )
+                        storage.update_digestion_status(pdf_hash, pdf_creation_time, "PDF2MD_ERROR")
+                else:
+                    print("Cannot record PDF2MD_ERROR: PDF creation time is missing", file=sys.stderr)
+                return None
             finally:
                 if temporary_path is not None:
                     temporary_path.unlink(missing_ok=True)
@@ -187,7 +205,7 @@ def main() -> None:
     args = parser.parse_args()
 
     output = PDF2MarkDown(args.pdf_path, args.output_path, force=args.force).convert()
-    for output_path in output if isinstance(output, list) else [output]:
+    for output_path in output if isinstance(output, list) else [] if output is None else [output]:
         print(f"Markdown: {output_path.resolve()}")
 
 
