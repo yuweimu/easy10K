@@ -379,12 +379,12 @@ def add_index_section_anchors(text: str) -> str:
 
 @dataclass
 class PreprocessProfile:
-    pdf_hash: str = ""
     pdf_creation_time: str
     stock_code: str | None
     reporting_date: str | None
     markdown_file: str
     preprocessed_file: str
+    pdf_hash: str = ""
     pdf_local_path: str | None = None
     pdf_download_url: str | None = None
 
@@ -444,8 +444,8 @@ def add_report_index_anchor(text: str) -> str:
 
 def main() -> list[PreprocessProfile]:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input-dir", type=Path, default=PROJECT_DIR / "markdown")
-    parser.add_argument("--preprocessed-dir", type=Path, default=PROJECT_DIR / "preprocessed",
+    parser.add_argument("--input-dir", type=Path, default=PROJECT_DIR / "reports/markdown")
+    parser.add_argument("--preprocessed-dir", type=Path, default=PROJECT_DIR / "reports/preprocessed",
                         help="Destination for full reports with index anchors")
     args = parser.parse_args()
     input_dir = args.input_dir.resolve()

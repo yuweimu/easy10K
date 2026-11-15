@@ -14,6 +14,11 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 
 
+def _registry_path(value: str | None) -> str | None:
+    """Store local file paths relative to the program's working directory."""
+    return os.path.relpath(Path(value).resolve()) if value else None
+
+
 class LineItemStorage:
     def __init__(self, database_url: str | None = None) -> None:
         self.database_url = database_url if database_url is not None else os.getenv("DATABASE_URL")
@@ -144,7 +149,8 @@ class LineItemStorage:
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (pdf_hash, pdf_creation_time, stock_code or None, reporting_date or None,
-                 pdf_download_url or None, pdf_local_path or None, markdown_file, preprocessed_file),
+                 pdf_download_url or None, _registry_path(pdf_local_path),
+                 _registry_path(markdown_file), _registry_path(preprocessed_file)),
             )
         connection.commit()
 

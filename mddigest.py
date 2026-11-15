@@ -285,8 +285,8 @@ def main() -> None:
         "md_path",
         type=Path,
         nargs="?",
-        default=Path("reports/002027_分众传媒：2018年半年度报告.md"),
-        #default=Path("reports/"),
+        #default=Path("reports/002027_分众传媒：2018年半年度报告.md"),
+        default=Path("reports/"),
         help="Path to an input MD file or a directory to search recursively",
     )
     args = parser.parse_args()

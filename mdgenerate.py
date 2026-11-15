@@ -12,6 +12,7 @@ import pymupdf
 import pymupdf4llm
 
 from line_item_storage import LineItemStorage
+from report_metadata import extract_report_identifiers
 
 
 class PDF2MarkDown:
@@ -31,11 +32,8 @@ class PDF2MarkDown:
         **markdown_options: Any,
     ) -> None:
         self.pdf_path = Path(pdf_path)
-        self.output_path = (
-            Path(output_path)
-            if output_path is not None
-            else self.pdf_path if self.pdf_path.is_dir() else self.pdf_path.with_suffix(".md")
-        )
+        self._default_output = output_path is None
+        self.output_path = Path(output_path) if output_path is not None else Path("reports/markdown")
         self.markdown_options = markdown_options
         self.force = force
 
@@ -67,7 +65,7 @@ class PDF2MarkDown:
             )
             outputs: list[Path] = []
             for source in sources:
-                destination = self.output_path / source.relative_to(self.pdf_path).with_suffix(".md")
+                destination = None if self._default_output else self.output_path / source.relative_to(self.pdf_path).with_suffix(".md")
                 converter = PDF2MarkDown(source, destination, force=self.force, **self.markdown_options)
                 outputs.append(converter._convert_file(pages))
             return outputs
@@ -77,17 +75,32 @@ class PDF2MarkDown:
         """Convert a single file without sharing document state across reports."""
         if not self.pdf_path.is_file():
             raise FileNotFoundError(f"PDF file not found: {self.pdf_path}")
-        if self.output_path.is_file() and not self.force:
-            print(f"Skipped existing Markdown: {self.output_path}")
+        if not self._default_output and self.output_path.is_file() and not self.force:
+            print(f"Skipped existing Markdown: {self.output_path.resolve()}")
             return self.output_path
-
-        with self.pdf_path.open("rb") as pdf_file:
-            pdf_hash = hashlib.file_digest(
-                pdf_file, lambda: hashlib.md5(usedforsecurity=False),
-            ).hexdigest()
 
         with pymupdf.open(self.pdf_path) as document:
             pdf_creation_time = self.get_pdf_creation_date(document)
+            if self._default_output:
+                stock_code, reporting_date = extract_report_identifiers(
+                    "\n".join(page.get_text() for page in document)
+                )
+                if not stock_code or not reporting_date or not isinstance(pdf_creation_time, str) or not pdf_creation_time.strip():
+                    raise ValueError(
+                        f"Cannot determine default output for {self.pdf_path}: "
+                        "stock_code, reporting_date and PDF creation time are required; specify --output"
+                    )
+                if any(character in pdf_creation_time for character in ("/", "\\", "\0")):
+                    raise ValueError("PDF creation time is not safe for a filename; specify --output")
+                self.output_path = Path("reports/markdown") / stock_code / f"{stock_code}.{reporting_date}.{pdf_creation_time}.md"
+                if self.output_path.is_file() and not self.force:
+                    print(f"Skipped existing Markdown: {self.output_path.resolve()}")
+                    return self.output_path
+
+            with self.pdf_path.open("rb") as pdf_file:
+                pdf_hash = hashlib.file_digest(
+                    pdf_file, lambda: hashlib.md5(usedforsecurity=False),
+                ).hexdigest()
             total_pages = document.page_count
             pages = list(range(total_pages)) if pages is None else list(pages)
 
@@ -106,19 +119,19 @@ class PDF2MarkDown:
                 ) as md_file:
                     temporary_path = Path(md_file.name)
                     md_file.write(
-                        f"<!-- ORIGINAL_PDF_FILE_DOWNLOAD_URL:local -->\n\n"
-                        f"<!-- ORIGINAL_PDF_FILE:{self.pdf_path} -->\n\n"
-                        f"<!-- ORIGINAL_PDF_FILE_HASH:{pdf_hash} -->\n\n"
-                        f"<!-- ORIGINAL_PDF_FILE_CREATION_DATE:{pdf_creation_time} -->\n\n"
+                        f"<!-- ORIGINAL_PDF_FILE_DOWNLOAD_URL:local -->\n"
+                        f"<!-- ORIGINAL_PDF_FILE:{self.pdf_path.resolve()} -->\n"
+                        f"<!-- ORIGINAL_PDF_FILE_HASH:{pdf_hash} -->\n"
+                        f"<!-- ORIGINAL_PDF_FILE_CREATION_DATE:{pdf_creation_time} -->\n"
                     )
                     for page_number in pages:
                         print(
-                            f"\rConverting {self.pdf_path}: {page_number + 1}/{total_pages} " + "." * (page_number % 6 + 1) + " " * (5 - page_number % 6),
+                            f"\rConverting {self.pdf_path.resolve()}: {page_number + 1}/{total_pages} " + "." * (page_number % 6 + 1) + " " * (5 - page_number % 6),
                             end="",
                             flush=True,
                         )
                         page_markdown = pymupdf4llm.to_markdown(document, **options, pages=[page_number])
-                        md_file.write(f"<!-- PDF_PAGE: {page_number+1}/{total_pages} -->\n\n")
+                        md_file.write(f"<!-- PDF_PAGE: {page_number+1}/{total_pages} -->\n")
                         md_file.write(page_markdown)
                 if self.force:
                     temporary_path.replace(self.output_path)
@@ -127,7 +140,7 @@ class PDF2MarkDown:
                     try:
                         os.link(temporary_path, self.output_path)
                     except FileExistsError:
-                        print(f"Skipped existing Markdown: {self.output_path}")
+                        print(f"Skipped existing Markdown: {self.output_path.resolve()}")
                         return self.output_path
             finally:
                 if temporary_path is not None:
@@ -143,7 +156,7 @@ class PDF2MarkDown:
                         preprocessed_file=None,
                     )
             else:
-                print(f"Skipped registry entry (missing PDF creation time): {self.pdf_path}")
+                print(f"Skipped registry entry (missing PDF creation time): {self.pdf_path.resolve()}")
             print(" done.")
 
             return self.output_path
@@ -168,13 +181,13 @@ def main() -> None:
         "--output",
         dest="output_path",
         type=Path,
-        help="Output file for a single PDF, or output directory preserving subfolders for directory input; defaults to beside each PDF",
+        help="Output file for a single PDF, or output directory preserving subfolders for directory input; default: ./reports/markdown/{stock_code}/{stock_code}.{reporting_date}.{pdf_creation_time}.md",
     )
     args = parser.parse_args()
 
     output = PDF2MarkDown(args.pdf_path, args.output_path, force=args.force).convert()
     for output_path in output if isinstance(output, list) else [output]:
-        print(f"Markdown: {output_path}")
+        print(f"Markdown: {output_path.resolve()}")
 
 
 if __name__ == "__main__":

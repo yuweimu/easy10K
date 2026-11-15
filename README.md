@@ -71,7 +71,7 @@ Or recursively convert every `.pdf`/`.PDF` file, preserving subdirectories:
 python mdgenerate.py reports --output markdown
 ```
 
-Without `--output`, each Markdown file is saved beside its source PDF. Filenames are preserved with a `.md` extension; the converter does not infer stock codes or reporting dates from arbitrary PDF names.
+Without `--output`, both single-file and directory conversion save reports to `./reports/markdown/{stock_code}/{stock_code}.{reporting_date}.{pdf_creation_time}.md`, relative to the current working directory. Stock codes and reporting dates are detected from PDF text using the same balance-sheet rules as digestion; creation time comes from PDF metadata. If any naming field is missing, specify an explicit `--output`. Explicit directory output continues to preserve source subdirectories and filenames.
 
 Existing output files are skipped. To replace them:
 
