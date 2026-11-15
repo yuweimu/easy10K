@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Report Registry · Easy10K</title>
+  </head>
+  <body>
+    <main class="admin">
+      <header class="page-header">
+        <div><a class="back" href="/">← Financial dashboard</a><h1>Report registry</h1><p>Source documents, processing status, and report files.</p></div>
+        <button id="refresh" type="button">↻ Refresh</button>
+      </header>
+      <section class="registry" aria-label="Registered reports">
+        <div class="toolbar"><span id="summary" role="status" aria-live="polite">Loading reports…</span><label>Rows per page <select id="page-size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select></label></div>
+        <div id="error" role="alert" hidden></div>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="Report registry table">
+          <table><thead><tr><th scope="col">Stock code</th><th scope="col">Reporting date</th><th scope="col">PDF creation time</th><th scope="col">Status</th><th scope="col">Updated</th><th scope="col">PDF hash</th><th scope="col">Download URL</th><th scope="col">PDF local path</th><th scope="col">Markdown file</th><th scope="col">Preprocessed file</th></tr></thead><tbody id="reports"></tbody></table>
+        </div>
+        <footer class="pagination"><button id="previous" type="button" disabled>← Previous page</button><span id="page-label" aria-live="polite">Page 1 of 1</span><button id="next" type="button" disabled>Next page →</button></footer>
+      </section>
+    </main>
+    <script type="module" src="/src/reports-admin.ts"></script>
+  </body>
+</html>

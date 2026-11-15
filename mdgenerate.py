@@ -81,22 +81,6 @@ class PDF2MarkDown:
 
         with pymupdf.open(self.pdf_path) as document:
             pdf_creation_time = self.get_pdf_creation_date(document)
-            if self._default_output:
-                stock_code, reporting_date = extract_report_identifiers(
-                    "\n".join(page.get_text() for page in document)
-                )
-                if not stock_code or not reporting_date or not isinstance(pdf_creation_time, str) or not pdf_creation_time.strip():
-                    raise ValueError(
-                        f"Cannot determine default output for {self.pdf_path}: "
-                        "stock_code, reporting_date and PDF creation time are required; specify --output"
-                    )
-                if any(character in pdf_creation_time for character in ("/", "\\", "\0")):
-                    raise ValueError("PDF creation time is not safe for a filename; specify --output")
-                self.output_path = Path("reports/markdown") / stock_code / f"{stock_code}.{reporting_date}.{pdf_creation_time}.md"
-                if self.output_path.is_file() and not self.force:
-                    print(f"Skipped existing Markdown: {self.output_path.resolve()}")
-                    return self.output_path
-
             with self.pdf_path.open("rb") as pdf_file:
                 pdf_hash = hashlib.file_digest(
                     pdf_file, lambda: hashlib.md5(usedforsecurity=False),
@@ -109,12 +93,13 @@ class PDF2MarkDown:
             if options.get("hdr_info") is None and hasattr(pymupdf4llm, "IdentifyHeaders"):
                 options["hdr_info"] = pymupdf4llm.IdentifyHeaders(document)
 
-            self.output_path.parent.mkdir(parents=True, exist_ok=True)
+            staging_dir = Path("reports/markdown") if self._default_output else self.output_path.parent
+            staging_dir.mkdir(parents=True, exist_ok=True)
             temporary_path: Path | None = None
             try:
                 # Use the destination filesystem so publishing the completed file is atomic.
                 with tempfile.NamedTemporaryFile(
-                    mode="w", encoding="utf-8", dir=self.output_path.parent,
+                    mode="w", encoding="utf-8", dir=staging_dir,
                     prefix=f".{self.output_path.name}.", suffix=".tmp", delete=False,
                 ) as md_file:
                     temporary_path = Path(md_file.name)
@@ -133,6 +118,21 @@ class PDF2MarkDown:
                         page_markdown = pymupdf4llm.to_markdown(document, **options, pages=[page_number])
                         md_file.write(f"<!-- PDF_PAGE: {page_number+1}/{total_pages} -->\n")
                         md_file.write(page_markdown)
+                if self._default_output:
+                    # Name the report only after Markdown extraction has completed.
+                    stock_code, reporting_date = extract_report_identifiers(
+                        temporary_path.read_text(encoding="utf-8")
+                    )
+                    reporting_date = reporting_date or "no-date"
+                    if not stock_code or not isinstance(pdf_creation_time, str) or not pdf_creation_time.strip():
+                        raise ValueError(
+                            f"Cannot determine default output for {self.pdf_path}: "
+                            "stock_code and PDF creation time are required; specify --output"
+                        )
+                    if any(character in pdf_creation_time for character in ("/", "\\", "\0")):
+                        raise ValueError("PDF creation time is not safe for a filename; specify --output")
+                    self.output_path = Path("reports/markdown") / stock_code / f"{stock_code}.{reporting_date}.{pdf_creation_time}.md"
+                    self.output_path.parent.mkdir(parents=True, exist_ok=True)
                 if self.force:
                     temporary_path.replace(self.output_path)
                 else:
@@ -172,7 +172,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert a PDF or recursively convert a directory of PDFs to Markdown."
     )
-    parser.add_argument("pdf_path", type=Path, help="Input PDF file or directory to search recursively")
+    parser.add_argument("pdf_path", type=Path, nargs="?", default=Path("reports/"),
+                        help="Input PDF file or directory to search recursively (default: reports/)")
     parser.add_argument(
         "--force", action="store_true", help="Overwrite existing Markdown files (otherwise skip them)",
     )

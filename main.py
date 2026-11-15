@@ -2,7 +2,7 @@
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from line_item_chart import LineItemChart
@@ -21,6 +21,22 @@ class WordInput(BaseModel):
     word_input: str
 
 # --- API Endpoints ---
+
+
+@app.get("/report-registry")
+def get_report_registry(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+) -> dict:
+    """Return a paginated, read-only view of registered reports."""
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            return storage.get_report_registry(page, page_size)
+        except Exception as exc:
+            logger.warning("Unable to fetch report registry", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to fetch report registry") from exc
 
 
 @app.get("/reports/{stock_code}/{reporting_date}", response_class=HTMLResponse)

@@ -62,7 +62,7 @@ class LineItemStorage:
         self._table_ready = True
 
     def ensure_report_registry(self) -> None:
-        """Create the registry and its digestion timestamp trigger."""
+        """Create the registry and remove the obsolete digestion timestamp field."""
         if self._report_registry_ready:
             return
         connection = self._connect()
@@ -80,32 +80,19 @@ class LineItemStorage:
                     preprocessed_file TEXT,
                     digestion_status TEXT NOT NULL DEFAULT 'PENDING'
                         CHECK (digestion_status IN ('PENDING', 'ERROR', 'DONE')),
-                    digestion_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (pdf_hash, pdf_creation_time)
                 )
                 """
             )
-            
             cursor.execute(
-                """
-                CREATE OR REPLACE FUNCTION report_registry_set_digestion_time()
-                RETURNS TRIGGER AS $$
-                BEGIN
-                    NEW.digestion_time = CURRENT_TIMESTAMP;
-                    RETURN NEW;
-                END;
-                $$ LANGUAGE plpgsql
-                """
+                "DROP TRIGGER IF EXISTS report_registry_digestion_status_changed ON report_registry"
             )
             cursor.execute(
-                """
-                CREATE OR REPLACE TRIGGER report_registry_digestion_status_changed
-                BEFORE UPDATE OF digestion_status ON report_registry
-                FOR EACH ROW
-                WHEN (OLD.digestion_status IS DISTINCT FROM NEW.digestion_status)
-                EXECUTE FUNCTION report_registry_set_digestion_time()
-                """
+                "ALTER TABLE report_registry DROP COLUMN IF EXISTS digestion_time"
+            )
+            cursor.execute(
+                "DROP FUNCTION IF EXISTS report_registry_set_digestion_time()"
             )
         connection.commit()
         self._report_registry_ready = True
@@ -160,7 +147,7 @@ class LineItemStorage:
         pdf_creation_time: str | None,
         status: str,
     ) -> None:
-        """Insert or update a report's status; the trigger timestamps changes."""
+        """Insert or update a report's status and updated_at timestamp."""
         if status not in {"PENDING", "ERROR", "DONE"}:
             raise ValueError(f"Invalid digestion status: {status}")
         if not self.database_url or not all(
@@ -217,6 +204,34 @@ class LineItemStorage:
                 ),
             )
         connection.commit()
+
+    def get_report_registry(self, page: int = 1, page_size: int = 25) -> dict:
+        """Read a stable, newest-first page of registry entries without schema writes."""
+        if page < 1 or not 1 <= page_size <= 100:
+            raise ValueError("Page must be positive and page_size must be between 1 and 100")
+        fields = (
+            "pdf_hash", "pdf_creation_time", "stock_code", "reporting_date",
+            "pdf_download_url", "pdf_local_path", "markdown_file", "preprocessed_file",
+            "digestion_status", "updated_at",
+        )
+        with self._connect().cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM report_registry")
+            total = cursor.fetchone()[0]
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            page = min(page, total_pages)
+            cursor.execute(
+                """
+                SELECT pdf_hash, pdf_creation_time, stock_code, reporting_date,
+                       pdf_download_url, pdf_local_path, markdown_file, preprocessed_file,
+                       digestion_status, updated_at
+                FROM report_registry
+                ORDER BY updated_at DESC NULLS LAST, pdf_hash, pdf_creation_time
+                LIMIT %s OFFSET %s
+                """,
+                (page_size, (page - 1) * page_size),
+            )
+            items = [dict(zip(fields, row)) for row in cursor.fetchall()]
+        return dict(items=items, total=total, page=page, page_size=page_size, total_pages=total_pages)
 
     def get_balance_sheet_items(self, stock_code: str) -> list[dict]:
         """Return the same ordered fields used by the balance-sheet API."""
