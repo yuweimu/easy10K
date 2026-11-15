@@ -18,7 +18,7 @@ from pathlib import Path
 
 from line_item_chart import LineItemChart
 from line_item_storage import LineItemStorage
-from report_metadata import extract_report_identifiers
+from report_metadata import extract_pdf_metadata, extract_report_identifiers
 
 PROJECT_DIR = Path(__file__).resolve().parent
 SECTION_ANCHORS = {
@@ -379,31 +379,34 @@ def add_index_section_anchors(text: str) -> str:
 
 @dataclass
 class PreprocessProfile:
-    stock_code: str
-    reporting_date: str
+    pdf_hash: str = ""
     pdf_creation_time: str
+    stock_code: str | None
+    reporting_date: str | None
     markdown_file: str
     preprocessed_file: str
+    pdf_local_path: str | None = None
+    pdf_download_url: str | None = None
 
     def is_valid(self) -> bool:
-        """All three registry keys must be nonblank strings."""
+        """Both PDF registry keys must be nonblank strings."""
         return all(
             isinstance(value, str) and bool(value.strip())
-            for value in (self.stock_code, self.reporting_date, self.pdf_creation_time)
+            for value in (self.pdf_hash, self.pdf_creation_time)
         )
 
     @classmethod
     def from_markdown(cls, source: Path, destination: Path, text: str) -> "PreprocessProfile":
         """Extract report identifiers using the digest's content-based rules."""
-        creation_time = re.search(
-            r"(?m)^\s*<!--\s*ORIGINAL_PDF_FILE_CREATION_DATE:\s*([^\r\n]*?)\s*-->[ \t]*$",
-            text,
-        )
+        metadata = extract_pdf_metadata(text)
         stock_code, reporting_date = extract_report_identifiers(text)
         return cls(
-            pdf_creation_time=creation_time.group(1).strip() if creation_time else "",
-            stock_code=stock_code,
-            reporting_date=reporting_date,
+            pdf_creation_time=metadata["pdf_creation_time"],
+            pdf_hash=metadata["pdf_hash"],
+            pdf_local_path=metadata["pdf_local_path"] or None,
+            pdf_download_url=metadata["pdf_download_url"] or None,
+            stock_code=stock_code or None,
+            reporting_date=reporting_date or None,
             markdown_file=str(source.resolve()),
             preprocessed_file=str(destination.resolve()),
         )
@@ -469,6 +472,9 @@ def main() -> list[PreprocessProfile]:
             report_destination.parent.mkdir(parents=True, exist_ok=True)
             report_destination.write_text(processed, encoding="utf-8")
             storage.store_report_profile(
+                pdf_hash=profile.pdf_hash,
+                pdf_local_path=profile.pdf_local_path,
+                pdf_download_url=profile.pdf_download_url,
                 stock_code=profile.stock_code,
                 reporting_date=profile.reporting_date,
                 pdf_creation_time=profile.pdf_creation_time,

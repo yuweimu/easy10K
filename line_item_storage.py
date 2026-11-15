@@ -57,7 +57,7 @@ class LineItemStorage:
         self._table_ready = True
 
     def ensure_report_registry(self) -> None:
-        """Create or migrate the registry and its digestion timestamp trigger."""
+        """Create the registry and its digestion timestamp trigger."""
         if self._report_registry_ready:
             return
         connection = self._connect()
@@ -65,30 +65,23 @@ class LineItemStorage:
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS report_registry (
-                    stock_code VARCHAR(6) NOT NULL,
-                    reporting_date DATE NOT NULL,
+                    pdf_hash TEXT NOT NULL,
                     pdf_creation_time TEXT NOT NULL,
-                    pdf_url TEXT,
-                    pdf_hash TEXT,
+                    stock_code VARCHAR(12),
+                    reporting_date DATE,
+                    pdf_download_url TEXT,
+                    pdf_local_path TEXT,
                     markdown_file TEXT,
                     preprocessed_file TEXT,
                     digestion_status TEXT NOT NULL DEFAULT 'PENDING'
                         CHECK (digestion_status IN ('PENDING', 'ERROR', 'DONE')),
                     digestion_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (stock_code, reporting_date, pdf_creation_time)
+                    PRIMARY KEY (pdf_hash, pdf_creation_time)
                 )
                 """
             )
-            cursor.execute(
-                """
-                ALTER TABLE report_registry
-                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    ADD COLUMN IF NOT EXISTS digestion_status TEXT NOT NULL DEFAULT 'PENDING'
-                        CHECK (digestion_status IN ('PENDING', 'ERROR', 'DONE')),
-                    ADD COLUMN IF NOT EXISTS digestion_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                """
-            )
+            
             cursor.execute(
                 """
                 CREATE OR REPLACE FUNCTION report_registry_set_digestion_time()
@@ -114,15 +107,19 @@ class LineItemStorage:
 
     def store_report_profile(
         self,
-        stock_code: str,
-        reporting_date: str,
+        pdf_hash: str,
         pdf_creation_time: str,
         markdown_file: str | None,
         preprocessed_file: str | None,
+        *,
+        stock_code: str | None = None,
+        reporting_date: str | None = None,
+        pdf_download_url: str | None = None,
+        pdf_local_path: str | None = None,
     ) -> None:
-        """Upsert preprocessing paths while preserving existing PDF metadata."""
+        """Upsert report metadata, preserving existing values when fields are absent."""
         if not all(isinstance(value, str) and value.strip()
-                   for value in (stock_code, reporting_date, pdf_creation_time)):
+                   for value in (pdf_hash, pdf_creation_time)):
             raise ValueError("Report registry keys must be nonblank strings")
         if not self.database_url:
             return
@@ -132,33 +129,37 @@ class LineItemStorage:
             cursor.execute(
                 """
                 INSERT INTO report_registry (
-                    stock_code, reporting_date, pdf_creation_time,
-                    markdown_file, preprocessed_file, updated_at
+                    pdf_hash, pdf_creation_time, stock_code, reporting_date,
+                    pdf_download_url, pdf_local_path, markdown_file, preprocessed_file, updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-                ON CONFLICT (stock_code, reporting_date, pdf_creation_time)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (pdf_hash, pdf_creation_time)
                 DO UPDATE SET
-                    markdown_file = EXCLUDED.markdown_file,
-                    preprocessed_file = EXCLUDED.preprocessed_file,
+                    stock_code = COALESCE(EXCLUDED.stock_code, report_registry.stock_code),
+                    reporting_date = COALESCE(EXCLUDED.reporting_date, report_registry.reporting_date),
+                    pdf_download_url = COALESCE(EXCLUDED.pdf_download_url, report_registry.pdf_download_url),
+                    pdf_local_path = COALESCE(EXCLUDED.pdf_local_path, report_registry.pdf_local_path),
+                    markdown_file = COALESCE(EXCLUDED.markdown_file, report_registry.markdown_file),
+                    preprocessed_file = COALESCE(EXCLUDED.preprocessed_file, report_registry.preprocessed_file),
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (stock_code, reporting_date, pdf_creation_time, markdown_file, preprocessed_file),
+                (pdf_hash, pdf_creation_time, stock_code or None, reporting_date or None,
+                 pdf_download_url or None, pdf_local_path or None, markdown_file, preprocessed_file),
             )
         connection.commit()
 
     def update_digestion_status(
         self,
-        stock_code: str | None,
-        reporting_date: str | None,
+        pdf_hash: str | None,
         pdf_creation_time: str | None,
         status: str,
     ) -> None:
-        """Update only the matching report version; the trigger timestamps changes."""
+        """Insert or update a report's status; the trigger timestamps changes."""
         if status not in {"PENDING", "ERROR", "DONE"}:
             raise ValueError(f"Invalid digestion status: {status}")
         if not self.database_url or not all(
             isinstance(value, str) and value.strip()
-            for value in (stock_code, reporting_date, pdf_creation_time)
+            for value in (pdf_hash, pdf_creation_time)
         ):
             return
         self.ensure_report_registry()
@@ -166,11 +167,14 @@ class LineItemStorage:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                UPDATE report_registry
-                SET digestion_status = %s, updated_at = CURRENT_TIMESTAMP
-                WHERE stock_code = %s AND reporting_date = %s AND pdf_creation_time = %s
+                INSERT INTO report_registry (pdf_hash, pdf_creation_time, digestion_status)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (pdf_hash, pdf_creation_time)
+                DO UPDATE SET
+                    digestion_status = EXCLUDED.digestion_status,
+                    updated_at = CURRENT_TIMESTAMP
                 """,
-                (status, stock_code, reporting_date, pdf_creation_time),
+                (pdf_hash, pdf_creation_time, status),
             )
         connection.commit()
 

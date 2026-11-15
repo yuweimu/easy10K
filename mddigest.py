@@ -6,7 +6,7 @@ from pathlib import Path
 import argparse
 from line_item_chart import LineItemChart
 from line_item_storage import LineItemStorage
-from report_metadata import extract_report_identifiers, is_balance_sheet_title, match_dates, match_stock_code
+from report_metadata import extract_pdf_metadata, is_balance_sheet_title, match_dates, match_stock_code
 
 
 class TableParsingStage(StrEnum):
@@ -260,22 +260,18 @@ class MDDigest:
             try:
                 text = path.read_text(encoding="utf-8")
                 # Identify the registry version even if parsing fails before metadata extraction.
-                stock_code, reporting_date = extract_report_identifiers(text)
-                creation = re.search(
-                    r"(?m)^\s*<!--\s*ORIGINAL_PDF_FILE_CREATION_DATE:\s*([^\r\n]*?)\s*-->[ \t]*$", text,
-                )
-                pdf_creation_time = creation.group(1).strip() if creation else ""
+                metadata = extract_pdf_metadata(text)
                 try:
                     for line in text.splitlines():
                         self.state_machine.process_md_line(line)
                 except AssertionError as exc:
                     self.state_machine.storage.update_digestion_status(
-                        stock_code, reporting_date, pdf_creation_time, "ERROR",
+                        metadata["pdf_hash"], metadata["pdf_creation_time"], "ERROR",
                     )
                     print(f"Skipped {path}: AssertionError: {exc}", file=sys.stderr, flush=True)
                 else:
                     self.state_machine.storage.update_digestion_status(
-                        stock_code, reporting_date, pdf_creation_time, "DONE",
+                        metadata["pdf_hash"], metadata["pdf_creation_time"], "DONE",
                     )
             finally:
                 self.state_machine.close()

@@ -11,6 +11,8 @@ from typing import Any
 import pymupdf
 import pymupdf4llm
 
+from line_item_storage import LineItemStorage
+
 
 class PDF2MarkDown:
     """Convert a PDF to a Markdown file with searchable page markers.
@@ -85,6 +87,7 @@ class PDF2MarkDown:
             ).hexdigest()
 
         with pymupdf.open(self.pdf_path) as document:
+            pdf_creation_time = self.get_pdf_creation_date(document)
             total_pages = document.page_count
             pages = list(range(total_pages)) if pages is None else list(pages)
 
@@ -103,9 +106,10 @@ class PDF2MarkDown:
                 ) as md_file:
                     temporary_path = Path(md_file.name)
                     md_file.write(
+                        f"<!-- ORIGINAL_PDF_FILE_DOWNLOAD_URL:local -->\n\n"
                         f"<!-- ORIGINAL_PDF_FILE:{self.pdf_path} -->\n\n"
                         f"<!-- ORIGINAL_PDF_FILE_HASH:{pdf_hash} -->\n\n"
-                        f"<!-- ORIGINAL_PDF_FILE_CREATION_DATE:{self.get_pdf_creation_date(document)} -->\n\n"
+                        f"<!-- ORIGINAL_PDF_FILE_CREATION_DATE:{pdf_creation_time} -->\n\n"
                     )
                     for page_number in pages:
                         print(
@@ -128,6 +132,18 @@ class PDF2MarkDown:
             finally:
                 if temporary_path is not None:
                     temporary_path.unlink(missing_ok=True)
+            if isinstance(pdf_creation_time, str) and pdf_creation_time.strip():
+                with LineItemStorage() as storage:
+                    storage.store_report_profile(
+                        pdf_hash=pdf_hash,
+                        pdf_creation_time=pdf_creation_time,
+                        pdf_download_url="local",
+                        pdf_local_path=str(self.pdf_path.resolve()),
+                        markdown_file=str(self.output_path.resolve()),
+                        preprocessed_file=None,
+                    )
+            else:
+                print(f"Skipped registry entry (missing PDF creation time): {self.pdf_path}")
             print(" done.")
 
             return self.output_path

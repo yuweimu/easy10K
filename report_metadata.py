@@ -3,6 +3,21 @@
 import re
 
 
+def extract_pdf_metadata(text: str) -> dict[str, str]:
+    """Read source PDF metadata from the Markdown's hidden comments."""
+    fields = {
+        "pdf_hash": "ORIGINAL_PDF_FILE_HASH",
+        "pdf_creation_time": "ORIGINAL_PDF_FILE_CREATION_DATE",
+        "pdf_local_path": "ORIGINAL_PDF_FILE",
+        "pdf_download_url": "ORIGINAL_PDF_FILE_DOWNLOAD_URL",
+    }
+    metadata = {}
+    for field, marker in fields.items():
+        match = re.search(rf"(?m)^[ \t]*<!--[ \t]*{marker}:[ \t]*([^\r\n]*?)[ \t]*-->[ \t]*$", text)
+        metadata[field] = match.group(1).strip() if match else ""
+    return metadata
+
+
 def match_stock_code(line: str) -> str | None:
     match = re.search(r"(?:证券|公司|股票)代码[：:|]\s*(\d{6})", line)
     return match.group(1) if match else None
