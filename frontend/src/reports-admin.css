@@ -17,13 +17,13 @@ button:disabled { opacity: .45; cursor: default; }
 .toolbar, .pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 22px; font-size: 13px; color: #68788e; }
 .toolbar label { display: flex; gap: 10px; align-items: center; }
 .table-scroll { overflow: auto; max-height: 70vh; }
-table { border-collapse: separate; border-spacing: 0; width: 100%; text-align: left; font-size: 13px; }
-th { position: sticky; top: 0; z-index: 1; background: #f7f9fc; color: #62738c; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; border-block: 1px solid #e5eaf2; white-space: nowrap; }
-th, td { padding: 14px 18px; }
+table { border-collapse: separate; border-spacing: 0; width: 100%; text-align: left; font-size: calc(13px + 1pt); }
+th { position: sticky; top: 0; z-index: 1; background: #f7f9fc; color: #62738c; font-size: calc(11px + 1pt); text-transform: uppercase; letter-spacing: .5px; border-block: 1px solid #e5eaf2; white-space: nowrap; }
+th, td { padding: 9px 18px; }
 td { border-bottom: 1px solid #edf0f5; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
 tbody tr:hover { background: #f8faff; }
-.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
-.badge { display: inline-block; border-radius: 20px; padding: 4px 9px; font-size: 10px; font-weight: 650; letter-spacing: .4px; background: #edf0f5; }
+.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: calc(12px + 1pt); }
+.badge { display: inline-block; border-radius: 20px; padding: 4px 9px; font-size: calc(10px + 1pt); font-weight: 650; letter-spacing: .4px; background: #edf0f5; }
 .badge.done { background: #e5f5ee; color: #23734e; }
 .badge.error { background: #fdecec; color: #ae3a3a; }
 .badge.pending { background: #fff5db; color: #8a6518; }

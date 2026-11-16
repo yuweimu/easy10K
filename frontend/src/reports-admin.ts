@@ -40,6 +40,19 @@ function timestamp(value: string | null): string | null {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function linkReportFile(td: HTMLTableCellElement, report: Report,
+  kind: "pdf_local_path" | "markdown_file" | "preprocessed_file"): void {
+  if (!report[kind]) return;
+  const link = document.createElement("a");
+  const query = new URLSearchParams({pdf_hash: report.pdf_hash, pdf_creation_time: report.pdf_creation_time});
+  link.href = `/api/report-registry/file/${kind}?${query}`;
+  link.textContent = td.textContent;
+  link.title = report[kind];
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  td.replaceChildren(link);
+}
+
 function render(items: Report[]): void {
   rows.replaceChildren();
   for (const report of items) {
@@ -72,10 +85,14 @@ function render(items: Report[]): void {
       const filename = report.pdf_local_path.split(/[\\/]/).pop() || report.pdf_local_path;
       pdf.textContent = filename.length > 16 ? `${filename.slice(0, 16)}…` : filename;
     }
+    const preprocessed = cell(report.preprocessed_file, true);
+    linkReportFile(pdf, report, "pdf_local_path");
+    linkReportFile(markdown, report, "markdown_file");
+    linkReportFile(preprocessed, report, "preprocessed_file");
     tr.append(hash, cell(report.stock_code, true), cell(report.reporting_date, true),
       status,
       download, pdf, markdown,
-      cell(report.preprocessed_file, true), cell(timestamp(report.updated_at)));
+      preprocessed, cell(timestamp(report.updated_at)));
     rows.append(tr);
   }
   if (!items.length) {

@@ -218,6 +218,17 @@ class LineItemStorage:
             )
         connection.commit()
 
+    def get_report_files(self, pdf_hash: str, pdf_creation_time: str) -> dict | None:
+        """Return registered local file paths for exactly one report version."""
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                "SELECT pdf_local_path, markdown_file, preprocessed_file FROM report_registry "
+                "WHERE pdf_hash = %s AND pdf_creation_time = %s",
+                (pdf_hash, pdf_creation_time),
+            )
+            row = cursor.fetchone()
+        return dict(zip(("pdf_local_path", "markdown_file", "preprocessed_file"), row)) if row else None
+
     def get_report_registry(self, page: int = 1, page_size: int = 25) -> dict:
         """Read a stable, newest-first page of registry entries without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:

@@ -1,9 +1,10 @@
 # main.py
 import logging
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 from line_item_chart import LineItemChart
 from line_item_storage import LineItemStorage
@@ -14,6 +15,7 @@ app = FastAPI()
 logger = logging.getLogger(__name__)
 line_item_chart = LineItemChart()
 REPORTS_DIR = Path(__file__).resolve().parent / "preprocessed"
+PROJECT_DIR = Path(__file__).resolve().parent
 
 # 2. Define the structure of the data we expect (Pydantic Model)
 class WordInput(BaseModel):
@@ -37,6 +39,37 @@ def get_report_registry(
         except Exception as exc:
             logger.warning("Unable to fetch report registry", exc_info=True)
             raise HTTPException(status_code=503, detail="Unable to fetch report registry") from exc
+
+
+@app.get("/report-registry/file/{file_kind}")
+def get_registry_file(
+    file_kind: Literal["pdf_local_path", "markdown_file", "preprocessed_file"],
+    pdf_hash: str = Query(min_length=1),
+    pdf_creation_time: str = Query(min_length=1),
+) -> Response:
+    """Open a registered PDF inline or render its Markdown in the report viewer."""
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            files = storage.get_report_files(pdf_hash, pdf_creation_time)
+        except Exception as exc:
+            logger.warning("Unable to fetch registered file", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to fetch registered file") from exc
+    if not files or not files.get(file_kind):
+        raise HTTPException(status_code=404, detail="Registered file not found")
+    # Resolve only database-selected paths, never an arbitrary path from the URL.
+    path = (PROJECT_DIR / files[file_kind]).resolve()
+    allowed_roots = [(PROJECT_DIR / folder).resolve() for folder in ("reports", "markdown", "preprocessed")]
+    if not any(path.is_relative_to(root) for root in allowed_roots):
+        raise HTTPException(status_code=403, detail="File is outside report directories")
+    expected_suffix = ".pdf" if file_kind == "pdf_local_path" else ".md"
+    if path.suffix.lower() != expected_suffix or not path.is_file():
+        raise HTTPException(status_code=404, detail="Report file not found")
+    if file_kind == "pdf_local_path":
+        return FileResponse(path, media_type="application/pdf", filename=path.name,
+                            content_disposition_type="inline", headers={"X-Content-Type-Options": "nosniff"})
+    return render_report(path.read_text(encoding="utf-8"), title=path.name)
 
 
 @app.get("/reports/{stock_code}/{reporting_date}", response_class=HTMLResponse)

@@ -226,7 +226,7 @@ class ResultPage:
             tail_word = self.current_word_line[-1]
             if abs(word[3] - tail_word[3]) >= 6:
                 print("==== coord Y mistach")
-            assert abs(word[3] - tail_word[3]) < 6, "coord Y mistach"
+            # assert abs(word[3] - tail_word[3]) < 6, "coord Y mistach"
             new_tail_word = tuple([tail_word[0], tail_word[1], word[2], tail_word[3], tail_word[4] + word[4]])
             self.current_word_line[-1] = new_tail_word
         else:
@@ -284,7 +284,7 @@ class PDFDigest:
         if result_page.current_line:
             result_page.add_line(result_page.current_line)
 
-        # result_page.dump_lines()
+        result_page.dump_lines()
 
         for page_line in result_page.page_lines:
             self.parse_page_line(page_line)
@@ -302,12 +302,12 @@ class PDFDigest:
 def main() -> None:
     # digest = PDFDigest("reports/test.pdf")
 
-    digest = PDFDigest("reports/dongpeng-2025.pdf")
+    #digest = PDFDigest("reports/dongpeng-2025.pdf")
     # digest.process_document([110, 111, 112])
     # digest.process_document([110])
-    digest.process_document()
+    # digest.process_document()
 
-    digest = PDFDigest("reports/dongpeng-2026q3.pdf")
+    digest = PDFDigest("reports/藏格矿业2025.pdf")
     digest.process_document()
     #digest.process_document([7,8,9])
 

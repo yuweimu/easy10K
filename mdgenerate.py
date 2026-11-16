@@ -158,6 +158,15 @@ class PDF2MarkDown:
             print(f"Skipped existing Markdown: {self.output_path.resolve()}")
             return self.output_path
 
+        """
+        existing_path = Path("./reports/markdown/000408/000408.no-date.20260810142702.md")
+        scode, rdate = extract_report_identifiers(
+            existing_path.read_text(encoding="utf-8")
+        )
+        print(f"=========={existing_path} {scode} {rdate}")
+        return
+        """
+
         with pymupdf.open(self.pdf_path) as document:
             pdf_creation_time = self.get_pdf_creation_date(document)
             context["pdf_creation_time"] = pdf_creation_time
@@ -205,12 +214,11 @@ class PDF2MarkDown:
                         page_markdown = pymupdf4llm.to_markdown(document, **options, pages=[page_number])
                         md_file.write(f"<!-- PDF_PAGE: {page_number+1}/{total_pages} -->\n")
                         md_file.write(page_markdown)
+                # Read identifiers from completed Markdown for both default and explicit outputs.
+                stock_code, reporting_date = extract_report_identifiers(
+                    temporary_path.read_text(encoding="utf-8")
+                )
                 if self._default_output:
-                    # Name the report only after Markdown extraction has completed.
-                    stock_code, reporting_date = extract_report_identifiers(
-                        temporary_path.read_text(encoding="utf-8")
-                    )
-                    reporting_date = reporting_date or "no-date"
                     if not stock_code or not isinstance(pdf_creation_time, str) or not pdf_creation_time.strip():
                         raise ValueError(
                             f"Cannot determine default output for {self.pdf_path}: "
@@ -218,7 +226,7 @@ class PDF2MarkDown:
                         )
                     if any(character in pdf_creation_time for character in ("/", "\\", "\0")):
                         raise ValueError("PDF creation time is not safe for a filename; specify --output")
-                    self.output_path = Path("reports/markdown") / stock_code / f"{stock_code}.{reporting_date}.{pdf_creation_time}.md"
+                    self.output_path = Path("reports/markdown") / stock_code / f"{stock_code}.{reporting_date or 'no-date'}.{pdf_creation_time}.md"
                     self.output_path.parent.mkdir(parents=True, exist_ok=True)
                 if self.force:
                     temporary_path.replace(self.output_path)
@@ -237,6 +245,8 @@ class PDF2MarkDown:
                     storage.store_report_profile(
                         pdf_hash=pdf_hash,
                         pdf_creation_time=pdf_creation_time,
+                        stock_code=stock_code or None,
+                        reporting_date=reporting_date or None,
                         pdf_download_url="local",
                         pdf_local_path=str(self.pdf_path.resolve()),
                         markdown_file=str(self.output_path.resolve()),

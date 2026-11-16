@@ -19,12 +19,12 @@ def extract_pdf_metadata(text: str) -> dict[str, str]:
 
 
 def match_stock_code(line: str) -> str | None:
-    match = re.search(r"(?:证券|公司|股票)代码\s*[：:|]?\s*(\d{6})", line.replace("*", ""))
+    match = re.search(r"(?:证券|公司|股票|[Aa]\s*股)\s*代码\s*[：:|]?\s*(\d{6})(?!\d)", line.replace("*", ""))
     return match.group(1) if match else None
 
 
 def is_balance_sheet_title(line: str) -> bool:
-    title = re.sub(r"[ \*0-9,、]", "", line)
+    title = re.sub(r"[ #_\*0-9,、]", "", line)
     return "合并资产负债表" in title and len(title) < len("合并资产负债表") + 3
 
 
@@ -49,7 +49,7 @@ def extract_report_identifiers(text: str) -> tuple[str, str]:
             in_balance_sheet = is_balance_sheet_title(line)
         elif not reporting_date:
             dates = match_dates(line)
-            if dates and dates.count(dates[0]) == 1:
+            if dates and dates.count(dates[0]) >= 1:
                 reporting_date = dates[0]
         if stock_code and reporting_date:
             break
