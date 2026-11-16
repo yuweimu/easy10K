@@ -78,12 +78,21 @@ function render(items: Report[]): void {
       open.rel = "noopener noreferrer";
       local.replaceChildren(open);
       const path = decodeURIComponent(localUrl.pathname);
+      const projectParts = (import.meta.env.VITE_PROJECT_DIR as string).split("/").filter(Boolean);
+      const fileParts = path.split("/").filter(Boolean);
+      let shared = 0;
+      while (shared < projectParts.length && projectParts[shared] === fileParts[shared]) shared++;
+      const relativePath = "../".repeat(projectParts.length - shared) + fileParts.slice(shared).join("/");
+      for (const [buttonLabel, copyValue, description] of [
+        ["F", path, "Copy full PDF local path"],
+        ["R", relativePath, "Copy PDF path relative to project directory"],
+      ]) {
       const copy = document.createElement("button");
       copy.type = "button";
       copy.className = "copy-path";
-      copy.textContent = "Copy";
-      copy.title = "Copy full PDF local path";
-      copy.setAttribute("aria-label", `Copy PDF local path: ${path}`);
+      copy.textContent = buttonLabel;
+      copy.title = `${description}: ${copyValue}`;
+      copy.setAttribute("aria-label", `${description}: ${copyValue}`);
       const feedback = document.createElement("span");
       feedback.className = "copy-feedback";
       feedback.setAttribute("role", "status");
@@ -96,7 +105,7 @@ function render(items: Report[]): void {
         copy.disabled = true;
         feedback.textContent = "";
         try {
-          await navigator.clipboard.writeText(path);
+          await navigator.clipboard.writeText(copyValue);
           feedback.textContent = "Copied";
         } catch {
           feedback.textContent = "Copy failed";
@@ -107,7 +116,23 @@ function render(items: Report[]): void {
       });
       local.classList.add("pdf-local-path");
       local.append(copyControl);
+      }
     }
+    const files = cell(null);
+    files.className = "pdf-files";
+    const sourceLine = document.createElement("div");
+    sourceLine.className = "pdf-source-line";
+    const localLine = document.createElement("div");
+    localLine.className = "pdf-local-line";
+    sourceLine.append(...Array.from(download.childNodes));
+    localLine.append(...Array.from(local.childNodes));
+    sourceLine.title = report.download_url || "No download URL";
+    localLine.title = report.local_path || "No local PDF path";
+    const creationLine = document.createElement("div");
+    creationLine.className = "pdf-creation-date";
+    creationLine.textContent = `Created: ${report.pdf_creation_date || "—"}`;
+    creationLine.title = "PDF creation date";
+    files.replaceChildren(sourceLine, localLine, creationLine);
     const content = cell(null);
     content.className = "digestion-content";
     const fields = [
@@ -121,16 +146,64 @@ function render(items: Report[]): void {
       if (!content.querySelector("details")) content.replaceChildren();
       const details = document.createElement("details");
       const heading = document.createElement("summary");
-      heading.textContent = title;
+      const byteCount = new TextEncoder().encode(report[key] || "").byteLength;
+      heading.textContent = `${title}(${byteCount})`;
+      heading.title = `${byteCount.toLocaleString()} UTF-8 bytes`;
       const text = document.createElement("pre");
       text.textContent = report[key] || "Not extracted yet.";
       details.append(heading, text);
       content.append(details);
     }
     const date = report.updated_at ? new Date(report.updated_at) : null;
-    tr.append(hash, stage, download, local,
-      cell(report.stock_code, true), cell(report.stock_name), cell(report.reporting_date, true),
-      cell(report.pdf_creation_date, true),
+    const identity = cell(null);
+    identity.className = "report-identity";
+    identity.replaceChildren();
+    for (const [title, value] of [
+      ["Stock code", report.stock_code], ["Stock name", report.stock_name],
+      ["Reporting date", report.reporting_date],
+    ]) {
+      const line = document.createElement("div");
+      line.textContent = value || "—";
+      line.title = `${title}: ${value || "—"}`;
+      identity.append(line);
+    }
+    const hashText = document.createElement("div");
+    hashText.textContent = hash.textContent;
+    hashText.title = report.pdf_hash;
+    const hashCopyControl = document.createElement("span");
+    hashCopyControl.className = "copy-control";
+    const hashCopy = document.createElement("button");
+    hashCopy.type = "button";
+    hashCopy.className = "copy-path";
+    hashCopy.textContent = "Copy";
+    hashCopy.title = "Copy full PDF hash";
+    hashCopy.setAttribute("aria-label", `Copy full PDF hash: ${report.pdf_hash}`);
+    const hashFeedback = document.createElement("span");
+    hashFeedback.className = "copy-feedback";
+    hashFeedback.setAttribute("role", "status");
+    let hashFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
+    hashCopy.addEventListener("click", async () => {
+      clearTimeout(hashFeedbackTimer);
+      hashCopy.disabled = true;
+      hashFeedback.textContent = "";
+      try {
+        await navigator.clipboard.writeText(report.pdf_hash);
+        hashFeedback.textContent = "Copied";
+      } catch {
+        hashFeedback.textContent = "Copy failed";
+      } finally {
+        hashCopy.disabled = false;
+        hashFeedbackTimer = setTimeout(() => { hashFeedback.textContent = ""; }, 2000);
+      }
+    });
+    hashCopyControl.append(hashCopy, hashFeedback);
+    hashText.append(hashCopyControl);
+    hash.classList.add("pdf-hash");
+    const stageLine = document.createElement("div");
+    stageLine.className = "pdf-stage-line";
+    stageLine.append(...Array.from(stage.childNodes));
+    hash.replaceChildren(hashText, stageLine);
+    tr.append(hash, files, identity,
       textDetails(report.extraction_report, "View report"),
       textDetails(report.extraction_audit, "View audit"), content,
       cell(date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : report.updated_at));
@@ -138,7 +211,7 @@ function render(items: Report[]): void {
   }
   if (!items.length) {
     const td = cell("No report digestion records yet.");
-    td.colSpan = 12;
+    td.colSpan = 7;
     td.className = "empty";
     const tr = document.createElement("tr");
     tr.append(td);
