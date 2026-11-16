@@ -25,6 +25,44 @@ class WordInput(BaseModel):
 # --- API Endpoints ---
 
 
+@app.get("/report-digestion")
+def get_report_digestion(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+) -> dict:
+    """Return a paginated, read-only view of report digestion records."""
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            return storage.get_report_digestion(page, page_size)
+        except Exception as exc:
+            logger.warning("Unable to fetch report digestion", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to fetch report digestion") from exc
+
+
+@app.get("/report-digestion/file")
+def get_digestion_pdf(pdf_hash: str = Query(min_length=1)) -> FileResponse:
+    """Serve a registered local PDF inline, restricted to the reports directory."""
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            local_path = storage.get_digestion_pdf_path(pdf_hash)
+        except Exception as exc:
+            logger.warning("Unable to fetch digestion PDF path", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to fetch registered PDF") from exc
+    if not local_path:
+        raise HTTPException(status_code=404, detail="Registered PDF not found")
+    path = (PROJECT_DIR / local_path).resolve()
+    if not path.is_relative_to((PROJECT_DIR / "reports").resolve()):
+        raise HTTPException(status_code=403, detail="File is outside report directories")
+    if path.suffix.lower() != ".pdf" or not path.is_file():
+        raise HTTPException(status_code=404, detail="Report PDF not found")
+    return FileResponse(path, media_type="application/pdf", filename=path.name,
+                        content_disposition_type="inline", headers={"X-Content-Type-Options": "nosniff"})
+
+
 @app.get("/report-registry")
 def get_report_registry(
     page: int = Query(default=1, ge=1),

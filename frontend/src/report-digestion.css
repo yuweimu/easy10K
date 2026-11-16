@@ -1,0 +1,9 @@
+.digestion-content { min-width: 220px; max-width: 500px; white-space: normal; }
+.digestion-content details + details { margin-top: 8px; }
+.digestion-content summary { cursor: pointer; color: #3865b8; }
+.digestion-content pre { max-height: 350px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #f4f6fa; font-size: 12px; }
+.pdf-local-path { overflow: visible; }
+.copy-control { position: relative; display: inline-block; margin-left: 8px; }
+.copy-path { padding: 3px 7px; font-size: 11px; }
+.copy-feedback { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 3; padding: 5px 8px; border-radius: 5px; background: #24334b; color: white; font-size: 11px; white-space: nowrap; box-shadow: 0 2px 8px #20345626; pointer-events: none; }
+.copy-feedback:empty { display: none; }

@@ -25,6 +25,75 @@ class LineItemStorage:
         self._connection = None
         self._table_ready = False
         self._report_registry_ready = False
+        self._report_digestion_ready = False
+
+    def store_downloaded_report(self, pdf_hash: str, download_url: str, local_path: str) -> None:
+        """Upsert completed download metadata without touching extracted content."""
+        if not all(isinstance(value, str) and value.strip()
+                   for value in (pdf_hash, download_url, local_path)):
+            raise ValueError("Download hash, URL, and local path must be nonblank strings")
+        if not self.database_url:
+            return
+        connection = self._connect()
+        with connection.cursor() as cursor:
+            if not self._report_digestion_ready:
+                cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
+            cursor.execute(
+                """
+                INSERT INTO report_digestion (pdf_hash, download_url, local_path, digestion_stage)
+                VALUES (%s, %s, %s, 'Downloaded')
+                ON CONFLICT (pdf_hash) DO UPDATE SET
+                    download_url = EXCLUDED.download_url,
+                    local_path = EXCLUDED.local_path,
+                    digestion_stage = 'Downloaded',
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (pdf_hash, download_url, _registry_path(local_path)),
+            )
+        connection.commit()
+        self._report_digestion_ready = True
+
+    def store_extracted_report(
+        self, pdf_hash: str, extraction_report: str,
+        balance_sheet: str | None, income_statement: str | None,
+        cash_flow_statement: str | None, *, local_path: str,
+        stock_code: str | None = None, reporting_date: str | None = None,
+        pdf_creation_date: str | None = None,
+    ) -> None:
+        """Atomically upsert JSON/Markdown content and mark extraction complete."""
+        if not isinstance(pdf_hash, str) or not pdf_hash.strip():
+            raise ValueError("PDF hash must be a nonblank string")
+        if not self.database_url:
+            return
+        connection = self._connect()
+        with connection.cursor() as cursor:
+            if not self._report_digestion_ready:
+                cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
+            cursor.execute(
+                """
+                INSERT INTO report_digestion (
+                    pdf_hash, extraction_report, balance_sheet, income_statement,
+                    cash_flow_statement, local_path, stock_code, reporting_date,
+                    pdf_creation_date, digestion_stage
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'ExtractionSuccess')
+                ON CONFLICT (pdf_hash) DO UPDATE SET
+                    extraction_report = EXCLUDED.extraction_report,
+                    balance_sheet = EXCLUDED.balance_sheet,
+                    income_statement = EXCLUDED.income_statement,
+                    cash_flow_statement = EXCLUDED.cash_flow_statement,
+                    local_path = EXCLUDED.local_path,
+                    stock_code = COALESCE(EXCLUDED.stock_code, report_digestion.stock_code),
+                    reporting_date = COALESCE(EXCLUDED.reporting_date, report_digestion.reporting_date),
+                    pdf_creation_date = COALESCE(EXCLUDED.pdf_creation_date, report_digestion.pdf_creation_date),
+                    digestion_stage = 'ExtractionSuccess',
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (pdf_hash, extraction_report, balance_sheet, income_statement, cash_flow_statement,
+                 _registry_path(local_path), stock_code or None, reporting_date or None,
+                 pdf_creation_date or None),
+            )
+        connection.commit()
+        self._report_digestion_ready = True
 
     def _connect(self):
         if not self.database_url:
@@ -257,6 +326,36 @@ class LineItemStorage:
             items = [dict(zip(fields, row)) for row in cursor.fetchall()]
         return dict(items=items, total=total, page=page, page_size=page_size, total_pages=total_pages)
 
+    def get_digestion_pdf_path(self, pdf_hash: str) -> str | None:
+        """Resolve a registered PDF by hash, never a client-supplied file path."""
+        with self._connect().cursor() as cursor:
+            cursor.execute("SELECT local_path FROM report_digestion WHERE pdf_hash = %s", (pdf_hash,))
+            row = cursor.fetchone()
+        return row[0] if row else None
+
+    def get_report_digestion(self, page: int = 1, page_size: int = 25) -> dict:
+        """Read a newest-first page of digestion records without schema writes."""
+        if page < 1 or not 1 <= page_size <= 100:
+            raise ValueError("Page must be positive and page_size must be between 1 and 100")
+        fields = (
+            "pdf_hash", "pdf_creation_date", "download_url", "local_path", "digestion_stage",
+            "stock_code", "stock_name", "reporting_date", "extraction_report",
+            "balance_sheet", "balance_sheet_ex", "income_statement", "income_statement_ex",
+            "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit", "updated_at",
+        )
+        with self._connect().cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM report_digestion")
+            total = cursor.fetchone()[0]
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            page = min(page, total_pages)
+            cursor.execute(
+                "SELECT " + ", ".join(fields) + " FROM report_digestion "
+                "ORDER BY updated_at DESC NULLS LAST, pdf_hash LIMIT %s OFFSET %s",
+                (page_size, (page - 1) * page_size),
+            )
+            items = [dict(zip(fields, row)) for row in cursor.fetchall()]
+        return dict(items=items, total=total, page=page, page_size=page_size, total_pages=total_pages)
+
     def get_balance_sheet_items(self, stock_code: str) -> list[dict]:
         """Return the same ordered fields used by the balance-sheet API."""
         connection = self._connect()
@@ -279,6 +378,7 @@ class LineItemStorage:
             self._connection = None
         self._table_ready = False
         self._report_registry_ready = False
+        self._report_digestion_ready = False
 
     def __enter__(self) -> Self:
         return self

@@ -49,6 +49,53 @@ Without `DATABASE_URL`, digestion can parse reports but does not persist items. 
 
 ## Prepare reports
 
+### Download reports for a stock list
+
+```bash
+python pdf_download_runner.py
+```
+
+[pdf_download_runner.py](./pdf_download_runner.py) reads the first whitespace-separated
+field of each line in [stock_list.txt](./stock_list.txt) as the stock code. It runs
+stocks sequentially using [pdf_download.py](./pdf_download.py), retaining its
+random 1–5 second delay between PDF downloads by default. Use `--delay MIN,MAX`
+to customize the range on either script, for example:
+
+```bash
+python pdf_download.py 600519 --delay 2,8
+python pdf_download_runner.py --delay 2,8
+```
+
+The range must satisfy `0 <= MIN <= MAX`; equal bounds give a fixed
+delay. Successful lines receive a trailing
+`# DOWNLOADED` marker, saved atomically after each completed stock. Blank lines
+and comments are ignored; `# DOWNLOADED` lines are skipped. Existing
+`reports/download/{stock_code}` directories are reused, and already downloaded PDFs are
+skipped individually by the downloader. Duplicate successful entries are also marked.
+
+Announcements without a `下载公告` link are expected skips (`NO_DOWNLOAD_LINK`)
+and do not prevent marking a stock as downloaded, even if all its announcements
+have no attachment. Network errors, failed PDF transfers, and empty download
+batches receive a trailing `# ERROR`, saved atomically, and the runner continues
+to the next stock. Existing error markers are replaced rather than duplicated;
+successful retries replace `# ERROR` with `# DOWNLOADED`. Error-marked lines are
+skipped by default; pass `--retry-errors` to retry them:
+
+```bash
+python pdf_download_runner.py --retry-errors
+```
+
+Unmarked lines are still processed when this flag is supplied. Existing
+directories do not prevent retries. Only the current attempt determines whether
+the line is marked successful; errors from earlier runs remain in the JSON history
+without preventing a successful retry.
+Download details and errors remain in each stock directory's `downloads.json`.
+
+Optional arguments: `--stock-list PATH`, `--reports-dir PATH`, `--timeout SECONDS`,
+`--retry-errors`, and `--delay MIN,MAX` (default: `1,5`).
+Defaults are relative to the project directory, not the current working directory.
+The runner exits nonzero if any stock fails or a stock-code field is invalid.
+
 ### 1. Convert PDFs to Markdown
 
 On a conversion error, available Markdown (including partial output) is saved beside the source PDF with the same basename for investigation. An existing sibling Markdown file is backed up as `{basename}.previous-*.md` before replacement. Errors are recorded as `PDF2MD_ERROR` when the registry is available and the required PDF keys are known; the batch continues with the next file.
@@ -148,6 +195,46 @@ cause a nonzero exit code. An empty input directory produces an empty audit.
 
 These checks flag suspicious results; they do not certify every financial value
 or replace a visual review of source statements.
+
+### Preview a PDF as lightweight HTML
+
+```bash
+python pdf_preview.py "reports/download/600519/贵州茅台：2024年第一季度报告.pdf"
+python pdf_preview.py report.pdf --output preview.html --start-page 5 --end-page 10
+```
+
+[pdf_preview.py](./pdf_preview.py) produces a small text-first HTML reader by
+default. It uses plain selectable text, preserving line breaks and approximate
+column spacing but omitting images, charts, original fonts, and exact layout.
+Text is stored only once, rather than duplicated in a separate search index.
+The reader
+includes bookmarks (or page navigation when no bookmarks exist), page jumps,
+zoom, selectable text, page-level search, and printing. Open the generated HTML
+directly in a browser; no extension, server, or original PDF is required.
+
+By default HTML is saved beside the PDF. Existing HTML is preserved unless
+`--force` is supplied, and conversion publishes the output only after completion.
+Page ranges are one-based and inclusive. Search and bookmarks remain available.
+For a larger preview that retains the page appearance, use `--mode image`
+(90 DPI, JPEG quality 50 by default); `--dpi` and `--quality` control that mode's
+size/sharpness tradeoff. Scanned reports need prior OCR for text mode, otherwise
+use image mode to view them.
+
+### Preview a PDF as Markdown
+
+```bash
+python pdf_preview_md.py "reports/download/600519/贵州茅台：2024年第一季度报告.pdf" --output output/markdown/600519-2024Q1.md
+python pdf_preview_md.py report.pdf --start-page 5 --end-page 10 --force
+```
+
+[pdf_preview_md.py](./pdf_preview_md.py) is a standalone converter without database
+access. It preserves detected headings, emphasis, reading order, and Markdown
+tables, with a linked contents list and page markers. Output defaults to a `.md`
+file beside the source PDF. Existing output is protected unless `--force` is used;
+only completed conversions replace the destination. Images, charts, fonts, and
+exact positioning are not retained. Scanned pages need prior OCR. For borderless
+tables, try `--table-strategy text`; table detection should still be checked
+against the source report.
 
 ## Run the application
 

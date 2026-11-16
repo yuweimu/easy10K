@@ -53,5 +53,6 @@ reports/
 markdown/
 preprocessed/
 extracted/
+tmp/
 
 test_*

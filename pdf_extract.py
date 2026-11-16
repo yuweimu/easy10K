@@ -17,16 +17,22 @@ import sys
 import pymupdf
 
 from report_metadata import match_dates, match_stock_code
+from line_item_storage import LineItemStorage
 
 
 STATEMENTS = {
     "合并资产负债表": "balance_sheet",
     "合并利润表": "income_statement",
     "合并现金流量表": "cash_flow_statement",
+    "合并本报告期利润表": "income_statement",
+    "合并年初到报告期末利润表": "income_statement",
+    "合并年初到报告期末现金流量表": "cash_flow_statement",
 }
+STATEMENT_FIELDS = tuple(dict.fromkeys(STATEMENTS.values()))
 HEADING = re.compile(
     r"^(?:[\d一二三四五六七八九十]+[、.．])?"
-    r"((?:合并|母公司)(?:资产负债表|利润表|现金流量表|所有者权益变动表|股东权益变动表))"
+    r"((?:合并|母公司)(?:资产负债表|(?:本报告期|年初到报告期末)?利润表|"
+    r"(?:年初到报告期末)?现金流量表|所有者权益变动表|股东权益变动表))"
     r"(?:[（(]续[）)])?$"
 )
 
@@ -153,7 +159,7 @@ def extract_report(pdf_path: str | Path) -> ReportExtraction:
                     if existing is None:
                         active = Statement(title)
                         setattr(result, name, active)
-                    elif active is not existing:
+                    elif active is not existing or existing.title != title:
                         active = None  # Do not append a second copy of a statement.
                 else:
                     active = None  # Parent-company/equity statements are boundaries.
@@ -170,14 +176,25 @@ def main() -> None:
     args = parser.parse_args()
     result = extract_report(args.pdf_path)
     payload = json.dumps(asdict(result), ensure_ascii=False, indent=2)
+    markdown = {
+        name: statement.markdown() if (statement := getattr(result, name)) is not None else None
+        for name in STATEMENT_FIELDS
+    }
     if args.output_dir:
         destination = args.output_dir / args.pdf_path.stem
         destination.mkdir(parents=True, exist_ok=True)
         (destination / "report.json").write_text(payload + "\n", encoding="utf-8")
-        for name in STATEMENTS.values():
-            statement = getattr(result, name)
-            if statement is not None:
-                (destination / f"{name}.md").write_text(statement.markdown(), encoding="utf-8")
+        for name in STATEMENT_FIELDS:
+            if markdown[name] is not None:
+                (destination / f"{name}.md").write_text(markdown[name], encoding="utf-8")
+    with LineItemStorage() as storage:
+        storage.store_extracted_report(
+            result.pdf_hash, payload, markdown["balance_sheet"], markdown["income_statement"],
+            markdown["cash_flow_statement"], local_path=result.pdf_file,
+            stock_code=result.stock_code, reporting_date=result.reporting_date,
+            pdf_creation_date=result.pdf_creation_time,
+        )
+    if args.output_dir:
         print(destination)
     else:
         print(payload)
