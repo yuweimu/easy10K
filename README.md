@@ -123,6 +123,32 @@ Each report gets a fresh parser and storage state. The parser extracts stock cod
 
 Use the original `markdown` files for digestion, not the HTML-decorated `preprocessed` copies. Run digestion from the project root because the parser loads `line-item-chart.txt` relative to the working directory.
 
+### Audit direct PDF statement extraction
+
+Use [audit_pdf_extraction.py](./audit_pdf_extraction.py) to recursively extract the
+three consolidated statements and screen metadata, table structure, page spans,
+and decimal-value coverage:
+
+```bash
+python audit_pdf_extraction.py
+python audit_pdf_extraction.py --input-dir reports --output-dir extracted/pdf
+```
+
+Defaults are anchored to the project directory, so the script can be launched
+from another working directory. Each PDF gets a mirrored output subdirectory
+containing `report.json` and separate statement Markdown files. Generated files
+are replaced on reruns, and `audit.json` is updated after every report. A failed
+file is recorded without stopping the batch.
+
+Use `--cached` to audit saved extractions without reconverting PDFs that already
+have `report.json`. Cached mode does not check source freshness; omit it after
+changing PDFs or extraction logic. Use `--fail-on-issues` to return exit code 1
+when any report is flagged (for automation). By default, audit findings do not
+cause a nonzero exit code. An empty input directory produces an empty audit.
+
+These checks flag suspicious results; they do not certify every financial value
+or replace a visual review of source statements.
+
 ## Run the application
 
 Start the API in one terminal, with the Python environment activated:
