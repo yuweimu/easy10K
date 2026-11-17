@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS report_digestion (
             'ExtractionError',
             'AuditPass',
             'AuditIssues',
-            'HandPass',
+            'ManualPass',
+            'Deprecated',
             'DigestionSuccess',
             'DigestionError'
         )),
@@ -39,12 +40,15 @@ CREATE TABLE IF NOT EXISTS report_digestion (
 -- Upgrade existing tables without changing any stored extraction data.
 ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS extraction_audit TEXT;
 
--- Allow audit outcomes on existing installations as well as new tables.
+-- Rename the manual approval stage before enforcing the new allowed values.
 ALTER TABLE report_digestion DROP CONSTRAINT IF EXISTS report_digestion_digestion_stage_check;
+UPDATE report_digestion SET digestion_stage = 'ManualPass'
+    WHERE digestion_stage = 'HandPass';
 ALTER TABLE report_digestion ADD CONSTRAINT report_digestion_digestion_stage_check
     CHECK (digestion_stage IN (
         'Downloaded', 'PreviewSuccess', 'PreviewError',
-        'ExtractionSuccess', 'ExtractionError', 'AuditPass', 'AuditIssues', 'HandPass',
+        'ExtractionSuccess', 'ExtractionError', 'AuditPass', 'AuditIssues', 'ManualPass',
+        'Deprecated',
         'DigestionSuccess', 'DigestionError'
     ));
 

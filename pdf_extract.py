@@ -173,7 +173,7 @@ def extract_report(pdf_path: str | Path) -> ReportExtraction:
                 marker = {
                     "cash_flow_statement": "期末现金及现金等价物余额",
                     "income_statement": "稀释每股收益",
-                    "balance_sheet": r"负债和.*权益.*总计",
+                    "balance_sheet": r"负债和.{0,6}权益",
                 }.get(STATEMENTS[active.title])
                 if marker:
                     ending = min((bbox[3] for bbox, line in lines
@@ -264,11 +264,12 @@ def main() -> int:
     failed = False
     with LineItemStorage() as storage:
         for path in files:
+            pdf_hash = None
             try:
                 with path.open("rb") as source:
                     pdf_hash = hashlib.file_digest(source, "md5").hexdigest()
                 stage = storage.get_report_digestion_stage(pdf_hash)
-                if stage in ("AuditPass", "HandPass"):
+                if stage in ("AuditPass", "ManualPass"):
                     print(f"Skipping {path}({pdf_hash}): {stage}", file=sys.stderr)
                     continue
                 print(f"Extracting {path}({pdf_hash})")
@@ -295,14 +296,23 @@ def main() -> int:
                 if args.output_dir:
                     print(destination)
                 else:
-                    print(f"\tBS {data['balance_sheet']['title']}\t@ {data['balance_sheet']['pages']}")
-                    print(f"\tIS {data['income_statement']['title']}\t@ {data['income_statement']['pages']}")
-                    print(f"\tCF {data['cash_flow_statement']['title']}\t@ {data['cash_flow_statement']['pages']}")
+                    for label, name in zip(("BS", "IS", "CF"), STATEMENT_FIELDS):
+                        statement = getattr(result, name)
+                        if statement is None:
+                            print(f"\t{label} Not extracted")
+                        else:
+                            print(f"\t{label} {statement.title}\t@ {statement.pages}")
             except Exception as error:
                 failed = True
                 print(f"{path}: {error}", file=sys.stderr)
                 # A failed database write must not poison the next report's transaction.
                 storage.close()
+                if pdf_hash is not None and storage.database_url:
+                    try:
+                        storage.update_report_digestion_stage(pdf_hash, "ExtractionError")
+                    except Exception as stage_error:
+                        print(f"{path}: unable to save ExtractionError: {stage_error}", file=sys.stderr)
+                        storage.close()
     return int(failed)
 
 

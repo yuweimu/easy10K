@@ -311,7 +311,7 @@ def parse_delay(value: str) -> tuple[float, float]:
 
 
 def record_download(destination: Path, download_url: str) -> str:
-    """Hash the completed local PDF and register its download metadata."""
+    """Hash the completed PDF and enroll it without changing an existing row."""
     with destination.open("rb") as pdf:
         pdf_hash = hashlib.file_digest(pdf, lambda: hashlib.md5(usedforsecurity=False)).hexdigest()
     with LineItemStorage() as storage:

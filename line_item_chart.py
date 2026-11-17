@@ -72,17 +72,24 @@ class LineItemChart:
                     self.item_ids[name] = item_id
 
     def get(self, name: str) -> LineItem | None:
-        return self.items.get(name)
-
+        """Prefer exact names, then accept truncated prefixes of at least eight characters."""
+        item = self.items.get(name)
+        if item is not None or len(name) < 8:
+            return item
+        return next((item for full_name, item in self.items.items()
+                     if full_name.startswith(name)), None)
 
     def __getitem__(self, name: str) -> LineItem:
-        return self.items[name]
+        item = self.get(name)
+        if item is None:
+            raise KeyError(name)
+        return item
 
     def get_item_id(self, name: str) -> int:
-        try:
-            return self.item_ids[name]
-        except KeyError:
+        item = self.get(name)
+        if item is None:
             raise KeyError(f"Unknown financial statement line item: {name!r}") from None
+        return item.item_id
 
     def __contains__(self, name: str) -> bool:
-        return name in self.items
+        return self.get(name) is not None

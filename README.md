@@ -183,7 +183,7 @@ python pdf_extract.py reports/download/000702 reports/download/605499 -o extract
 Overlapping inputs are deduplicated. Output folders preserve paths relative to
 the PDFs' common parent directory, keeping reports with identical names in
 different folders separate. Before extraction, each PDF's MD5 hash is checked
-against `report_digestion`; reports at `AuditPass` or `HandPass` are skipped, preserving their
+against `report_digestion`; reports at `AuditPass` or `ManualPass` are skipped, preserving their
 existing files and database contents. Other stages are processed normally.
 The extractor also reads report-title periods from the first three pages
 (`年年度`, `第一季度`, `第三季度`, and `半年度`). Extraction JSON keeps
@@ -211,10 +211,11 @@ On the report digestion page, select a stage beneath the current stage badge
 and click **Save** to update it manually. Setting `ExtractionSuccess` makes the
 report eligible for another audit. Stage changes preserve extraction and audit
 content; the audit is displayed only at `AuditPass` or `AuditIssues`.
-Use `HandPass` to record a human's manual pass decision; it has a success badge
+Use `ManualPass` to record a human's manual pass decision; it has a success badge
 and is preserved during extraction reruns.
-The table hides `HandPass` and `AuditPass` reports by default. Check **Show passed
-reports** to include them; totals and pagination follow the selected filter.
+The table has three tabs: **InProgress** (all stages except `AuditPass` and
+`ManualPass`), **AuditPass**, and **ManualPass**. It opens on **InProgress**;
+switching tabs resets to page one, with totals and pagination for that tab.
 The output `audit.json` includes each row's `pdf_hash`; malformed extractions
 are recorded without stopping the batch.
 

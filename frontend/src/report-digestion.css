@@ -21,3 +21,10 @@
 .stage-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .stage-editor select, .stage-editor button { padding: 4px 7px; font-size: 12px; }
 .stage-feedback { flex-basis: 100%; font-size: 12px; white-space: normal; }
+.report-tabs { display: flex; gap: 8px; padding: 16px 22px 0; border-bottom: 1px solid #e0e6ef; }
+.report-tabs button { border-radius: 7px 7px 0 0; border-bottom: 3px solid transparent; }
+.report-tabs button[aria-selected="true"] { color: #3865b8; background: #eef3fc; border-bottom-color: #3865b8; font-weight: 600; }
+.report-toolbar { flex-wrap: wrap; }
+.report-pagination, .report-page-options { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.report-page-options { margin-left: auto; justify-content: flex-end; }
+.report-pagination #page-label, .report-page-options label { white-space: nowrap; }

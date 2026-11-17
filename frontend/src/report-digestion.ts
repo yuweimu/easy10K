@@ -8,13 +8,15 @@ const previous = document.querySelector<HTMLButtonElement>("#previous")!;
 const next = document.querySelector<HTMLButtonElement>("#next")!;
 const refresh = document.querySelector<HTMLButtonElement>("#refresh")!;
 const size = document.querySelector<HTMLSelectElement>("#page-size")!;
-const showPassed = document.querySelector<HTMLInputElement>("#show-passed")!;
+const reportTabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.report-tabs [role="tab"]'));
+const reportPanel = document.querySelector<HTMLElement>("#report-panel")!;
+let reportGroup = "InProgress";
 const summary = document.querySelector<HTMLElement>("#summary")!;
 const label = document.querySelector<HTMLElement>("#page-label")!;
 const error = document.querySelector<HTMLElement>("#error")!;
 let page = 1, totalPages = 1, loading = false;
 const stages = ["Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
-  "AuditPass", "AuditIssues", "HandPass", "DigestionSuccess", "DigestionError"];
+  "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "DigestionSuccess", "DigestionError"];
 
 function stageEditor(report: Report): HTMLDivElement {
   const editor = document.createElement("div");
@@ -24,7 +26,6 @@ function stageEditor(report: Report): HTMLDivElement {
   for (const value of stages) {
     const option = document.createElement("option");
     option.value = option.textContent = value;
-    if (value === "HandPass") option.textContent = "HandPass (manual pass)";
     select.append(option);
   }
   select.value = report.digestion_stage;
@@ -81,6 +82,36 @@ function textDetails(value: string | null | undefined, title: string): HTMLTable
     const details = document.createElement("details");
     const heading = document.createElement("summary");
     heading.textContent = title;
+    const copyControl = document.createElement("span");
+    copyControl.className = "copy-control";
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "copy-path";
+    copy.textContent = "Copy";
+    copy.title = "Copy extraction report";
+    copy.setAttribute("aria-label", "Copy extraction report");
+    const feedback = document.createElement("span");
+    feedback.className = "copy-feedback";
+    feedback.setAttribute("role", "status");
+    let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
+    copy.addEventListener("click", async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearTimeout(feedbackTimer);
+      copy.disabled = true;
+      feedback.textContent = "";
+      try {
+        await navigator.clipboard.writeText(value);
+        feedback.textContent = "Copied";
+      } catch {
+        feedback.textContent = "Copy failed";
+      } finally {
+        copy.disabled = false;
+        feedbackTimer = setTimeout(() => { feedback.textContent = ""; }, 2000);
+      }
+    });
+    copyControl.append(copy, feedback);
+    heading.append(copyControl);
     const text = document.createElement("pre");
     text.textContent = value;
     details.append(heading, text);
@@ -127,10 +158,10 @@ function render(items: Report[]): void {
     const badge = document.createElement("span");
     const hasIssues = report.digestion_stage.endsWith("Error") || report.digestion_stage === "AuditIssues";
     const passed = report.digestion_stage.endsWith("Success")
-      || ["AuditPass", "HandPass"].includes(report.digestion_stage);
+      || ["AuditPass", "ManualPass"].includes(report.digestion_stage);
     badge.className = `badge ${hasIssues ? "error" : passed ? "done" : "pending"}`;
     badge.textContent = report.digestion_stage;
-    if (report.digestion_stage === "HandPass") badge.title = "Manually marked as passed";
+    if (report.digestion_stage === "ManualPass") badge.title = "Manually marked as passed";
     stage.replaceChildren(badge);
     const download = cell(report.download_url);
     if (report.download_url) {
@@ -234,6 +265,39 @@ function render(items: Report[]): void {
       const byteCount = new TextEncoder().encode(report[key] || "").byteLength;
       heading.textContent = `${title}(${byteCount})`;
       heading.title = `${byteCount.toLocaleString()} UTF-8 bytes`;
+      const copyControl = document.createElement("span");
+      copyControl.className = "copy-control";
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "copy-path";
+      copy.textContent = "Copy";
+      copy.title = `Copy ${title.toLowerCase()}`;
+      copy.setAttribute("aria-label", `Copy ${title.toLowerCase()}`);
+      const statement = report[key];
+      copy.disabled = !statement;
+      const feedback = document.createElement("span");
+      feedback.className = "copy-feedback";
+      feedback.setAttribute("role", "status");
+      let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
+      copy.addEventListener("click", async event => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!statement) return;
+        clearTimeout(feedbackTimer);
+        copy.disabled = true;
+        feedback.textContent = "";
+        try {
+          await navigator.clipboard.writeText(statement);
+          feedback.textContent = "Copied";
+        } catch {
+          feedback.textContent = "Copy failed";
+        } finally {
+          copy.disabled = false;
+          feedbackTimer = setTimeout(() => { feedback.textContent = ""; }, 2000);
+        }
+      });
+      copyControl.append(copy, feedback);
+      heading.append(copyControl);
       const text = document.createElement("pre");
       text.textContent = report[key] || "Not extracted yet.";
       details.append(heading, text);
@@ -300,13 +364,12 @@ function render(items: Report[]): void {
     hash.replaceChildren(hashText, stageLine);
     tr.append(hash, files, identity,
       textDetails(report.extraction_report, "View report"),
-      auditCell(["AuditPass", "AuditIssues"].includes(report.digestion_stage)
-        ? report.extraction_audit : null), content,
+      auditCell(report.extraction_audit), content,
       updated);
     rows.append(tr);
   }
   if (!items.length) {
-    const td = cell("No report digestion records yet.");
+    const td = cell("No reports match the selected filter.");
     td.colSpan = 7;
     td.className = "empty";
     const tr = document.createElement("tr");
@@ -318,12 +381,13 @@ function render(items: Report[]): void {
 async function load(requestedPage = page): Promise<void> {
   if (loading) return;
   loading = true;
-  previous.disabled = next.disabled = refresh.disabled = size.disabled = showPassed.disabled = true;
+  previous.disabled = next.disabled = refresh.disabled = size.disabled = true;
+  reportTabs.forEach(tab => { tab.disabled = true; });
   error.hidden = true;
   summary.textContent = "Loading reports…";
   rows.closest("table")!.setAttribute("aria-busy", "true");
   try {
-    const response = await fetch(`/api/report-digestion?page=${requestedPage}&page_size=${size.value}&show_passed=${showPassed.checked}`);
+    const response = await fetch(`/api/report-digestion?page=${requestedPage}&page_size=${size.value}&report_group=${reportGroup}`);
     if (!response.ok) throw new Error(`Unable to load report digestion (HTTP ${response.status}). Check the API, database, and schema.`);
     const data: ReportPage = await response.json();
     page = data.page;
@@ -340,7 +404,8 @@ async function load(requestedPage = page): Promise<void> {
     loading = false;
     previous.disabled = page <= 1;
     next.disabled = page >= totalPages;
-    refresh.disabled = size.disabled = showPassed.disabled = false;
+    refresh.disabled = size.disabled = false;
+    reportTabs.forEach(tab => { tab.disabled = false; });
     rows.closest("table")!.setAttribute("aria-busy", "false");
   }
 }
@@ -348,7 +413,31 @@ previous.addEventListener("click", () => void load(page - 1));
 next.addEventListener("click", () => void load(page + 1));
 refresh.addEventListener("click", () => void load());
 size.addEventListener("change", () => void load(1));
-showPassed.addEventListener("change", () => void load(1));
+for (const tab of reportTabs) {
+  tab.addEventListener("click", () => {
+    if (loading || reportGroup === tab.dataset.group) return;
+    reportGroup = tab.dataset.group!;
+    for (const item of reportTabs) {
+      item.setAttribute("aria-selected", String(item === tab));
+      item.tabIndex = item === tab ? 0 : -1;
+    }
+    reportPanel.setAttribute("aria-labelledby", tab.id);
+    rows.replaceChildren();
+    page = totalPages = 1;
+    label.textContent = "Page 1 of 1";
+    void load(1);
+  });
+  tab.addEventListener("keydown", event => {
+    const index = reportTabs.indexOf(tab);
+    const target = event.key === "ArrowRight" ? (index + 1) % reportTabs.length
+      : event.key === "ArrowLeft" ? (index + reportTabs.length - 1) % reportTabs.length
+      : event.key === "Home" ? 0 : event.key === "End" ? reportTabs.length - 1 : -1;
+    if (target < 0) return;
+    event.preventDefault();
+    reportTabs[target].focus();
+    reportTabs[target].click();
+  });
+}
 document.addEventListener("keydown", event => {
   if (event.target instanceof HTMLElement && event.target.closest("input, select, textarea, [contenteditable]")) return;
   if (event.key === "PageDown" && !next.disabled) { event.preventDefault(); void load(page + 1); }

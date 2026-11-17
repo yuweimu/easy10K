@@ -16,7 +16,7 @@ load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 
 ReportDigestionStage = Literal[
     "Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
-    "AuditPass", "AuditIssues", "HandPass", "DigestionSuccess", "DigestionError",
+    "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "DigestionSuccess", "DigestionError",
 ]
 
 
@@ -34,7 +34,7 @@ class LineItemStorage:
         self._report_digestion_ready = False
 
     def store_downloaded_report(self, pdf_hash: str, download_url: str, local_path: str) -> None:
-        """Upsert completed download metadata without touching extracted content."""
+        """Register a completed download, leaving existing PDF hashes unchanged."""
         if not all(isinstance(value, str) and value.strip()
                    for value in (pdf_hash, download_url, local_path)):
             raise ValueError("Download hash, URL, and local path must be nonblank strings")
@@ -48,11 +48,7 @@ class LineItemStorage:
                 """
                 INSERT INTO report_digestion (pdf_hash, download_url, local_path, digestion_stage)
                 VALUES (%s, %s, %s, 'Downloaded')
-                ON CONFLICT (pdf_hash) DO UPDATE SET
-                    download_url = EXCLUDED.download_url,
-                    local_path = EXCLUDED.local_path,
-                    digestion_stage = 'Downloaded',
-                    updated_at = CURRENT_TIMESTAMP
+                ON CONFLICT (pdf_hash) DO NOTHING
                 """,
                 (pdf_hash, download_url, _registry_path(local_path)),
             )
@@ -403,26 +399,36 @@ class LineItemStorage:
         connection.commit()
         self._report_digestion_ready = True
 
-    def get_report_digestion(self, page: int = 1, page_size: int = 25, *, show_passed: bool = False) -> dict:
+    def get_report_digestion(self, page: int = 1, page_size: int = 25, *, show_passed: bool = False,
+                             only_manual_pass: bool = False, report_group: str | None = None) -> dict:
         """Read a filtered, newest-first page without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("Page must be positive and page_size must be between 1 and 100")
+        if report_group not in (None, "InProgress", "AuditPass", "ManualPass", "Deprecated"):
+            raise ValueError("Unknown report group")
         fields = (
             "pdf_hash", "pdf_creation_date", "download_url", "local_path", "digestion_stage",
             "stock_code", "stock_name", "reporting_date", "extraction_report",
             "balance_sheet", "balance_sheet_ex", "income_statement", "income_statement_ex",
             "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit", "updated_at",
         )
-        where = "" if show_passed else "WHERE digestion_stage NOT IN ('HandPass', 'AuditPass') "
+        where = "" if show_passed else "WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass') "
+        if only_manual_pass:
+            where = "WHERE digestion_stage = 'ManualPass' "
+        if report_group == "InProgress":
+            where = "WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass', 'Deprecated') "
+        elif report_group in ("AuditPass", "ManualPass", "Deprecated"):
+            where = "WHERE digestion_stage = %s "
+        parameters = (report_group,) if report_group in ("AuditPass", "ManualPass", "Deprecated") else ()
         with self._connect().cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM report_digestion " + where)
+            cursor.execute("SELECT COUNT(*) FROM report_digestion " + where, parameters)
             total = cursor.fetchone()[0]
             total_pages = max(1, (total + page_size - 1) // page_size)
             page = min(page, total_pages)
             cursor.execute(
                 "SELECT " + ", ".join(fields) + " FROM report_digestion " + where +
                 "ORDER BY updated_at DESC NULLS LAST, pdf_hash LIMIT %s OFFSET %s",
-                (page_size, (page - 1) * page_size),
+                parameters + (page_size, (page - 1) * page_size),
             )
             items = [dict(zip(fields, row)) for row in cursor.fetchall()]
         return dict(items=items, total=total, page=page, page_size=page_size, total_pages=total_pages)

@@ -60,6 +60,35 @@ class LineItemChartTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             LineItemChart("/tmp/does-not-exist-line-items.txt")
 
+    def test_truncated_names_require_at_least_eight_characters(self) -> None:
+        items = LineItemChart(self.write_source(
+            "101|一年内到期的非流动资产|Non-current assets due within one year\n"))
+        full_name = "一年内到期的非流动资产"
+        for length in (8, 9, len(full_name)):
+            name = full_name[:length]
+            with self.subTest(name=name):
+                self.assertIs(items.get(name), items.get(full_name))
+                self.assertEqual(items[name].item_id, 101)
+                self.assertEqual(items.get_item_id(name), 101)
+                self.assertIn(name, items)
+        for name in ("", full_name[:7], full_name[1:9], full_name + "合计"):
+            with self.subTest(name=name):
+                self.assertIsNone(items.get(name))
+                self.assertNotIn(name, items)
+                with self.assertRaises(KeyError):
+                    items[name]
+                with self.assertRaisesRegex(KeyError, "Unknown financial statement"):
+                    items.get_item_id(name)
+
+    def test_exact_names_take_priority_over_prefix_matches_and_aliases_work(self) -> None:
+        items = LineItemChart(self.write_source(
+            "101|一年内到期的非流动资产|Non-current assets due within one year\n"
+            "102|一年内到期的非流|Exact eight-character name\n"
+            "103|其他项目|Other item\n"
+            "103|其中一年内到期的非流动资产|Alias\n"))
+        self.assertEqual(items.get_item_id("一年内到期的非流"), 102)
+        self.assertEqual(items.get_item_id("其中一年内到期的"), 103)
+
     def test_rejects_malformed_and_duplicate_definitions(self) -> None:
         malformed_path = self.write_source("资产\n")
         with self.assertRaisesRegex(ValueError, "Invalid line-item definition"):

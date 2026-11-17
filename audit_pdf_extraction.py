@@ -62,13 +62,13 @@ def audit_report(report: ReportExtraction, pdf_path: Path) -> dict:
             "missing_decimal_examples": list(missing_numbers)[:8],
         }
         if len(statement.rows) < 10:
-            entry["issues"].append(f"{key}: too few rows ({len(statement.rows)})")
+            entry["issues"].append(f"{key}{statement.pages}: too few rows ({len(statement.rows)})")
         if len(statement.pages) > 5:
-            entry["issues"].append(f"{key}: unusually long {statement.pages}")
+            entry["issues"].append(f"{key}{statement.pages}: unusually long")
         if missing_sum >= max(3, total_sum * .05):
-            entry["issues"].append(f"{key}: decimals missing from rows ({missing_sum}/{total_sum}) {missing_numbers}")
+            entry["issues"].append(f"{key}{statement.pages}: decimals missing from rows ({missing_sum}/{total_sum}) {missing_numbers}")
         if any(len(row) < 3 for row in statement.rows):
-            entry["issues"].append(f"{key}: fewer than 3 columns {statement.pages}")
+            entry["issues"].append(f"{key}{statement.pages}: row fewer than 3 columns")
     return entry
 
 

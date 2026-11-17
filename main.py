@@ -50,13 +50,17 @@ def get_report_digestion(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     show_passed: bool = False,
+    only_manual_pass: bool = False,
+    report_group: Literal["InProgress", "AuditPass", "ManualPass", "Deprecated"] | None = None,
 ) -> dict:
     """Return a paginated, read-only view of report digestion records."""
     with LineItemStorage() as storage:
         if not storage.database_url:
             raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
         try:
-            return storage.get_report_digestion(page, page_size, show_passed=show_passed)
+            return storage.get_report_digestion(
+                page, page_size, show_passed=show_passed, only_manual_pass=only_manual_pass,
+                report_group=report_group)
         except Exception as exc:
             logger.warning("Unable to fetch report digestion", exc_info=True)
             raise HTTPException(status_code=503, detail="Unable to fetch report digestion") from exc
