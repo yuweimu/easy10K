@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 from line_item_chart import LineItemChart
-from line_item_storage import LineItemStorage
+from line_item_storage import LineItemStorage, ReportDigestionStage
 from report_renderer import render_report
 
 # 1. Initialize the FastAPI application
@@ -25,17 +25,38 @@ class WordInput(BaseModel):
 # --- API Endpoints ---
 
 
+class ReportStageUpdate(BaseModel):
+    digestion_stage: ReportDigestionStage
+
+
+@app.patch("/report-digestion/{pdf_hash}/stage")
+def update_report_digestion_stage(pdf_hash: str, data: ReportStageUpdate) -> dict:
+    """Manually set the stage of an existing report selected by PDF hash."""
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            result = storage.update_report_digestion_stage(pdf_hash, data.digestion_stage)
+        except Exception as exc:
+            logger.warning("Unable to update report digestion stage", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to update report stage") from exc
+        if result is None:
+            raise HTTPException(status_code=404, detail="Report not found")
+        return result
+
+
 @app.get("/report-digestion")
 def get_report_digestion(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
+    show_passed: bool = False,
 ) -> dict:
     """Return a paginated, read-only view of report digestion records."""
     with LineItemStorage() as storage:
         if not storage.database_url:
             raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
         try:
-            return storage.get_report_digestion(page, page_size)
+            return storage.get_report_digestion(page, page_size, show_passed=show_passed)
         except Exception as exc:
             logger.warning("Unable to fetch report digestion", exc_info=True)
             raise HTTPException(status_code=503, detail="Unable to fetch report digestion") from exc

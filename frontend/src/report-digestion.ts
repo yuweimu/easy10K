@@ -8,10 +8,63 @@ const previous = document.querySelector<HTMLButtonElement>("#previous")!;
 const next = document.querySelector<HTMLButtonElement>("#next")!;
 const refresh = document.querySelector<HTMLButtonElement>("#refresh")!;
 const size = document.querySelector<HTMLSelectElement>("#page-size")!;
+const showPassed = document.querySelector<HTMLInputElement>("#show-passed")!;
 const summary = document.querySelector<HTMLElement>("#summary")!;
 const label = document.querySelector<HTMLElement>("#page-label")!;
 const error = document.querySelector<HTMLElement>("#error")!;
 let page = 1, totalPages = 1, loading = false;
+const stages = ["Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
+  "AuditPass", "AuditIssues", "HandPass", "DigestionSuccess", "DigestionError"];
+
+function stageEditor(report: Report): HTMLDivElement {
+  const editor = document.createElement("div");
+  editor.className = "stage-editor";
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", `Stage for report ${report.pdf_hash}`);
+  for (const value of stages) {
+    const option = document.createElement("option");
+    option.value = option.textContent = value;
+    if (value === "HandPass") option.textContent = "HandPass (manual pass)";
+    select.append(option);
+  }
+  select.value = report.digestion_stage;
+  const save = document.createElement("button");
+  save.type = "button";
+  save.textContent = "Save";
+  save.disabled = true;
+  save.setAttribute("aria-label", `Save stage for report ${report.pdf_hash}`);
+  const feedback = document.createElement("span");
+  feedback.setAttribute("role", "status");
+  feedback.className = "stage-feedback";
+  select.addEventListener("change", () => {
+    save.disabled = select.value === report.digestion_stage;
+    feedback.textContent = "";
+  });
+  save.addEventListener("click", async () => {
+    select.disabled = save.disabled = true;
+    feedback.textContent = "Saving…";
+    try {
+      const response = await fetch(`/api/report-digestion/${encodeURIComponent(report.pdf_hash)}/stage`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ digestion_stage: select.value }),
+      });
+      if (!response.ok) throw new Error(`Unable to save stage (HTTP ${response.status}).`);
+      const updated: Pick<Report, "digestion_stage" | "updated_at"> = await response.json();
+      Object.assign(report, updated);
+      await load();
+      feedback.textContent = "Saved";
+      summary.textContent += " · Stage saved";
+    } catch (reason) {
+      feedback.textContent = reason instanceof Error ? reason.message : "Unable to save stage.";
+    } finally {
+      select.disabled = false;
+      save.disabled = select.value === report.digestion_stage;
+    }
+  });
+  editor.append(select, save, feedback);
+  return editor;
+}
 
 function cell(value: string | null | undefined, mono = false): HTMLTableCellElement {
   const td = document.createElement("td");
@@ -36,6 +89,34 @@ function textDetails(value: string | null | undefined, title: string): HTMLTable
   return td;
 }
 
+function auditCell(value: string | null | undefined): HTMLTableCellElement {
+  const td = cell(null);
+  td.className = "digestion-content";
+  if (value) {
+    const text = document.createElement("pre");
+    try {
+      const audit: unknown = JSON.parse(value);
+      if (audit && typeof audit === "object" && !Array.isArray(audit) && "statements" in audit) {
+        const { statements, ...visible } = audit;
+        text.textContent = JSON.stringify(visible, null, 2);
+        const details = document.createElement("details");
+        const heading = document.createElement("summary");
+        heading.textContent = "statements";
+        const statementText = document.createElement("pre");
+        statementText.textContent = JSON.stringify(statements, null, 2);
+        details.append(heading, statementText);
+        td.replaceChildren(text, details);
+        return td;
+      }
+      text.textContent = JSON.stringify(audit, null, 2);
+    } catch {
+      text.textContent = value;
+    }
+    td.replaceChildren(text);
+  }
+  return td;
+}
+
 function render(items: Report[]): void {
   rows.replaceChildren();
   for (const report of items) {
@@ -44,8 +125,12 @@ function render(items: Report[]): void {
     hash.textContent = report.pdf_hash.slice(0, 6);
     const stage = cell(report.digestion_stage);
     const badge = document.createElement("span");
-    badge.className = `badge ${report.digestion_stage.endsWith("Error") ? "error" : report.digestion_stage.endsWith("Success") ? "done" : "pending"}`;
+    const hasIssues = report.digestion_stage.endsWith("Error") || report.digestion_stage === "AuditIssues";
+    const passed = report.digestion_stage.endsWith("Success")
+      || ["AuditPass", "HandPass"].includes(report.digestion_stage);
+    badge.className = `badge ${hasIssues ? "error" : passed ? "done" : "pending"}`;
     badge.textContent = report.digestion_stage;
+    if (report.digestion_stage === "HandPass") badge.title = "Manually marked as passed";
     stage.replaceChildren(badge);
     const download = cell(report.download_url);
     if (report.download_url) {
@@ -211,10 +296,12 @@ function render(items: Report[]): void {
     const stageLine = document.createElement("div");
     stageLine.className = "pdf-stage-line";
     stageLine.append(...Array.from(stage.childNodes));
+    stageLine.append(stageEditor(report));
     hash.replaceChildren(hashText, stageLine);
     tr.append(hash, files, identity,
       textDetails(report.extraction_report, "View report"),
-      textDetails(report.extraction_audit, "View audit"), content,
+      auditCell(["AuditPass", "AuditIssues"].includes(report.digestion_stage)
+        ? report.extraction_audit : null), content,
       updated);
     rows.append(tr);
   }
@@ -231,12 +318,12 @@ function render(items: Report[]): void {
 async function load(requestedPage = page): Promise<void> {
   if (loading) return;
   loading = true;
-  previous.disabled = next.disabled = refresh.disabled = size.disabled = true;
+  previous.disabled = next.disabled = refresh.disabled = size.disabled = showPassed.disabled = true;
   error.hidden = true;
   summary.textContent = "Loading reports…";
   rows.closest("table")!.setAttribute("aria-busy", "true");
   try {
-    const response = await fetch(`/api/report-digestion?page=${requestedPage}&page_size=${size.value}`);
+    const response = await fetch(`/api/report-digestion?page=${requestedPage}&page_size=${size.value}&show_passed=${showPassed.checked}`);
     if (!response.ok) throw new Error(`Unable to load report digestion (HTTP ${response.status}). Check the API, database, and schema.`);
     const data: ReportPage = await response.json();
     page = data.page;
@@ -253,7 +340,7 @@ async function load(requestedPage = page): Promise<void> {
     loading = false;
     previous.disabled = page <= 1;
     next.disabled = page >= totalPages;
-    refresh.disabled = size.disabled = false;
+    refresh.disabled = size.disabled = showPassed.disabled = false;
     rows.closest("table")!.setAttribute("aria-busy", "false");
   }
 }
@@ -261,6 +348,7 @@ previous.addEventListener("click", () => void load(page - 1));
 next.addEventListener("click", () => void load(page + 1));
 refresh.addEventListener("click", () => void load());
 size.addEventListener("change", () => void load(1));
+showPassed.addEventListener("change", () => void load(1));
 document.addEventListener("keydown", event => {
   if (event.target instanceof HTMLElement && event.target.closest("input, select, textarea, [contenteditable]")) return;
   if (event.key === "PageDown" && !next.disabled) { event.preventDefault(); void load(page + 1); }

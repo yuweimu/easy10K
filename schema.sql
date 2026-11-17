@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS report_digestion (
             'PreviewError',
             'ExtractionSuccess',
             'ExtractionError',
+            'AuditPass',
+            'AuditIssues',
+            'HandPass',
             'DigestionSuccess',
             'DigestionError'
         )),
@@ -35,6 +38,15 @@ CREATE TABLE IF NOT EXISTS report_digestion (
 
 -- Upgrade existing tables without changing any stored extraction data.
 ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS extraction_audit TEXT;
+
+-- Allow audit outcomes on existing installations as well as new tables.
+ALTER TABLE report_digestion DROP CONSTRAINT IF EXISTS report_digestion_digestion_stage_check;
+ALTER TABLE report_digestion ADD CONSTRAINT report_digestion_digestion_stage_check
+    CHECK (digestion_stage IN (
+        'Downloaded', 'PreviewSuccess', 'PreviewError',
+        'ExtractionSuccess', 'ExtractionError', 'AuditPass', 'AuditIssues', 'HandPass',
+        'DigestionSuccess', 'DigestionError'
+    ));
 
 -- Preserve existing extraction content when upgrading an older installation.
 DO $$

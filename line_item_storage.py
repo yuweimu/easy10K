@@ -1,17 +1,23 @@
 """PostgreSQL persistence for extracted financial statement line items."""
 
 import importlib
+import json
 import os
 from decimal import Decimal
 from pathlib import Path
 from types import TracebackType
-from typing import Self
+from typing import Literal, Self, get_args
 
 from dotenv import load_dotenv
 
 
 # Resolve beside the program, independently of the working directory.
 load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
+
+ReportDigestionStage = Literal[
+    "Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
+    "AuditPass", "AuditIssues", "HandPass", "DigestionSuccess", "DigestionError",
+]
 
 
 def _registry_path(value: str | None) -> str | None:
@@ -344,8 +350,61 @@ class LineItemStorage:
             )
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
-    def get_report_digestion(self, page: int = 1, page_size: int = 25) -> dict:
-        """Read a newest-first page of digestion records without schema writes."""
+    def get_report_digestion_stage(self, pdf_hash: str) -> str | None:
+        """Look up the processing stage by content hash before PDF extraction."""
+        if not self.database_url:
+            return None
+        connection = self._connect()
+        with connection.cursor() as cursor:
+            if not self._report_digestion_ready:
+                cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
+                connection.commit()
+                self._report_digestion_ready = True
+            cursor.execute(
+                "SELECT digestion_stage FROM report_digestion WHERE pdf_hash = %s",
+                (pdf_hash,),
+            )
+            row = cursor.fetchone()
+        return row[0] if row else None
+
+    def update_report_digestion_stage(self, pdf_hash: str, stage: ReportDigestionStage) -> dict | None:
+        """Manually update a report's stage, preserving all extracted content."""
+        if stage not in get_args(ReportDigestionStage):
+            raise ValueError("Invalid report digestion stage")
+        connection = self._connect()
+        with connection.cursor() as cursor:
+            if not self._report_digestion_ready:
+                cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
+            cursor.execute(
+                "UPDATE report_digestion SET digestion_stage = %s, updated_at = CURRENT_TIMESTAMP "
+                "WHERE pdf_hash = %s RETURNING pdf_hash, digestion_stage, updated_at",
+                (stage, pdf_hash),
+            )
+            row = cursor.fetchone()
+        connection.commit()
+        self._report_digestion_ready = True
+        return dict(zip(("pdf_hash", "digestion_stage", "updated_at"), row)) if row else None
+
+    def store_extraction_audit(self, pdf_hash: str, issues: list[str], statements: dict) -> None:
+        """Save audit details and the resulting stage together for one report."""
+        if not isinstance(pdf_hash, str) or not pdf_hash.strip():
+            raise ValueError("PDF hash must be a nonblank string")
+        payload = json.dumps({"issues": issues, "statements": statements}, ensure_ascii=False)
+        stage = "AuditIssues" if issues else "AuditPass"
+        connection = self._connect()
+        with connection.cursor() as cursor:
+            if not self._report_digestion_ready:
+                cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
+            cursor.execute(
+                "UPDATE report_digestion SET extraction_audit = %s, digestion_stage = %s, "
+                "updated_at = CURRENT_TIMESTAMP WHERE pdf_hash = %s",
+                (payload, stage, pdf_hash),
+            )
+        connection.commit()
+        self._report_digestion_ready = True
+
+    def get_report_digestion(self, page: int = 1, page_size: int = 25, *, show_passed: bool = False) -> dict:
+        """Read a filtered, newest-first page without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("Page must be positive and page_size must be between 1 and 100")
         fields = (
@@ -354,13 +413,14 @@ class LineItemStorage:
             "balance_sheet", "balance_sheet_ex", "income_statement", "income_statement_ex",
             "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit", "updated_at",
         )
+        where = "" if show_passed else "WHERE digestion_stage NOT IN ('HandPass', 'AuditPass') "
         with self._connect().cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM report_digestion")
+            cursor.execute("SELECT COUNT(*) FROM report_digestion " + where)
             total = cursor.fetchone()[0]
             total_pages = max(1, (total + page_size - 1) // page_size)
             page = min(page, total_pages)
             cursor.execute(
-                "SELECT " + ", ".join(fields) + " FROM report_digestion "
+                "SELECT " + ", ".join(fields) + " FROM report_digestion " + where +
                 "ORDER BY updated_at DESC NULLS LAST, pdf_hash LIMIT %s OFFSET %s",
                 (page_size, (page - 1) * page_size),
             )

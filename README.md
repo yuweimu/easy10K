@@ -172,11 +172,49 @@ Use the original `markdown` files for digestion, not the HTML-decorated `preproc
 
 ### Audit direct PDF statement extraction
 
+To extract multiple PDFs or recursively process directories with
+[pdf_extract.py](./pdf_extract.py), pass one or more paths:
+
+```bash
+python pdf_extract.py reports/first.pdf reports/second.pdf -o extracted/pdf
+python pdf_extract.py reports/download/000702 reports/download/605499 -o extracted/pdf
+```
+
+Overlapping inputs are deduplicated. Output folders preserve paths relative to
+the PDFs' common parent directory, keeping reports with identical names in
+different folders separate. Before extraction, each PDF's MD5 hash is checked
+against `report_digestion`; reports at `AuditPass` or `HandPass` are skipped, preserving their
+existing files and database contents. Other stages are processed normally.
+The extractor also reads report-title periods from the first three pages
+(`年年度`, `第一季度`, `第三季度`, and `半年度`). Extraction JSON keeps
+`title_reporting_date`, `balance_sheet_reporting_date`, and
+`reporting_dates_match` (true/false when both sources exist, otherwise null).
+The balance-sheet date takes priority; the title date is used when it is absent.
+Disagreement between the two sources is flagged by the extraction audit.
+Statement headings are accepted only when one of the next three text lines
+contains the statement's reporting period/date, a unit or currency label, or
+the preparer (`编制单位`). This rejects headings without nearby statement metadata.
+Without `-o`, a single PDF prints a JSON object;
+multiple PDFs print a JSON array. A failed PDF is reported on stderr while the
+remaining PDFs continue, with exit code 1 if any report fails.
+
 Use [audit_pdf_extraction.py](./audit_pdf_extraction.py) to screen metadata, table
 structure, page spans, and decimal-value coverage. By default it reads
 `report_digestion` rows where `digestion_stage = 'ExtractionSuccess'` using
 `DATABASE_URL` from the environment or `.env`. It audits the stored
-`extraction_report` JSON without opening PDFs or changing database rows.
+`extraction_report` JSON without opening PDFs. For each report it saves the
+`issues` and `statements` fields as JSON in `extraction_audit`, and sets
+`digestion_stage` to `AuditPass` when issues are empty or `AuditIssues` otherwise.
+These updates are committed together per report. Previously audited rows are
+excluded from subsequent runs unless their stage returns to `ExtractionSuccess`.
+On the report digestion page, select a stage beneath the current stage badge
+and click **Save** to update it manually. Setting `ExtractionSuccess` makes the
+report eligible for another audit. Stage changes preserve extraction and audit
+content; the audit is displayed only at `AuditPass` or `AuditIssues`.
+Use `HandPass` to record a human's manual pass decision; it has a success badge
+and is preserved during extraction reruns.
+The table hides `HandPass` and `AuditPass` reports by default. Check **Show passed
+reports** to include them; totals and pagination follow the selected filter.
 The output `audit.json` includes each row's `pdf_hash`; malformed extractions
 are recorded without stopping the batch.
 

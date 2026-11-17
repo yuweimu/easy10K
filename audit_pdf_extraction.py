@@ -23,16 +23,28 @@ def audit_report(report: ReportExtraction, pdf_path: Path) -> dict:
         entry[key] = getattr(report, key)
         if not entry[key]:
             entry["issues"].append("missing " + key)
+    entry["title_reporting_date"] = report.title_reporting_date
+    entry["balance_sheet_reporting_date"] = report.balance_sheet_reporting_date
+    entry["reporting_dates_match"] = report.reporting_dates_match
+    if (report.title_reporting_date and report.balance_sheet_reporting_date
+            and report.title_reporting_date != report.balance_sheet_reporting_date):
+        entry["issues"].append(
+            f"reporting_date sources disagree: title {report.title_reporting_date}, "
+            f"balance sheet {report.balance_sheet_reporting_date}"
+        )
     year = re.search(r"(?<!\d)(20\d{2})(?!\d)", pdf_path.stem)
     if year:
         quarter = re.search(r"q([1234])", pdf_path.stem, re.I)
         if quarter:
             suffix = {"1": "03-31", "2": "06-30", "3": "09-30", "4": "12-31"}[quarter.group(1)]
         else:
-            suffix = "06-30" if "半年度" in pdf_path.stem else "12-31"
+            suffix = next((date for label, date in (
+                ("年年度", "12-31"), ("三季度", "09-30"),
+                ("一季度", "03-31"), ("半年度", "06-30"),
+            ) if label in pdf_path.stem), "12-31")
         expected = year.group(1) + "-" + suffix
         if report.reporting_date and report.reporting_date != expected:
-            entry["issues"].append(f"date differs from filename: {expected}")
+            entry["issues"].append(f"reporting_date {report.reporting_date} differs from filename expected {expected}")
     for key in dict.fromkeys(STATEMENTS.values()):
         statement = getattr(report, key)
         if statement is None:
@@ -40,23 +52,23 @@ def audit_report(report: ReportExtraction, pdf_path: Path) -> dict:
             continue
         text_numbers = Counter(NUMBER.findall(statement.text))
         row_numbers = Counter(NUMBER.findall(" ".join(" ".join(row) for row in statement.rows)))
-        missing = text_numbers - row_numbers
-        count = sum(text_numbers.values())
-        missing_count = sum(missing.values())
+        missing_numbers = text_numbers - row_numbers
+        total_sum = sum(text_numbers.values())
+        missing_sum = sum(missing_numbers.values())
         entry["statements"][key] = {
             "pages": statement.pages, "rows": len(statement.rows),
             "column_counts": sorted(set(map(len, statement.rows))),
-            "source_decimal_count": count, "missing_decimal_count": missing_count,
-            "missing_decimal_examples": list(missing)[:8],
+            "source_decimal_sum": total_sum, "missing_decimal_sum": missing_sum,
+            "missing_decimal_examples": list(missing_numbers)[:8],
         }
         if len(statement.rows) < 10:
             entry["issues"].append(f"{key}: too few rows ({len(statement.rows)})")
-        if len(statement.pages) > 7:
-            entry["issues"].append(f"{key}: unusually long ({len(statement.pages)} pages)")
-        if missing_count >= max(3, count * .05):
-            entry["issues"].append(f"{key}: decimals missing from rows ({missing_count}/{count})")
+        if len(statement.pages) > 5:
+            entry["issues"].append(f"{key}: unusually long {statement.pages}")
+        if missing_sum >= max(3, total_sum * .05):
+            entry["issues"].append(f"{key}: decimals missing from rows ({missing_sum}/{total_sum}) {missing_numbers}")
         if any(len(row) < 3 for row in statement.rows):
-            entry["issues"].append(f"{key}: fewer than 3 columns")
+            entry["issues"].append(f"{key}: fewer than 3 columns {statement.pages}")
     return entry
 
 
@@ -79,28 +91,29 @@ def write_json(path: Path, data: object) -> None:
 
 
 def audit_extracted_reports(output_dir: Path) -> list[dict]:
-    """Audit ExtractionSuccess rows using stored JSON; source PDFs are optional."""
-    with LineItemStorage() as storage:
-        rows = storage.get_extracted_reports()
+    """Audit ExtractionSuccess rows and persist details and stages by PDF hash."""
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     results = []
-    write_json(output_dir / "audit.json", results)
-    for index, row in enumerate(rows, 1):
-        entry = {"pdf_hash": row["pdf_hash"], "file": row["local_path"],
-                 "issues": [], "statements": {}}
-        
-        try:
-            report = load_report_json(row["extraction_report"])
-            path = Path(row["local_path"] or report.pdf_file)
-            entry.update(audit_report(report, path))
-        except Exception as error:
-            entry["error"] = repr(error)
-            entry["issues"].append("extraction exception")
-        results.append(entry)
-        print(f"{index}/{len(rows)} {row['pdf_hash']}: "
-              + ("; ".join(entry["issues"]) or "PASS"), flush=True)
+    with LineItemStorage() as storage:
+        rows = storage.get_extracted_reports()
         write_json(output_dir / "audit.json", results)
+        for index, row in enumerate(rows, 1):
+            entry = {"pdf_hash": row["pdf_hash"], "file": row["local_path"],
+                     "issues": [], "statements": {}}
+
+            try:
+                report = load_report_json(row["extraction_report"])
+                path = Path(row["local_path"] or report.pdf_file)
+                entry.update(audit_report(report, path))
+            except Exception as error:
+                entry["error"] = repr(error)
+                entry["issues"].append("extraction exception")
+            results.append(entry)
+            write_json(output_dir / "audit.json", results)
+            storage.store_extraction_audit(row["pdf_hash"], entry["issues"], entry["statements"])
+            print(f"{index}/{len(rows)} {row['pdf_hash']} {row['local_path']}: "
+                  + ("; ".join(entry["issues"]) or "PASS"), flush=True)
     print(f"TOTAL {len(results)}; flagged {sum(bool(r['issues']) for r in results)}", flush=True)
     return results
 
