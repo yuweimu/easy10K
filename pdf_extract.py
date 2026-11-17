@@ -24,7 +24,6 @@ STATEMENTS = {
     "合并资产负债表": "balance_sheet",
     "合并利润表": "income_statement",
     "合并现金流量表": "cash_flow_statement",
-    "合并本报告期利润表": "income_statement",
     "合并年初到报告期末利润表": "income_statement",
     "合并年初到报告期末现金流量表": "cash_flow_statement",
 }

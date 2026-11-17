@@ -155,6 +155,15 @@ function render(items: Report[]): void {
       content.append(details);
     }
     const date = report.updated_at ? new Date(report.updated_at) : null;
+    const updated = cell(report.updated_at);
+    if (date && !Number.isNaN(date.getTime())) {
+      const dateLine = document.createElement("div");
+      dateLine.textContent = date.toLocaleDateString();
+      const timeLine = document.createElement("div");
+      timeLine.textContent = date.toLocaleTimeString();
+      updated.replaceChildren(dateLine, timeLine);
+    }
+    updated.classList.add("updated-at");
     const identity = cell(null);
     identity.className = "report-identity";
     identity.replaceChildren();
@@ -206,7 +215,7 @@ function render(items: Report[]): void {
     tr.append(hash, files, identity,
       textDetails(report.extraction_report, "View report"),
       textDetails(report.extraction_audit, "View audit"), content,
-      cell(date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : report.updated_at));
+      updated);
     rows.append(tr);
   }
   if (!items.length) {

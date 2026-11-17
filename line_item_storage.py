@@ -333,6 +333,17 @@ class LineItemStorage:
             row = cursor.fetchone()
         return row[0] if row else None
 
+    def get_extracted_reports(self) -> list[dict]:
+        """Read completed extraction inputs without modifying the database."""
+        fields = ("pdf_hash", "local_path", "extraction_report")
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                "SELECT pdf_hash, local_path, extraction_report FROM report_digestion "
+                "WHERE digestion_stage = %s ORDER BY pdf_hash",
+                ("ExtractionSuccess",),
+            )
+            return [dict(zip(fields, row)) for row in cursor.fetchall()]
+
     def get_report_digestion(self, page: int = 1, page_size: int = 25) -> dict:
         """Read a newest-first page of digestion records without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:

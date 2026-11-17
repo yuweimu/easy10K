@@ -1,4 +1,4 @@
-"""Extract and audit a PDF corpus, saving per-report files and audit.json.
+"""Audit completed database extractions or a PDF corpus, saving audit.json.
 
 This is a screening tool, not a cell-by-cell certification of financial data.
 """
@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 
 from pdf_extract import STATEMENTS, ReportExtraction, Statement, extract_report
+from line_item_storage import LineItemStorage
 
 PROJECT_DIR = Path(__file__).resolve().parent
 NUMBER = re.compile(r"(?<![\d.])[-−]?\d[\d,]*\.\d{2,}(?!\d)")
@@ -32,7 +33,7 @@ def audit_report(report: ReportExtraction, pdf_path: Path) -> dict:
         expected = year.group(1) + "-" + suffix
         if report.reporting_date and report.reporting_date != expected:
             entry["issues"].append(f"date differs from filename: {expected}")
-    for key in STATEMENTS.values():
+    for key in dict.fromkeys(STATEMENTS.values()):
         statement = getattr(report, key)
         if statement is None:
             entry["issues"].append("missing " + key)
@@ -61,8 +62,13 @@ def audit_report(report: ReportExtraction, pdf_path: Path) -> dict:
 
 def load_cached_report(path: Path) -> ReportExtraction:
     """Load saved extraction data, including older results without pdf_hash."""
-    data = json.loads(path.read_text(encoding="utf-8"))
-    for key in STATEMENTS.values():
+    return load_report_json(path.read_text(encoding="utf-8"))
+
+
+def load_report_json(payload: str) -> ReportExtraction:
+    """Reconstruct statement objects from a saved extraction JSON payload."""
+    data = json.loads(payload)
+    for key in dict.fromkeys(STATEMENTS.values()):
         if data[key] is not None:
             data[key] = Statement(**data[key])
     return ReportExtraction(**data)
@@ -70,6 +76,33 @@ def load_cached_report(path: Path) -> ReportExtraction:
 
 def write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def audit_extracted_reports(output_dir: Path) -> list[dict]:
+    """Audit ExtractionSuccess rows using stored JSON; source PDFs are optional."""
+    with LineItemStorage() as storage:
+        rows = storage.get_extracted_reports()
+    output_dir = Path(output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    results = []
+    write_json(output_dir / "audit.json", results)
+    for index, row in enumerate(rows, 1):
+        entry = {"pdf_hash": row["pdf_hash"], "file": row["local_path"],
+                 "issues": [], "statements": {}}
+        
+        try:
+            report = load_report_json(row["extraction_report"])
+            path = Path(row["local_path"] or report.pdf_file)
+            entry.update(audit_report(report, path))
+        except Exception as error:
+            entry["error"] = repr(error)
+            entry["issues"].append("extraction exception")
+        results.append(entry)
+        print(f"{index}/{len(rows)} {row['pdf_hash']}: "
+              + ("; ".join(entry["issues"]) or "PASS"), flush=True)
+        write_json(output_dir / "audit.json", results)
+    print(f"TOTAL {len(results)}; flagged {sum(bool(r['issues']) for r in results)}", flush=True)
+    return results
 
 
 def audit_reports(input_dir: Path, output_dir: Path, *, cached: bool = False) -> list[dict]:
@@ -117,16 +150,22 @@ def audit_reports(input_dir: Path, output_dir: Path, *, cached: bool = False) ->
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input-dir", type=Path, default=PROJECT_DIR / "reports")
+    parser.add_argument("--input-dir", type=Path,
+                        help="Extract PDFs from this directory instead of auditing database rows")
     parser.add_argument("--output-dir", type=Path, default=PROJECT_DIR / "extracted/pdf")
     parser.add_argument("--cached", action="store_true",
                         help="Trust saved report.json results; extract only uncached PDFs")
     parser.add_argument("--fail-on-issues", action="store_true",
                         help="Return exit code 1 if any report has audit issues")
     args = parser.parse_args(argv)
-    if not args.input_dir.is_dir():
-        parser.error(f"Input directory does not exist: {args.input_dir}")
-    results = audit_reports(args.input_dir, args.output_dir, cached=args.cached)
+    if args.input_dir is not None:
+        if not args.input_dir.is_dir():
+            parser.error(f"Input directory does not exist: {args.input_dir}")
+        results = audit_reports(args.input_dir, args.output_dir, cached=args.cached)
+    else:
+        if args.cached:
+            parser.error("--cached requires --input-dir; database mode always uses stored extractions")
+        results = audit_extracted_reports(args.output_dir)
     return int(args.fail_on_issues and any(entry["issues"] for entry in results))
 
 
