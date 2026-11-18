@@ -172,31 +172,33 @@ Use the original `markdown` files for digestion, not the HTML-decorated `preproc
 
 ### Audit direct PDF statement extraction
 
-To extract multiple PDFs or recursively process directories with
-[pdf_extract.py](./pdf_extract.py), pass one or more paths:
+To extract registered reports at the `Downloaded` stage with
+[pdf_extract.py](./pdf_extract.py), configure `DATABASE_URL` and run:
 
 ```bash
-python pdf_extract.py reports/first.pdf reports/second.pdf -o extracted/pdf
-python pdf_extract.py reports/download/000702 reports/download/605499 -o extracted/pdf
+python pdf_extract.py
+python pdf_extract.py -o extracted/pdf
 ```
 
-Overlapping inputs are deduplicated. Output folders preserve paths relative to
-the PDFs' common parent directory, keeping reports with identical names in
-different folders separate. Before extraction, each PDF's MD5 hash is checked
-against `report_digestion`; reports at `AuditPass` or `ManualPass` are skipped, preserving their
-existing files and database contents. Other stages are processed normally.
+Inputs come from `report_digestion.local_path` for rows whose stage is exactly
+`Downloaded`; no PDF path argument is required. Other stages are left unchanged.
+Each file's MD5 hash must match its registered `pdf_hash` before results are saved.
+Output folders preserve paths relative to the PDFs' common parent directory,
+keeping reports with identical names in different folders separate.
 The extractor also reads report-title periods from the first three pages
 (`年年度`, `第一季度`, `第三季度`, and `半年度`). Extraction JSON keeps
 `title_reporting_date`, `balance_sheet_reporting_date`, and
 `reporting_dates_match` (true/false when both sources exist, otherwise null).
 The balance-sheet date takes priority; the title date is used when it is absent.
 Disagreement between the two sources is flagged by the extraction audit.
-Statement headings are accepted only when one of the next three text lines
+Statement headings are accepted only when one of the next five text lines
+across the current and next page (before another statement heading)
 contains the statement's reporting period/date, a unit or currency label, or
 the preparer (`编制单位`). This rejects headings without nearby statement metadata.
-Without `-o`, a single PDF prints a JSON object;
-multiple PDFs print a JSON array. A failed PDF is reported on stderr while the
-remaining PDFs continue, with exit code 1 if any report fails.
+Without `-o`, the extractor prints progress and statement summaries.
+A failed PDF is reported on stderr and marked `ExtractionError` while the
+remaining PDFs continue, with exit code 1 if any report fails. Successful reports
+are saved at `ExtractionSuccess`.
 
 Use [audit_pdf_extraction.py](./audit_pdf_extraction.py) to screen metadata, table
 structure, page spans, and decimal-value coverage. By default it reads
@@ -213,8 +215,9 @@ report eligible for another audit. Stage changes preserve extraction and audit
 content; the audit is displayed only at `AuditPass` or `AuditIssues`.
 Use `ManualPass` to record a human's manual pass decision; it has a success badge
 and is preserved during extraction reruns.
-The table has three tabs: **InProgress** (all stages except `AuditPass` and
-`ManualPass`), **AuditPass**, and **ManualPass**. It opens on **InProgress**;
+The table has five tabs: **InProgress** (all stages except `ExtractionSuccess`,
+`AuditPass`, `ManualPass`, and `Deprecated`), **ExtractionSuccess**, **AuditPass**,
+**ManualPass**, and **Deprecated**. It opens on **InProgress**;
 switching tabs resets to page one, with totals and pagination for that tab.
 The output `audit.json` includes each row's `pdf_hash`; malformed extractions
 are recorded without stopping the batch.

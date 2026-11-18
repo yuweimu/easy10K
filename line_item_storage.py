@@ -16,7 +16,7 @@ load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 
 ReportDigestionStage = Literal[
     "Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
-    "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "DigestionSuccess", "DigestionError",
+    "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "DigestionSuccess", "DigestionError",
 ]
 
 
@@ -335,6 +335,17 @@ class LineItemStorage:
             row = cursor.fetchone()
         return row[0] if row else None
 
+    def get_downloaded_reports(self) -> list[dict]:
+        """Read registered PDFs awaiting extraction without modifying the database."""
+        fields = ("pdf_hash", "local_path")
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                "SELECT pdf_hash, local_path FROM report_digestion "
+                "WHERE digestion_stage = %s ORDER BY pdf_hash",
+                ("Downloaded",),
+            )
+            return [dict(zip(fields, row)) for row in cursor.fetchall()]
+
     def get_extracted_reports(self) -> list[dict]:
         """Read completed extraction inputs without modifying the database."""
         fields = ("pdf_hash", "local_path", "extraction_report")
@@ -404,7 +415,7 @@ class LineItemStorage:
         """Read a filtered, newest-first page without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("Page must be positive and page_size must be between 1 and 100")
-        if report_group not in (None, "InProgress", "AuditPass", "ManualPass", "Deprecated"):
+        if report_group not in (None, "InProgress", "ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated"):
             raise ValueError("Unknown report group")
         fields = (
             "pdf_hash", "pdf_creation_date", "download_url", "local_path", "digestion_stage",
@@ -416,10 +427,10 @@ class LineItemStorage:
         if only_manual_pass:
             where = "WHERE digestion_stage = 'ManualPass' "
         if report_group == "InProgress":
-            where = "WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass', 'Deprecated') "
-        elif report_group in ("AuditPass", "ManualPass", "Deprecated"):
+            where = "WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass', 'Deprecated', 'ExtractionSuccess') "
+        elif report_group in ("ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated"):
             where = "WHERE digestion_stage = %s "
-        parameters = (report_group,) if report_group in ("AuditPass", "ManualPass", "Deprecated") else ()
+        parameters = (report_group,) if report_group in ("ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated") else ()
         with self._connect().cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM report_digestion " + where, parameters)
             total = cursor.fetchone()[0]

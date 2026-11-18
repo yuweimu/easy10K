@@ -16,7 +16,7 @@ const label = document.querySelector<HTMLElement>("#page-label")!;
 const error = document.querySelector<HTMLElement>("#error")!;
 let page = 1, totalPages = 1, loading = false;
 const stages = ["Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
-  "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "DigestionSuccess", "DigestionError"];
+  "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "DigestionSuccess", "DigestionError"];
 
 function stageEditor(report: Report): HTMLDivElement {
   const editor = document.createElement("div");

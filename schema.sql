@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS report_digestion (
             'AuditIssues',
             'ManualPass',
             'Deprecated',
+            'NoStatements',
             'DigestionSuccess',
             'DigestionError'
         )),
@@ -37,6 +38,12 @@ CREATE TABLE IF NOT EXISTS report_digestion (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS report_digestion_pdf_hash_digestion_stage_idx
+    ON report_digestion (pdf_hash, digestion_stage);
+
+CREATE INDEX IF NOT EXISTS report_digestion_stock_code_idx
+    ON report_digestion (stock_code);
+
 -- Upgrade existing tables without changing any stored extraction data.
 ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS extraction_audit TEXT;
 
@@ -47,8 +54,9 @@ UPDATE report_digestion SET digestion_stage = 'ManualPass'
 ALTER TABLE report_digestion ADD CONSTRAINT report_digestion_digestion_stage_check
     CHECK (digestion_stage IN (
         'Downloaded', 'PreviewSuccess', 'PreviewError',
-        'ExtractionSuccess', 'ExtractionError', 'AuditPass', 'AuditIssues', 'ManualPass',
-        'Deprecated',
+        'ExtractionSuccess', 'ExtractionError',
+        'AuditPass', 'AuditIssues', 'ManualPass',
+        'Deprecated', 'NoStatements',
         'DigestionSuccess', 'DigestionError'
     ));
 

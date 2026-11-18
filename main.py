@@ -51,7 +51,7 @@ def get_report_digestion(
     page_size: int = Query(default=25, ge=1, le=100),
     show_passed: bool = False,
     only_manual_pass: bool = False,
-    report_group: Literal["InProgress", "AuditPass", "ManualPass", "Deprecated"] | None = None,
+    report_group: Literal["InProgress", "ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated"] | None = None,
 ) -> dict:
     """Return a paginated, read-only view of report digestion records."""
     with LineItemStorage() as storage:
