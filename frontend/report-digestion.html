@@ -18,8 +18,20 @@
           <button id="tab-audit-pass" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="AuditPass">AuditPass</button>
           <button id="tab-manual-pass" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="ManualPass">ManualPass</button>
           <button id="tab-deprecated" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="Deprecated">Deprecated</button>
+          <button id="tab-search" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="Search">Search</button>
         </div>
         <div id="report-panel" role="tabpanel" aria-labelledby="tab-in-progress">
+        <form id="report-search" class="report-search" hidden>
+          <fieldset id="search-fields">
+            <legend>Search across all report stages</legend>
+            <label>PDF hash <input id="search-pdf-hash" type="text" placeholder="Full PDF hash" /></label>
+            <label>Stock code <input id="search-stock-code" type="text" placeholder="e.g. 600519" maxlength="12" /></label>
+            <label>Stage <select id="search-stage"><option value="">All stages</option></select></label>
+            <button type="submit">Search</button>
+            <button id="clear-search" type="button">Clear</button>
+            <p>Use any filter, or combine filters to narrow the results. Hash and stock code match exactly.</p>
+          </fieldset>
+        </form>
         <div class="toolbar report-toolbar">
           <nav class="report-pagination" aria-label="Report pages"><button id="previous" type="button" disabled>← Previous page</button><span id="page-label" aria-live="polite">Page 1 of 1</span><button id="next" type="button" disabled>Next page →</button></nav>
           <div class="report-page-options"><span id="summary" role="status" aria-live="polite">Loading reports…</span><label>Rows per page <select id="page-size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select></label></div>

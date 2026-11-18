@@ -10,6 +10,12 @@ const refresh = document.querySelector<HTMLButtonElement>("#refresh")!;
 const size = document.querySelector<HTMLSelectElement>("#page-size")!;
 const reportTabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.report-tabs [role="tab"]'));
 const reportPanel = document.querySelector<HTMLElement>("#report-panel")!;
+const searchForm = document.querySelector<HTMLFormElement>("#report-search")!;
+const searchFields = document.querySelector<HTMLFieldSetElement>("#search-fields")!;
+const searchHash = document.querySelector<HTMLInputElement>("#search-pdf-hash")!;
+const searchStock = document.querySelector<HTMLInputElement>("#search-stock-code")!;
+const searchStage = document.querySelector<HTMLSelectElement>("#search-stage")!;
+let searchFilters: Record<string, string> = {};
 let reportGroup = "InProgress";
 const summary = document.querySelector<HTMLElement>("#summary")!;
 const label = document.querySelector<HTMLElement>("#page-label")!;
@@ -17,6 +23,9 @@ const error = document.querySelector<HTMLElement>("#error")!;
 let page = 1, totalPages = 1, loading = false;
 const stages = ["Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
   "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "DigestionSuccess", "DigestionError"];
+for (const stage of stages) {
+  searchStage.add(new Option(stage, stage));
+}
 
 function stageEditor(report: Report): HTMLDivElement {
   const editor = document.createElement("div");
@@ -383,11 +392,18 @@ async function load(requestedPage = page): Promise<void> {
   loading = true;
   previous.disabled = next.disabled = refresh.disabled = size.disabled = true;
   reportTabs.forEach(tab => { tab.disabled = true; });
+  searchFields.disabled = true;
   error.hidden = true;
   summary.textContent = "Loading reports…";
   rows.closest("table")!.setAttribute("aria-busy", "true");
   try {
-    const response = await fetch(`/api/report-digestion?page=${requestedPage}&page_size=${size.value}&report_group=${reportGroup}`);
+    const parameters = new URLSearchParams({page: String(requestedPage), page_size: size.value, report_group: reportGroup});
+    if (reportGroup === "Search") {
+      for (const [key, value] of Object.entries(searchFilters)) {
+        if (value) parameters.set(key, value);
+      }
+    }
+    const response = await fetch(`/api/report-digestion?${parameters}`);
     if (!response.ok) throw new Error(`Unable to load report digestion (HTTP ${response.status}). Check the API, database, and schema.`);
     const data: ReportPage = await response.json();
     page = data.page;
@@ -406,6 +422,7 @@ async function load(requestedPage = page): Promise<void> {
     next.disabled = page >= totalPages;
     refresh.disabled = size.disabled = false;
     reportTabs.forEach(tab => { tab.disabled = false; });
+    searchFields.disabled = false;
     rows.closest("table")!.setAttribute("aria-busy", "false");
   }
 }
@@ -413,10 +430,23 @@ previous.addEventListener("click", () => void load(page - 1));
 next.addEventListener("click", () => void load(page + 1));
 refresh.addEventListener("click", () => void load());
 size.addEventListener("change", () => void load(1));
+searchForm.addEventListener("submit", event => {
+  event.preventDefault();
+  if (loading || reportGroup !== "Search") return;
+  searchFilters = {pdf_hash: searchHash.value.trim(), stock_code: searchStock.value.trim(), digestion_stage: searchStage.value};
+  void load(1);
+});
+document.querySelector<HTMLButtonElement>("#clear-search")!.addEventListener("click", () => {
+  if (loading) return;
+  searchForm.reset();
+  searchFilters = {};
+  void load(1);
+});
 for (const tab of reportTabs) {
   tab.addEventListener("click", () => {
     if (loading || reportGroup === tab.dataset.group) return;
     reportGroup = tab.dataset.group!;
+    searchForm.hidden = reportGroup !== "Search";
     for (const item of reportTabs) {
       item.setAttribute("aria-selected", String(item === tab));
       item.tabIndex = item === tab ? 0 : -1;

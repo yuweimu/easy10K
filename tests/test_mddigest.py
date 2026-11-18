@@ -336,7 +336,7 @@ class TableParsingStateMachineTests(unittest.TestCase):
             self.process(machine, "|货币资金|1,234,567.89|1,100,000.00|")
         )
         machine._store_extracted_item.assert_called_once_with(
-            101101101, "1,234,567.89", "Monetary Funds"
+            101101101, "1,234,567.89"
         )
         self.assertEqual(
             machine.stage, TableParsingStage.BS_TABLE_ITEMS_EXTRACTION
@@ -357,7 +357,7 @@ class TableParsingStateMachineTests(unittest.TestCase):
             )
         )
         machine._store_extracted_item.assert_called_once_with(
-            101101101, "1,234,567.89", "Monetary Funds"
+            101101101, "1,234,567.89"
         )
 
     def test_extract_item_skips_unknown_names(self) -> None:
