@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS report_digestion (
     cash_flow_statement TEXT,
     cash_flow_statement_ex TEXT,
     extraction_audit TEXT,
+    -- JSON-serialized digestion results.
+    digestion_report TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -46,6 +48,7 @@ CREATE INDEX IF NOT EXISTS report_digestion_stock_code_idx
 
 -- Upgrade existing tables without changing any stored extraction data.
 ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS extraction_audit TEXT;
+ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS digestion_report TEXT;
 
 -- Rename the manual approval stage before enforcing the new allowed values.
 ALTER TABLE report_digestion DROP CONSTRAINT IF EXISTS report_digestion_digestion_stage_check;

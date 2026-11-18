@@ -21,7 +21,9 @@
 
 		110128|其他应收款|Other Receivables
 			11012801|应收利息|Interest Receivable
+			11012801|其中：应收利息|Interest Receivable
 			11012802|应收股利|Dividends Receivable
+			11012802|其中：应收股利|Dividends Receivable
 
 
 		110130|买入返售金融资产|Financial Assets Purchased under Resale Agreements
@@ -76,7 +78,9 @@
 		210133|应交税费|Taxes Payable
 		210135|其他应付款|Other Payables
 			21013501|应付利息|Interest Payable
+			21013501|其中：应付利息|Interest Payable
 			21013502|应付股利|Dividends Payable
+			21013502|其中：应付股利|Dividends Payable
 		210141|应付手续费及佣金|Fees and Commissions Payable
 		210143|应付分保账款|Reinsurance Accounts Payable
 		210145|持有待售负债|Liabilities Held for Sale
@@ -87,8 +91,10 @@
 	2102|非流动负债|Non-current Liabilities
 		210201|长期借款|Long-term Borrowings
 		210203|应付债券|Bonds Payable
-			21020301|优先股|Preference Shares
+			21020301|优先股|Preferred stock
+			21020301|其中：优先股|Preferred stock
 			21020302|永续债|Perpetual Bonds
+			21020302|其中：永续债|Perpetual Bonds
 		210205|租赁负债|Lease Liabilities
 		210207|长期应付款|Long-term Payables
 		210209|长期应付职工薪酬|Long-term Employee Benefits Payable
@@ -103,19 +109,20 @@
 31|股东权益|Shareholders’ Equity
 31|所有者权益|Owners’ Equity
 31|所有者权益（或股东权益）|Owners’ Equity (or Shareholders’ Equity)
-	3101|股本|Share Capital
-	3101|实收资本|Paid-in Capital
-	3101|实收资本（或股本）|Paid-in Capital (or Share Capital)
-	3103|减：库存股|Less: Treasury Shares
-	3104|资本公积|Capital Reserves
-	3105|其他综合收益|Other Comprehensive Income
-	3106|专项储备|Special Reserves
-	3107|盈余公积|Surplus Reserves
-	3108|未分配利润|Undistributed Profits
-	3109|一般风险准备|General Risk Reserve
 	3110|归属于母公司股东权益合计|Total Equity Attributable to Shareholders of the Parent
 	3110|归属于母公司所有者权益合计|Total Equity Attributable to Owners of the Parent
 	3110|归属于母公司所有者权益（或股东权益）合计|Total Equity Attributable to Owners of the Parent (or Shareholders)
+		311001|股本|Share Capital
+		311001|实收资本|Paid-in Capital
+		311001|实收资本（或股本）|Paid-in Capital (or Share Capital)
+		311002|其他权益工具|Other equity instruments
+		311003|减：库存股|Less: Treasury Shares
+		311004|资本公积|Capital Reserves
+		311005|其他综合收益|Other Comprehensive Income
+		311006|专项储备|Special Reserves
+		311007|盈余公积|Surplus Reserves
+		311008|未分配利润|Undistributed Profits
+		311009|一般风险准备|General Risk Reserve
 	3111|少数股东权益|Non-controlling Interests
 31|股东权益合计|Total Shareholders’ Equity
 31|所有者权益（或股东权益）合计|Total Owners’ Equity (or Shareholders’ Equity)

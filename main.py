@@ -51,7 +51,10 @@ def get_report_digestion(
     page_size: int = Query(default=25, ge=1, le=100),
     show_passed: bool = False,
     only_manual_pass: bool = False,
-    report_group: Literal["InProgress", "ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated"] | None = None,
+    report_group: Literal["InProgress", "ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated", "Search"] | None = None,
+    pdf_hash: str | None = Query(default=None, max_length=128),
+    stock_code: str | None = Query(default=None, max_length=12),
+    digestion_stage: ReportDigestionStage | None = None,
 ) -> dict:
     """Return a paginated, read-only view of report digestion records."""
     with LineItemStorage() as storage:
@@ -60,7 +63,8 @@ def get_report_digestion(
         try:
             return storage.get_report_digestion(
                 page, page_size, show_passed=show_passed, only_manual_pass=only_manual_pass,
-                report_group=report_group)
+                report_group=report_group, pdf_hash=pdf_hash, stock_code=stock_code,
+                digestion_stage=digestion_stage)
         except Exception as exc:
             logger.warning("Unable to fetch report digestion", exc_info=True)
             raise HTTPException(status_code=503, detail="Unable to fetch report digestion") from exc

@@ -124,11 +124,11 @@ class LineItemStorage:
                     item_id INTEGER NOT NULL,
                     report_creation_time TEXT NOT NULL,
                     amount NUMERIC(20, 2) NOT NULL,
-                    item_english_name TEXT NOT NULL,
                     UNIQUE (stock_code, reporting_date, item_id, report_creation_time)
                 )
                 """
             )
+            cursor.execute("ALTER TABLE balance_sheet_items DROP COLUMN IF EXISTS item_english_name")
         connection.commit()
         self._table_ready = True
 
@@ -262,7 +262,6 @@ class LineItemStorage:
         item_id: int,
         report_creation_time: str,
         amount: str | float | Decimal,
-        item_english_name: str,
     ) -> None:
         """Upsert an item, excluding ignored IDs and unconfigured persistence."""
         if item_id <= 0 or item_id == 99000001 or not self.database_url:
@@ -274,17 +273,16 @@ class LineItemStorage:
                 """
                 INSERT INTO balance_sheet_items (
                     stock_code, reporting_date, item_id, report_creation_time,
-                    amount, item_english_name
+                    amount
                 )
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (stock_code, reporting_date, item_id, report_creation_time)
                 DO UPDATE SET
-                    amount = EXCLUDED.amount,
-                    item_english_name = EXCLUDED.item_english_name
+                    amount = EXCLUDED.amount
                 """,
                 (
                     stock_code, reporting_date, item_id, report_creation_time,
-                    str(amount).replace(",", ""), item_english_name,
+                    str(amount).replace(",", ""),
                 ),
             )
         connection.commit()
@@ -357,6 +355,57 @@ class LineItemStorage:
             )
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
+    def get_audit_pass_reports(self) -> list[dict]:
+        """Read balance sheets eligible for line-item digestion."""
+        fields = ("pdf_hash", "balance_sheet", "stock_code", "reporting_date", "pdf_creation_date")
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                "SELECT " + ", ".join(fields) + " FROM report_digestion "
+                "WHERE digestion_stage = %s ORDER BY pdf_hash", ("AuditPass",),
+            )
+            return [dict(zip(fields, row)) for row in cursor.fetchall()]
+
+    def store_line_item_digestion(self, row: dict, report: dict) -> None:
+        """Commit validated items, the JSON check report, and the stage together."""
+        pdf_hash = row["pdf_hash"]
+        if not isinstance(pdf_hash, str) or not pdf_hash.strip():
+            raise ValueError("PDF hash must be a nonblank string")
+        payload = json.dumps({key: value for key, value in report.items() if key != "items"},
+                             ensure_ascii=False, allow_nan=False)
+        passed = report["passed"]
+        if passed:
+            self._ensure_table()
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                if not self._report_digestion_ready:
+                    cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
+                cursor.execute(
+                    "SELECT digestion_stage FROM report_digestion WHERE pdf_hash = %s FOR UPDATE", (pdf_hash,))
+                current = cursor.fetchone()
+                if current is None or current[0] != "AuditPass":
+                    raise ValueError(f"Report {pdf_hash} is no longer at AuditPass")
+                if passed:
+                    cursor.executemany(
+                        "INSERT INTO balance_sheet_items "
+                        "(stock_code, reporting_date, item_id, report_creation_time, amount) "
+                        "VALUES (%s, %s, %s, %s, %s) "
+                        "ON CONFLICT (stock_code, reporting_date, item_id, report_creation_time) "
+                        "DO UPDATE SET amount = EXCLUDED.amount",
+                        [(row["stock_code"], row["reporting_date"], item["item_id"], row["pdf_creation_date"],
+                          item["amount"]) for item in report["items"]],
+                    )
+                cursor.execute(
+                    "UPDATE report_digestion SET digestion_report = %s, digestion_stage = %s, "
+                    "updated_at = CURRENT_TIMESTAMP WHERE pdf_hash = %s",
+                    (payload, "DigestionSuccess" if passed else "DigestionError", pdf_hash),
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        self._report_digestion_ready = True
+
     def get_report_digestion_stage(self, pdf_hash: str) -> str | None:
         """Look up the processing stage by content hash before PDF extraction."""
         if not self.database_url:
@@ -411,12 +460,16 @@ class LineItemStorage:
         self._report_digestion_ready = True
 
     def get_report_digestion(self, page: int = 1, page_size: int = 25, *, show_passed: bool = False,
-                             only_manual_pass: bool = False, report_group: str | None = None) -> dict:
+                             only_manual_pass: bool = False, report_group: str | None = None,
+                             pdf_hash: str | None = None, stock_code: str | None = None,
+                             digestion_stage: str | None = None) -> dict:
         """Read a filtered, newest-first page without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("Page must be positive and page_size must be between 1 and 100")
-        if report_group not in (None, "InProgress", "ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated"):
+        if report_group not in (None, "InProgress", "ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated", "Search"):
             raise ValueError("Unknown report group")
+        if digestion_stage is not None and digestion_stage not in get_args(ReportDigestionStage):
+            raise ValueError("Invalid report digestion stage")
         fields = (
             "pdf_hash", "pdf_creation_date", "download_url", "local_path", "digestion_stage",
             "stock_code", "stock_name", "reporting_date", "extraction_report",
@@ -431,6 +484,12 @@ class LineItemStorage:
         elif report_group in ("ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated"):
             where = "WHERE digestion_stage = %s "
         parameters = (report_group,) if report_group in ("ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated") else ()
+        if report_group == "Search":
+            where = ""
+        for column, value in (("pdf_hash", pdf_hash), ("stock_code", stock_code), ("digestion_stage", digestion_stage)):
+            if value and value.strip():
+                where += ("AND " if where else "WHERE ") + column + " = %s "
+                parameters += (value.strip(),)
         with self._connect().cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM report_digestion " + where, parameters)
             total = cursor.fetchone()[0]

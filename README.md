@@ -170,6 +170,24 @@ Each report gets a fresh parser and storage state. The parser extracts stock cod
 
 Use the original `markdown` files for digestion, not the HTML-decorated `preprocessed` copies. Run digestion from the project root because the parser loads `line-item-chart.txt` relative to the working directory.
 
+### Digest audited balance-sheet line items
+
+Run `python digest_line_items.py` with `DATABASE_URL` configured to process reports
+at `AuditPass`. It reads the first amount column of `balance_sheet` Markdown
+(skipping a notes column), validates required nonzero items and parent totals,
+and converts the displayed currency unit to yuan before saving line items.
+Each report's items, JSON `digestion_report`, and `DigestionSuccess` stage are
+committed together. Failed checks save their details at `DigestionError` without
+inserting items; the batch continues with the next report and exits with code 1.
+
+Totals use the greater of 0.01 displayed units and 0.1% of the compared amounts.
+Override these with `--absolute-tolerance` and `--relative-tolerance`.
+The equity checks compare item 31 with 3110 plus 3111, and item 3110 with its
+capital/reserve/retained-earnings components (`311001`–`311009`), subtracting
+treasury shares (`311003`). Their IDs and indentation place them under `3110`.
+This avoids counting the parent-company equity subtotal twice. Unknown labels
+are recorded in `unmapped_rows` for review.
+
 ### Audit direct PDF statement extraction
 
 To extract registered reports at the `Downloaded` stage with
@@ -215,9 +233,11 @@ report eligible for another audit. Stage changes preserve extraction and audit
 content; the audit is displayed only at `AuditPass` or `AuditIssues`.
 Use `ManualPass` to record a human's manual pass decision; it has a success badge
 and is preserved during extraction reruns.
-The table has five tabs: **InProgress** (all stages except `ExtractionSuccess`,
+The table has six tabs: **InProgress** (all stages except `ExtractionSuccess`,
 `AuditPass`, `ManualPass`, and `Deprecated`), **ExtractionSuccess**, **AuditPass**,
-**ManualPass**, and **Deprecated**. It opens on **InProgress**;
+**ManualPass**, **Deprecated**, and **Search**. Search covers all stages and lets
+you filter by full PDF hash, exact stock code, and/or stage. Combined filters must
+all match. Clear resets the filters. It opens on **InProgress**;
 switching tabs resets to page one, with totals and pagination for that tab.
 The output `audit.json` includes each row's `pdf_hash`; malformed extractions
 are recorded without stopping the batch.

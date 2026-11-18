@@ -89,7 +89,6 @@ class TableParsingStateMachine:
         self,
         item_id: int,
         amount: str | float,
-        item_english_name: str,
     ) -> None:
         """Pass an extracted item and its report metadata to storage."""
         self.storage.store_item(
@@ -98,7 +97,6 @@ class TableParsingStateMachine:
             item_id,
             self.report_creation_time,
             amount,
-            item_english_name,
         )
 
     def close(self) -> None:
@@ -229,7 +227,6 @@ class TableParsingStateMachine:
                 self._store_extracted_item(
                     item.item_id,
                     amount * (self.amount_unit or 1),
-                    item.english_name,
                 )
             else:
                 print(f"ERROR: unknown item name: {fields[0]}")
