@@ -173,7 +173,9 @@ Use the original `markdown` files for digestion, not the HTML-decorated `preproc
 ### Digest audited balance-sheet line items
 
 Run `python digest_line_items.py` with `DATABASE_URL` configured to process reports
-at `AuditPass`. It reads the first amount column of `balance_sheet` Markdown
+at `AuditPass`. To digest one report regardless of its current stage, run
+`python digest_line_items.py --hash 007b7f4055bbfeedac1e0742338e0f00`.
+It reads the first amount column of `balance_sheet` Markdown
 (skipping a notes column), validates required nonzero items and parent totals,
 and converts the displayed currency unit to yuan before saving line items.
 Each report's items, JSON `digestion_report`, and `DigestionSuccess` stage are
@@ -186,7 +188,8 @@ The equity checks compare item 31 with 3110 plus 3111, and item 3110 with its
 capital/reserve/retained-earnings components (`311001`–`311009`), subtracting
 treasury shares (`311003`). Their IDs and indentation place them under `3110`.
 This avoids counting the parent-company equity subtotal twice. Unknown labels
-are recorded in `unmapped_rows` for review.
+are recorded in `unmapped_rows` for review and cause `DigestionError`; successful
+digestion requires an empty `unmapped_rows` list.
 
 ### Audit direct PDF statement extraction
 

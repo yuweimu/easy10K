@@ -8,9 +8,12 @@
 		110103|结算备付金|Settlement Reserves
 		110105|拆出资金|Loans to Other Banks
 		110107|交易性金融资产|Trading Financial Assets
+		110108|以公允价值计量且其变动计入当期损益的金融资产|OLD Trading Financial Assets
 		110109|衍生金融资产|Derivative Financial Assets
 
+		110110|应收票据及应收账款|OLD Notes Receivable
 		110111|应收票据|Notes Receivable
+		110111|其中：应收票据|OLD Notes Receivable
 		110113|应收账款|Accounts Receivable
 		110115|应收款项融资|Receivables Financing
 		110117|预付款项|Prepayments
@@ -37,7 +40,9 @@
 	1102|非流动资产|Non-current Assets
 		110201|发放贷款和垫款|Loans and Advances
 		110203|债权投资|Debt Investments
+		110204|可供出售金融资产|OLD Available-for-sale financial assets
 		110205|其他债权投资|Other Debt Investments
+		110206|持有至到期投资|OLD Held-to-maturity investments
 
 		110211|长期应收款|Long-term Receivables
 		110213|长期股权投资|Long-term Equity Investments
@@ -65,7 +70,9 @@
 		210103|向中央银行借款|Borrowings from the Central Bank
 		210105|拆入资金|Funds Borrowed
 		210107|交易性金融负债|Trading Financial Liabilities
+		210108|以公允价值计量且其变动计入当期损益的金融负债|OLD Trading Financial Liabilities
 		210109|衍生金融负债|Derivative Financial Liabilities
+		210110|应付票据及应付账款|OLD Notes/Accounts Payable
 		210111|应付票据|Notes Payable
 		210113|应付账款|Accounts Payable
 		210115|预收款项|Advances from Customers

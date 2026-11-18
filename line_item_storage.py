@@ -355,17 +355,22 @@ class LineItemStorage:
             )
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
-    def get_audit_pass_reports(self) -> list[dict]:
-        """Read balance sheets eligible for line-item digestion."""
+    def get_audit_pass_reports(self, pdf_hash: str | None = None) -> list[dict]:
+        """Read AuditPass balance sheets, or one explicit hash at any stage."""
         fields = ("pdf_hash", "balance_sheet", "stock_code", "reporting_date", "pdf_creation_date")
+        condition = "WHERE digestion_stage = %s "
+        parameters = ("AuditPass",)
+        if pdf_hash is not None:
+            condition = "WHERE pdf_hash = %s "
+            parameters = (pdf_hash,)
         with self._connect().cursor() as cursor:
             cursor.execute(
-                "SELECT " + ", ".join(fields) + " FROM report_digestion "
-                "WHERE digestion_stage = %s ORDER BY pdf_hash", ("AuditPass",),
+                "SELECT " + ", ".join(fields) + " FROM report_digestion " +
+                condition + "ORDER BY pdf_hash", parameters,
             )
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
-    def store_line_item_digestion(self, row: dict, report: dict) -> None:
+    def store_line_item_digestion(self, row: dict, report: dict, *, allow_any_stage: bool = False) -> None:
         """Commit validated items, the JSON check report, and the stage together."""
         pdf_hash = row["pdf_hash"]
         if not isinstance(pdf_hash, str) or not pdf_hash.strip():
@@ -383,7 +388,9 @@ class LineItemStorage:
                 cursor.execute(
                     "SELECT digestion_stage FROM report_digestion WHERE pdf_hash = %s FOR UPDATE", (pdf_hash,))
                 current = cursor.fetchone()
-                if current is None or current[0] != "AuditPass":
+                if current is None:
+                    raise ValueError(f"Report {pdf_hash} not found")
+                if not allow_any_stage and current[0] != "AuditPass":
                     raise ValueError(f"Report {pdf_hash} is no longer at AuditPass")
                 if passed:
                     cursor.executemany(

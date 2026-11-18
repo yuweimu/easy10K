@@ -1,6 +1,6 @@
 """Validate and digest the first amount column of AuditPass balance sheets.
 
-Run: python digest_line_items.py
+Run: python digest_line_items.py [--hash PDF_HASH]
 Amounts are checked in statement units, then converted to yuan for storage.
 The default tolerance is the greater of 0.01 statement units and 0.1 percent.
 """
@@ -17,8 +17,8 @@ from line_item_storage import LineItemStorage
 
 
 REQUIRED_IDS = (11, 
-                1101, 110101, 110138, 110150, 
-                1102, 110231, 110242, 110266,
+                1101, 110101, 110128, 110150, 
+                1102, 110231, 110242,
                 21, 2101, 2102, 
                 31, 3110, 311001, 311004, 311007, 311008)
 UNITS = {"元": 1, "千元": 1000, "万元": 10000, "百万元": 1000000, "亿元": 100000000}
@@ -32,7 +32,9 @@ def clean_cell(text: str) -> str:
 
 def parse_amount(text: str) -> Decimal | None:
     value = clean_cell(text)
-    if value in ("", "-", "--", "—", "–"):
+    if value in ("/", "-"):
+        return Decimal(0)
+    if value in ("", "--", "—", "–"):
         return None
     if value.startswith(("(", "（")) and value.endswith((")", "）")):
         value = "-" + value[1:-1]
@@ -102,6 +104,8 @@ def check_report(row: dict, chart: LineItemChart, *, absolute_tolerance: Decimal
                 issues.append(f"Conflicting amounts for item {item.item_id}: {previous[1]} and {amount}")
             continue
         parsed[item.item_id] = (item, amount)
+    if result["unmapped_rows"]:
+        issues.append(f"Unmapped balance-sheet rows: {len(result['unmapped_rows'])}")
     failed_required_ids = []
     for item_id in REQUIRED_IDS:
         amount = parsed[item_id][1] if item_id in parsed else None
@@ -114,10 +118,17 @@ def check_report(row: dict, chart: LineItemChart, *, absolute_tolerance: Decimal
     amounts = {item_id: amount for item_id, (_, amount) in parsed.items() if amount is not None}
     for parent_id, parent_amount in amounts.items():
         prefix = str(parent_id)
-        if len(prefix) not in (2, 4):
+        if parent_id == 110110:
+            if 110111 not in amounts or 110113 not in amounts:
+                continue
+            children = [110111, 110113]
+        elif len(prefix) in (2, 4):
+            children = [item_id for item_id in amounts
+                        if str(item_id).startswith(prefix) and len(str(item_id)) == len(prefix) + 2]
+        else:
             continue
-        children = [item_id for item_id in amounts
-                    if str(item_id).startswith(prefix) and len(str(item_id)) == len(prefix) + 2]
+        if parent_id == 1101 and 110111 in amounts and 110113 in amounts:
+            children = [item_id for item_id in children if item_id != 110110]
         if not children:
             continue
         child_amounts = [-abs(amounts[item_id]) if item_id == 311003 else amounts[item_id]
@@ -157,18 +168,31 @@ def nonnegative_decimal(value: str) -> Decimal:
         raise argparse.ArgumentTypeError("Expected a finite nonnegative number") from None
 
 
+def pdf_hash_argument(value: str) -> str:
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", value.strip()):
+        raise argparse.ArgumentTypeError("Expected a 32-character hexadecimal PDF hash")
+    return value.strip().lower()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--hash", dest="pdf_hash", type=pdf_hash_argument,
+                        help="Digest only this PDF hash, regardless of its current stage")
     parser.add_argument("--absolute-tolerance", type=nonnegative_decimal, default=Decimal("0.01"))
     parser.add_argument("--relative-tolerance", type=nonnegative_decimal, default=Decimal("0.001"))
     args = parser.parse_args(argv)
+    save_options = {"allow_any_stage": True} if args.pdf_hash else {}
     chart = LineItemChart()
     failed = False
     with LineItemStorage() as storage:
         try:
-            rows = storage.get_audit_pass_reports()
+            rows = (storage.get_audit_pass_reports(pdf_hash=args.pdf_hash) if args.pdf_hash
+                    else storage.get_audit_pass_reports())
         except Exception as error:
-            print(f"Unable to load AuditPass reports: {error}", file=sys.stderr)
+            print(f"Unable to load reports for digestion: {error}", file=sys.stderr)
+            return 1
+        if args.pdf_hash and not rows:
+            print(f"No report found for PDF hash {args.pdf_hash}", file=sys.stderr)
             return 1
         for row in rows:
             try:
@@ -178,14 +202,14 @@ def main(argv: list[str] | None = None) -> int:
                 result = {"pdf_hash": row["pdf_hash"], "passed": False, "checks": [], "items": [],
                           "issues": [f"Unable to check report: {error}"]}
             try:
-                print("skip writing db")
-                # storage.store_line_item_digestion(row, result)
+                # print("skip writing db")
+                storage.store_line_item_digestion(row, result, **save_options)
             except Exception as error:
                 storage.close()
                 result["passed"] = False
                 result["issues"].append(f"Unable to save digestion: {error}")
                 try:
-                    storage.store_line_item_digestion(row, result)
+                    storage.store_line_item_digestion(row, result, **save_options)
                 except Exception as save_error:
                     print(f"{row['pdf_hash']}: unable to save failure: {save_error}", file=sys.stderr)
                     storage.close()
