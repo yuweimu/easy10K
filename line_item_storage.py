@@ -510,6 +510,17 @@ class LineItemStorage:
             items = [dict(zip(fields, row)) for row in cursor.fetchall()]
         return dict(items=items, total=total, page=page, page_size=page_size, total_pages=total_pages)
 
+    def get_balance_sheet_stock_codes(self) -> list[dict]:
+        """Return sorted stock codes and counts of their distinct stored reports."""
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                "SELECT stock_code, COUNT(DISTINCT (reporting_date, report_creation_time)) "
+                "AS report_count FROM balance_sheet_items "
+                "WHERE stock_code IS NOT NULL AND stock_code <> '' "
+                "GROUP BY stock_code ORDER BY stock_code"
+            )
+            return [{"stock_code": row[0], "report_count": row[1]} for row in cursor.fetchall()]
+
     def get_balance_sheet_items(self, stock_code: str) -> list[dict]:
         """Return the same ordered fields used by the balance-sheet API."""
         connection = self._connect()

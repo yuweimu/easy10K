@@ -168,6 +168,19 @@ def get_line_item_chart() -> list[dict[str, int | str | None]]:
         for item in line_item_chart._items_by_id.values()
     ]
 
+@app.get("/balance_sheet_items")
+def get_balance_sheet_stock_codes() -> list[dict]:
+    """List stocks that have stored balance-sheet items and their report counts."""
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            return storage.get_balance_sheet_stock_codes()
+        except Exception as exc:
+            logger.warning("Unable to fetch balance-sheet stock codes", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to fetch stock codes") from exc
+
+
 @app.get("/balance_sheet_items/{stock_code}")
 def get_balance_sheet_items(stock_code: str) -> list[dict]:
     """Return all balance-sheet items stored for a stock code."""

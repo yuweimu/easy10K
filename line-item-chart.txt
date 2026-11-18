@@ -33,14 +33,18 @@
 		110132|存货|Inventories
 		110134|合同资产|Contract Assets
 		110136|持有待售资产|Assets Held for Sale
+		110136|持有待售的资产|Assets Held for Sale
+		110136|划分为持有待售的资产|Assets Held for Sale
 		110138|一年内到期的非流动资产|Non-current Assets Due within One Year
 		110150|其他流动资产|Other Current Assets
 	1101|流动资产合计|Total Current Assets
 
 	1102|非流动资产|Non-current Assets
 		110201|发放贷款和垫款|Loans and Advances
+		110201|发放贷款及垫款|Loans and Advances
 		110203|债权投资|Debt Investments
 		110204|可供出售金融资产|OLD Available-for-sale financial assets
+		
 		110205|其他债权投资|Other Debt Investments
 		110206|持有至到期投资|OLD Held-to-maturity investments
 
@@ -52,8 +56,10 @@
 
 		110231|固定资产|Property, Plant and Equipment
 		110233|在建工程|Construction in Progress
-		110235|生产性生物资产|Productive Biological Assets
-		110237|油气资产|Oil and Gas Assets
+		110234|工程物资|Construction in Progress
+		110236|固定资产清理|Construction in Progress
+		110237|生产性生物资产|Productive Biological Assets
+		110238|油气资产|Oil and Gas Assets
 		110239|使用权资产|Right-of-use Assets
 		110242|无形资产|Intangible Assets
 		110253|开发支出|Development Costs
@@ -91,6 +97,8 @@
 		210141|应付手续费及佣金|Fees and Commissions Payable
 		210143|应付分保账款|Reinsurance Accounts Payable
 		210145|持有待售负债|Liabilities Held for Sale
+		210145|持有待售的负债|Liabilities Held for Sale
+		210145|划分为持有待售的负债|Liabilities Held for Sale
 		210147|一年内到期的非流动负债|Non-current Liabilities Due within One Year
 		210149|其他流动负债|Other Current Liabilities
 	2101|流动负债合计|Total Current Liabilities
@@ -105,6 +113,7 @@
 		210205|租赁负债|Lease Liabilities
 		210207|长期应付款|Long-term Payables
 		210209|长期应付职工薪酬|Long-term Employee Benefits Payable
+		210212|专项应付款|Special Payables
 		210221|预计负债|Provisions
 		210225|递延收益|Deferred Income
 		210228|递延所得税负债|Deferred Tax Liabilities
