@@ -18,6 +18,11 @@ type BalanceSheetItem = {
   amount: number | string | null;
 };
 
+type StockReportCount = {
+  stock_code: string;
+  report_count: number;
+};
+
 type ReportItem = BalanceSheetItem & {
   labelCn: string;
   labelEn: string;
@@ -78,6 +83,11 @@ const UI_TEXT = {
     enterStockCode: "Enter a stock code to load its report.",
     financialItem: "Financial item",
     recentSearches: "Recent searches",
+    availableStocks: "Stocks with data",
+    totalReports: "Total reports",
+    reports: "reports",
+    noAvailableStocks: "No stocks have balance-sheet items yet.",
+    stockCodesFailed: "Unable to load stock codes.",
     closeChart: "Close chart",
     selectColumn: "Select a column to see its date and amount.",
     showChildren: "Show",
@@ -109,6 +119,11 @@ const UI_TEXT = {
     enterStockCode: "请输入股票代码以加载报告。",
     financialItem: "财务项目",
     recentSearches: "最近搜索",
+    availableStocks: "已有数据的股票",
+    totalReports: "报告总数",
+    reports: "份报告",
+    noAvailableStocks: "暂无股票资产负债表数据。",
+    stockCodesFailed: "无法加载股票代码。",
     closeChart: "关闭图表",
     selectColumn: "选择一列以查看日期和金额。",
     showChildren: "显示",
@@ -255,6 +270,20 @@ function App() {
   const text = UI_TEXT[language];
   const [activeTab, setActiveTab] = useState<typeof REPORT_TABS[number]>("Balance Sheet");
   const [stockCode, setStockCode] = useState("300750");
+  const [availableStockCodes, setAvailableStockCodes] = useState<StockReportCount[]>([]);
+  const totalReports = availableStockCodes.reduce((total, stock) => total + stock.report_count, 0);
+  const [stockCodesStatus, setStockCodesStatus] = useState<"loading" | "ready" | "error">("loading");
+  useEffect(() => {
+    let cancelled = false;
+    getJson<StockReportCount[]>("/balance_sheet_items").then((codes) => {
+      if (cancelled) return;
+      setAvailableStockCodes(codes);
+      setStockCodesStatus("ready");
+    }).catch(() => {
+      if (!cancelled) setStockCodesStatus("error");
+    });
+    return () => { cancelled = true; };
+  }, []);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchFocused, setSearchFocused] = useState(false);
   const [report, setReport] = useState<ReportItem[]>([]);
@@ -476,9 +505,8 @@ function App() {
     });
   }
 
-  async function loadReport(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const code = stockCode.trim();
+  async function loadReport(selectedCode: string) {
+    const code = selectedCode.trim();
     if (!code) return;
 
     setRecentSearches((current) => {
@@ -589,7 +617,10 @@ function App() {
         </p>
       </header>
 
-      <form className="search-bar" onSubmit={loadReport}>
+      <form className="search-bar" onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        void loadReport(stockCode);
+      }}>
         <div className="search-controls">
           <label htmlFor="stock-code">{text.stockCode}</label>
           <div className="search-input-wrap">
@@ -656,6 +687,30 @@ function App() {
             </label>
           </div>
       </form>
+
+      <section className="stock-directory" aria-labelledby="stock-directory-title" aria-busy={stockCodesStatus === "loading"}>
+        <h2 id="stock-directory-title">{text.availableStocks}
+          {stockCodesStatus === "ready" && <>
+            <span className="item-count">{availableStockCodes.length}</span>
+            <span className="stock-report-total">{text.totalReports}: {totalReports.toLocaleString()}</span>
+          </>}
+        </h2>
+        {stockCodesStatus === "loading" && <p role="status">{text.loading}</p>}
+        {stockCodesStatus === "error" && <p role="alert">{text.stockCodesFailed}</p>}
+        {stockCodesStatus === "ready" && (availableStockCodes.length ? (
+          <div className="stock-code-list">
+            {availableStockCodes.map(({ stock_code: code, report_count: count }) => (
+              <button type="button" key={code} disabled={loading}
+                aria-pressed={reportStockCode === code}
+                onClick={() => {
+                  setStockCode(code);
+                  setActiveTab("Balance Sheet");
+                  void loadReport(code);
+                }}>{code} <span className="stock-report-count">({count.toLocaleString()} {text.reports})</span></button>
+            ))}
+          </div>
+        ) : <p>{text.noAvailableStocks}</p>)}
+      </section>
 
       {error && <p className="error-message">{error}</p>}
 

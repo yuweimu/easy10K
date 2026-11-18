@@ -60,6 +60,35 @@ class LineItemChartTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             LineItemChart("/tmp/does-not-exist-line-items.txt")
 
+    def test_truncated_names_require_at_least_eight_characters(self) -> None:
+        items = LineItemChart(self.write_source(
+            "101|一年内到期的非流动资产|Non-current assets due within one year\n"))
+        full_name = "一年内到期的非流动资产"
+        for length in (8, 9, len(full_name)):
+            name = full_name[:length]
+            with self.subTest(name=name):
+                self.assertIs(items.get(name), items.get(full_name))
+                self.assertEqual(items[name].item_id, 101)
+                self.assertEqual(items.get_item_id(name), 101)
+                self.assertIn(name, items)
+        for name in ("", full_name[:7], full_name[1:9], full_name + "合计"):
+            with self.subTest(name=name):
+                self.assertIsNone(items.get(name))
+                self.assertNotIn(name, items)
+                with self.assertRaises(KeyError):
+                    items[name]
+                with self.assertRaisesRegex(KeyError, "Unknown financial statement"):
+                    items.get_item_id(name)
+
+    def test_exact_names_take_priority_over_prefix_matches_and_aliases_work(self) -> None:
+        items = LineItemChart(self.write_source(
+            "101|一年内到期的非流动资产|Non-current assets due within one year\n"
+            "102|一年内到期的非流|Exact eight-character name\n"
+            "103|其他项目|Other item\n"
+            "103|其中一年内到期的非流动资产|Alias\n"))
+        self.assertEqual(items.get_item_id("一年内到期的非流"), 102)
+        self.assertEqual(items.get_item_id("其中一年内到期的"), 103)
+
     def test_rejects_malformed_and_duplicate_definitions(self) -> None:
         malformed_path = self.write_source("资产\n")
         with self.assertRaisesRegex(ValueError, "Invalid line-item definition"):
@@ -152,6 +181,14 @@ class TableParsingStateMachineTests(unittest.TestCase):
         machine = self.make_machine()
         self.assertTrue(self.process(machine, "<!-- PDF_PAGE: 3/120 -->"))
         self.assertEqual(machine.stage, TableParsingStage.BS_TITLE_DETECTION)
+
+    def test_page_progress_includes_report_path(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            machine = TableParsingStateMachine("reports/example.md")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertTrue(machine.process_as_metadata("<!-- PDF_PAGE: 3/120 -->"))
+        self.assertIn("Digesting reports/example.md page 3/120", output.getvalue())
 
     def test_process_as_metadata_returns_false_for_content_lines(self) -> None:
         machine = self.make_machine()
@@ -299,7 +336,7 @@ class TableParsingStateMachineTests(unittest.TestCase):
             self.process(machine, "|货币资金|1,234,567.89|1,100,000.00|")
         )
         machine._store_extracted_item.assert_called_once_with(
-            101101101, "1,234,567.89", "Monetary Funds"
+            101101101, "1,234,567.89"
         )
         self.assertEqual(
             machine.stage, TableParsingStage.BS_TABLE_ITEMS_EXTRACTION
@@ -320,7 +357,7 @@ class TableParsingStateMachineTests(unittest.TestCase):
             )
         )
         machine._store_extracted_item.assert_called_once_with(
-            101101101, "1,234,567.89", "Monetary Funds"
+            101101101, "1,234,567.89"
         )
 
     def test_extract_item_skips_unknown_names(self) -> None:

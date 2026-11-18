@@ -1,10 +1,12 @@
 import re
+import sys
 from enum import StrEnum
 from pathlib import Path
 
 import argparse
 from line_item_chart import LineItemChart
 from line_item_storage import LineItemStorage
+from report_metadata import extract_pdf_metadata, is_balance_sheet_title, match_dates, match_stock_code
 
 
 class TableParsingStage(StrEnum):
@@ -17,7 +19,8 @@ class TableParsingStage(StrEnum):
     FAILED = "failed"
 
 class TableParsingStateMachine:
-    def __init__(self) -> None:
+    def __init__(self, md_path: str | Path | None = None) -> None:
+        self.md_path = Path(md_path) if md_path is not None else None
         self.stage = TableParsingStage.BS_TITLE_DETECTION
         print("Stage changed to BS_TITLE_DETECTION")
         self.reporting_date: str | None = None
@@ -51,11 +54,9 @@ class TableParsingStateMachine:
                 return True
 
         if not self.stock_code:
-            stock_code_match = re.search(
-                r"(?:证券|公司|股票)代码[：:|]\s*(\d{6})", md_line
-            )
-            if stock_code_match:
-                self.stock_code = stock_code_match.group(1)
+            stock_code = match_stock_code(md_line)
+            if stock_code:
+                self.stock_code = stock_code
                 return True
 
         page_match = re.match(
@@ -66,7 +67,8 @@ class TableParsingStateMachine:
             current_page = int(page_match.group(1))
             total_pages = int(page_match.group(2))
             print(
-                f"Digesting page {current_page}/{total_pages}...",
+                f"\rDigesting {self.md_path or '<unknown report>'} page {current_page}/{total_pages} " + "." * (current_page % 6 + 1) + " " * (5 - current_page % 6),
+                end="",
                 flush=True,
             )
             return True
@@ -87,7 +89,6 @@ class TableParsingStateMachine:
         self,
         item_id: int,
         amount: str | float,
-        item_english_name: str,
     ) -> None:
         """Pass an extracted item and its report metadata to storage."""
         self.storage.store_item(
@@ -96,17 +97,15 @@ class TableParsingStateMachine:
             item_id,
             self.report_creation_time,
             amount,
-            item_english_name,
         )
 
     def close(self) -> None:
         self.storage.close()
 
     def _detect_title(self, md_line: str) -> bool:
-        result = re.sub(r"[ \*0-9,、]", "", md_line)
-        if "合并资产负债表" in result and len(result) < len("合并资产负债表") + 3:
+        if is_balance_sheet_title(md_line):
             print(
-                f"begin balance sheet line {md_line} {len(result)}"
+                f"begin balance sheet line {md_line}"
             )
             self.stage = TableParsingStage.BS_REPORTING_METADATA_DETECTION
             print("Stage changed to BS_REPORTING_METADATA_DETECTION")
@@ -114,11 +113,7 @@ class TableParsingStateMachine:
 
     @staticmethod
     def match_dates(line: str) -> list[str]:
-        pattern = r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日"
-        return [
-            f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-            for year, month, day in re.findall(pattern, line)
-        ]
+        return match_dates(line)
     
     @staticmethod
     def get_amout_unit(unit_name) -> int:
@@ -126,18 +121,18 @@ class TableParsingStateMachine:
         return UNIT_MAP.get(unit_name, 1)
 
     def _detect_reporting_metadata(self, md_line: str) -> bool:
-        dates = self.match_dates(md_line)
-        if dates and dates.count(dates[0]) == 1 and self.reporting_date is None:
-            self.reporting_date = dates[0]
-            print(f"reporting_date = {self.reporting_date}")
+        if self.stage == TableParsingStage.BS_REPORTING_METADATA_DETECTION:
+            dates = self.match_dates(md_line)
+            if dates and dates.count(dates[0]) == 1 and self.reporting_date is None:
+                self.reporting_date = dates[0]
+                print(f"reporting_date = {self.reporting_date}")
 
         pattern = r"编制单位[：:]\s*(.+?公司)"
         match = re.search(pattern, md_line)
         if match and self.reporting_entity is None:
             self.reporting_entity = match.group(1).strip()
             print(f"reporting_entity = {self.reporting_entity}")
-        if "单位" in md_line:
-            print("======");
+
         pattern = r"单位\s*[：:]\s*(亿元|万元|千元|元)"
         match = re.search(pattern, md_line)
         if match and self.amount_unit is None:
@@ -192,7 +187,7 @@ class TableParsingStateMachine:
             return False
         
     def _extract_table_item(self, page_line: str) -> bool:
-        if re.search(r"负债和.*权益.*总计", page_line):
+        if re.search(r"负债和.{0,6}权益", page_line):
             self.stage = TableParsingStage.BS_TABLE_COMPLETED
             print("Stage changed to BS_TABLE_COMPLETED")
             return True
@@ -220,15 +215,18 @@ class TableParsingStateMachine:
             amount = float(result[2].replace(",", ""))
             item = self.line_item_dict.get(fields[0])
             if item:
+                """
                 print(
-                    f"Extracted BS item: {self.stock_code} {self.current_reporting_date} "
+                    f"\rExtracted BS item: {self.stock_code} {self.current_reporting_date} "
                     f"{item.item_id} {self.report_creation_time} "
-                    f"{result[2]} {item.english_name}"
+                    f"{result[2]} {item.english_name}",
+                    end="",
+                    flush=True,
                 )
+                """
                 self._store_extracted_item(
                     item.item_id,
                     amount * (self.amount_unit or 1),
-                    item.english_name,
                 )
             else:
                 print(f"ERROR: unknown item name: {fields[0]}")
@@ -255,10 +253,23 @@ class MDDigest:
 
         for path in paths:
             # Reports must not share parsing stages, metadata, or storage state.
-            self.state_machine = TableParsingStateMachine()
+            self.state_machine = TableParsingStateMachine(path)
             try:
-                for line in path.read_text(encoding="utf-8").splitlines():
-                    self.state_machine.process_md_line(line)
+                text = path.read_text(encoding="utf-8")
+                # Identify the registry version even if parsing fails before metadata extraction.
+                metadata = extract_pdf_metadata(text)
+                try:
+                    for line in text.splitlines():
+                        self.state_machine.process_md_line(line)
+                except AssertionError as exc:
+                    self.state_machine.storage.update_digestion_status(
+                        metadata["pdf_hash"], metadata["pdf_creation_time"], "ERROR",
+                    )
+                    print(f"Skipped {path}: AssertionError: {exc}", file=sys.stderr, flush=True)
+                else:
+                    self.state_machine.storage.update_digestion_status(
+                        metadata["pdf_hash"], metadata["pdf_creation_time"], "DONE",
+                    )
             finally:
                 self.state_machine.close()
 
@@ -271,6 +282,7 @@ def main() -> None:
         "md_path",
         type=Path,
         nargs="?",
+        #default=Path("reports/002027_分众传媒：2018年半年度报告.md"),
         default=Path("reports/"),
         help="Path to an input MD file or a directory to search recursively",
     )
