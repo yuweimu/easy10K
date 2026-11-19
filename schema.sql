@@ -78,3 +78,12 @@ BEGIN
         ALTER TABLE report_digestion RENAME COLUMN extraction_info TO extraction_report;
     END IF;
 END $$;
+
+-- Company details keyed by stock code; metadata may be filled in incrementally.
+CREATE TABLE IF NOT EXISTS stock_metadata (
+    stock_code VARCHAR(12) PRIMARY KEY CHECK (btrim(stock_code) <> ''),
+    stock_name VARCHAR(16) NOT NULL CHECK (btrim(stock_name) <> ''),
+    company_name TEXT,
+    company_homepage TEXT,
+    company_profile TEXT
+);
