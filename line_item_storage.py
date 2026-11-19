@@ -3,6 +3,7 @@
 import importlib
 import json
 import os
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from types import TracebackType
@@ -18,6 +19,20 @@ ReportDigestionStage = Literal[
     "Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
     "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "DigestionSuccess", "DigestionError",
 ]
+
+
+def _has_missing_quarters(reporting_dates: list[date]) -> bool:
+    """Check quarter ends only within the stock's available reporting range."""
+    if not reporting_dates:
+        return True
+    available = set(reporting_dates)
+    first, last = min(available), max(available)
+    return any(
+        first <= quarter_end <= last and quarter_end not in available
+        for year in range(first.year, last.year + 1)
+        for quarter_end in (date(year, 3, 31), date(year, 6, 30),
+                            date(year, 9, 30), date(year, 12, 31))
+    )
 
 
 def _registry_path(value: str | None) -> str | None:
@@ -479,7 +494,7 @@ class LineItemStorage:
             raise ValueError("Invalid report digestion stage")
         fields = (
             "pdf_hash", "pdf_creation_date", "download_url", "local_path", "digestion_stage",
-            "stock_code", "stock_name", "reporting_date", "extraction_report",
+            "stock_code", "reporting_date", "extraction_report",
             "balance_sheet", "balance_sheet_ex", "income_statement", "income_statement_ex",
             "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit", "updated_at",
         )
@@ -511,15 +526,20 @@ class LineItemStorage:
         return dict(items=items, total=total, page=page, page_size=page_size, total_pages=total_pages)
 
     def get_balance_sheet_stock_codes(self) -> list[dict]:
-        """Return sorted stock codes and counts of their distinct stored reports."""
+        """Return stock names and counts without excluding stocks missing metadata."""
         with self._connect().cursor() as cursor:
             cursor.execute(
+                "SELECT stocks.stock_code, stocks.report_count, metadata.stock_name, stocks.reporting_dates FROM ("
                 "SELECT stock_code, COUNT(DISTINCT (reporting_date, report_creation_time)) "
-                "AS report_count FROM balance_sheet_items "
+                "AS report_count, ARRAY_AGG(DISTINCT reporting_date) AS reporting_dates FROM balance_sheet_items "
                 "WHERE stock_code IS NOT NULL AND stock_code <> '' "
-                "GROUP BY stock_code ORDER BY stock_code"
+                "GROUP BY stock_code) AS stocks "
+                "LEFT JOIN stock_metadata AS metadata ON metadata.stock_code = stocks.stock_code "
+                "ORDER BY stocks.stock_code"
             )
-            return [{"stock_code": row[0], "report_count": row[1]} for row in cursor.fetchall()]
+            return [{"stock_code": row[0], "report_count": row[1], "stock_name": row[2],
+                     "has_missing_reporting_dates": _has_missing_quarters(row[3])}
+                    for row in cursor.fetchall()]
 
     def get_balance_sheet_items(self, stock_code: str) -> list[dict]:
         """Return the same ordered fields used by the balance-sheet API."""

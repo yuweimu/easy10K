@@ -1,5 +1,6 @@
 import { Fragment, StrictMode, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createRoot } from "react-dom/client";
+import { trendDateLabelIndices } from "./trend-date-labels";
 import "./styles.css";
 
 type LineItem = {
@@ -20,7 +21,9 @@ type BalanceSheetItem = {
 
 type StockReportCount = {
   stock_code: string;
+  stock_name: string | null;
   report_count: number;
+  has_missing_reporting_dates: boolean;
 };
 
 type ReportItem = BalanceSheetItem & {
@@ -54,6 +57,14 @@ const AMOUNT_UNITS = {
 
 type AmountUnit = keyof typeof AMOUNT_UNITS;
 const REPORT_TABS = ["Balance Sheet", "Income Statement", "Cash Flow Statement"] as const;
+const PERIOD_FILTERS = [
+  { label: "全部", ending: "" },
+  { label: "年报", ending: "12-31" },
+  { label: "半年报", ending: "06-30" },
+  { label: "一季报", ending: "03-31" },
+  { label: "三季报", ending: "09-30" },
+] as const;
+type PeriodEnding = typeof PERIOD_FILTERS[number]["ending"];
 const TAB_LABELS = {
   en: {
     "Balance Sheet": "Balance Sheet",
@@ -85,6 +96,8 @@ const UI_TEXT = {
     recentSearches: "Recent searches",
     availableStocks: "Stocks with data",
     totalReports: "Total reports",
+    reportingDates: "Reporting dates (earliest to latest)",
+    missingReport: "Missing quarterly report",
     reports: "reports",
     noAvailableStocks: "No stocks have balance-sheet items yet.",
     stockCodesFailed: "Unable to load stock codes.",
@@ -121,6 +134,8 @@ const UI_TEXT = {
     recentSearches: "最近搜索",
     availableStocks: "已有数据的股票",
     totalReports: "报告总数",
+    reportingDates: "报告日期（从早到晚）",
+    missingReport: "缺少季度报告",
     reports: "份报告",
     noAvailableStocks: "暂无股票资产负债表数据。",
     stockCodesFailed: "无法加载股票代码。",
@@ -191,16 +206,24 @@ function AmountTrend({ item, dates, unit, showDecimals, language, expanded = fal
   onClose?: () => void;
 }) {
   const text = UI_TEXT[language];
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const labelWidth = Math.max(80, ...dates.map((date) =>
-    formatAmount(item.amountsByDate.get(date) ?? null, unit, showDecimals).length * 7 + 24));
-  const width = expanded ? Math.max(640, dates.length * labelWidth + 96) : 96;
-  const height = expanded ? 336 : 24;
-  const padding = expanded ? 48 : 3;
-  const bottom = expanded ? height - 30 : height - padding;
-  const axisTop = bottom - (bottom - (padding - 24)) * 1.1;
-  const axisRight = width - padding + 24 + 5;
-  const viewWidth = expanded ? Math.max(width, axisRight + 24) : width;
+  const chartRef = useRef<SVGSVGElement>(null);
+  const [chartSize, setChartSize] = useState({ width: 1075, height: 504 });
+  useEffect(() => {
+    if (!expanded || !chartRef.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) setChartSize({ width, height });
+    });
+    observer.observe(chartRef.current);
+    return () => observer.disconnect();
+  }, [expanded, item]);
+  const width = expanded ? chartSize.width : 96;
+  const height = expanded ? chartSize.height : 24;
+  const padding = expanded ? 32 : 3;
+  const plotTop = expanded ? 40 : padding;
+  const bottom = expanded ? height - 52 : height - padding;
+  const axisTop = plotTop;
+  const axisRight = width - 12;
   const values = dates.map((date) => {
     const raw = item.amountsByDate.get(date);
     return raw == null || String(raw).trim() === "" || !Number.isFinite(Number(raw))
@@ -213,40 +236,42 @@ function AmountTrend({ item, dates, unit, showDecimals, language, expanded = fal
   const axisMin = Math.min(0, min);
   const axisMax = Math.max(0, max);
   const range = axisMax - axisMin || 1;
-  const yFor = (value: number) => bottom - ((value - axisMin) / range) * (bottom - padding);
+  const plotBottom = expanded && min < 0 ? bottom - 28 : bottom;
+  const yFor = (value: number) => plotBottom - ((value - axisMin) / range) * (plotBottom - plotTop);
   const columnSpacing = (width - padding * 2) / dates.length;
-  const columnWidth = Math.min(expanded ? 32 : 4, columnSpacing * 0.6) * 0.4;
+  const columnWidth = Math.min(expanded ? 32 : 4, columnSpacing * 0.6) * (expanded ? 0.32 : 0.4);
+  const dateLabelIndices = trendDateLabelIndices(dates, columnSpacing);
   const points = values.map((value, index) => value === null ? null : ({
     x: padding + (index + 0.5) * columnSpacing,
     y: yFor(value),
   }));
   return (<>
     <span className={expanded ? "trend-plot" : undefined}>
-    <svg className={expanded ? "trend-chart" : "sparkline"} viewBox={`0 0 ${viewWidth} ${height}`}
+    <svg ref={chartRef} className={expanded ? "trend-chart" : "sparkline"} viewBox={`0 0 ${width} ${height}`}
       role="img" aria-label={`${item.label} ${language === "zh" ? "金额趋势" : "amount trend"}, ${dates[0]} ${language === "zh" ? "至" : "to"} ${dates[dates.length - 1]}`}>
       {expanded && <>
-        <text x={padding + 8} y={20}>{unit}</text>
+        <text x={padding + 8} y={20} fontWeight="700">单位：{unit}</text>
         <line className="trend-axis" x1={padding} x2={padding} y1={axisTop} y2={bottom} />
         <line className="trend-axis" x1={padding} x2={axisRight} y1={yFor(0)} y2={yFor(0)} />
         <text x={padding - 10} y={yFor(0) + 4} textAnchor="end">0</text>
-        {dates.map((date, index) => (
+        {dates.map((date, index) => dateLabelIndices.has(index) && (
           <text key={date} x={padding + (index + 0.5) * columnSpacing}
-            y={height - 8} textAnchor="middle">{date}</text>
+            y={bottom + 16} textAnchor="middle">
+            <title>{date}</title>{date.slice(2).replaceAll("-", "/")}
+          </text>
         ))}
       </>}
       {points.map((point, index) => point && (
         <g key={dates[index]}>
         {expanded && <text className="trend-point-label" x={point.x}
-          y={point.y + ((values[index] ?? 0) < 0 ? 14 : -10)} textAnchor="middle">
-          {formatAmount(values[index], unit, showDecimals)}
+          y={Math.min(point.y, yFor(0)) - 10}
+          textAnchor="middle">
+          {formatAmount(values[index], unit, false)}
         </text>}
         <rect className="trend-bar" x={point.x - columnWidth / 2}
           y={Math.min(point.y, yFor(0))} width={columnWidth}
           height={Math.max(Math.abs(point.y - yFor(0)), 1)}
           fill="currentColor" tabIndex={expanded ? 0 : undefined}
-          onMouseEnter={expanded ? () => setSelectedDate(dates[index]) : undefined}
-          onFocus={expanded ? () => setSelectedDate(dates[index]) : undefined}
-          onClick={expanded ? () => setSelectedDate(dates[index]) : undefined}
           aria-label={`${dates[index]}: ${formatAmount(values[index], unit, showDecimals)} ${unit}`}>
           <title>{dates[index]}: {formatAmount(values[index], unit, showDecimals)} {unit}</title>
         </rect>
@@ -256,9 +281,6 @@ function AmountTrend({ item, dates, unit, showDecimals, language, expanded = fal
     {expanded && onClose && <button type="button" className="trend-close"
       aria-label={text.closeChart} title={text.closeChart} onClick={onClose}>×</button>}
     </span>
-    {expanded && <p className="trend-value" aria-live="polite">
-      {selectedDate ? `${selectedDate}: ${formatAmount(item.amountsByDate.get(selectedDate) ?? null, unit, showDecimals)} ${unit}` : text.selectColumn}
-    </p>}
     </>
   );
 }
@@ -386,6 +408,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [amountUnit, setAmountUnit] = useState<AmountUnit>("百万元");
   const [showDecimals, setShowDecimals] = useState(true);
+  const [periodEnding, setPeriodEnding] = useState<PeriodEnding>("");
   const [expandedTrendId, setExpandedTrendId] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState<{ itemId: number; message: string } | null>(null);
   useEffect(() => {
@@ -410,15 +433,38 @@ function App() {
   const [collapsedItemIds, setCollapsedItemIds] = useState<Set<number>>(
     () => new Set(),
   );
-  const reportingDates = useMemo(
+  const allReportingDates = useMemo(
     () => Array.from(new Set(report.map((item) => item.reporting_date))).sort().reverse(),
     [report],
   );
+  const filteredReport = useMemo(
+    () => report.filter((item) => item.reporting_date.endsWith(periodEnding)),
+    [report, periodEnding],
+  );
+  const reportingDates = useMemo(
+    () => allReportingDates.filter((date) => date.endsWith(periodEnding)),
+    [allReportingDates, periodEnding],
+  );
   const trendDates = useMemo(() => [...reportingDates].sort(), [reportingDates]);
+  const reportingDateEntries = useMemo(() => {
+    if (!allReportingDates.length) return [];
+    const first = allReportingDates[allReportingDates.length - 1];
+    const last = allReportingDates[0];
+    const available = new Set(allReportingDates);
+    const dates = new Set(allReportingDates);
+    for (let year = Number(first.slice(0, 4)); year <= Number(last.slice(0, 4)); year += 1) {
+      for (const quarterEnd of ["03-31", "06-30", "09-30", "12-31"]) {
+        const date = `${year}-${quarterEnd}`;
+        if (date >= first && date <= last) dates.add(date);
+      }
+    }
+    return [...dates].sort().filter((date) => date.endsWith(periodEnding))
+      .map((date) => ({ date, missing: !available.has(date) }));
+  }, [allReportingDates, periodEnding]);
   const groupedReport = useMemo(() => {
     const grouped = new Map<number, GroupedReportItem>();
 
-    for (const item of report) {
+    for (const item of filteredReport) {
       const existing = grouped.get(item.item_id);
       if (existing) {
         existing.amountsByDate.set(item.reporting_date, item.amount);
@@ -459,7 +505,7 @@ function App() {
 
     roots.sort(byItemId).forEach(appendWithChildren);
     return ordered;
-  }, [language, report]);
+  }, [language, filteredReport]);
   const visibleReport = useMemo(() => {
     return groupedReport.filter((item) => {
       let parentId = Math.floor(item.item_id / 100);
@@ -699,14 +745,15 @@ function App() {
         {stockCodesStatus === "error" && <p role="alert">{text.stockCodesFailed}</p>}
         {stockCodesStatus === "ready" && (availableStockCodes.length ? (
           <div className="stock-code-list">
-            {availableStockCodes.map(({ stock_code: code, report_count: count }) => (
-              <button type="button" key={code} disabled={loading}
+            {availableStockCodes.map(({ stock_code: code, stock_name: name, report_count: count, has_missing_reporting_dates: missing }) => (
+              <button type="button" key={code} disabled={loading} title={code}
+                className={missing === false ? "stock-complete" : undefined}
                 aria-pressed={reportStockCode === code}
                 onClick={() => {
                   setStockCode(code);
                   setActiveTab("Balance Sheet");
                   void loadReport(code);
-                }}>{code} <span className="stock-report-count">({count.toLocaleString()} {text.reports})</span></button>
+                }}>{name || code} <span className="stock-report-count">({count.toLocaleString()} {text.reports})</span></button>
             ))}
           </div>
         ) : <p>{text.noAvailableStocks}</p>)}
@@ -750,6 +797,33 @@ function App() {
           )}
         </div>
 
+        {activeTab === "Balance Sheet" && allReportingDates.length > 0 && (
+          <div className="period-filters" role="group" aria-label={language === "zh" ? "报告期筛选" : "Reporting period filter"}>
+            {PERIOD_FILTERS.map(({ label, ending }) => (
+              <button type="button" key={label} aria-pressed={periodEnding === ending}
+                onClick={() => {
+                  setPeriodEnding(ending);
+                  setPreviewDate(null);
+                  setCopyStatus(null);
+                }}>{label}</button>
+            ))}
+          </div>
+        )}
+
+        {activeTab === "Balance Sheet" && reportingDateEntries.length > 0 && (
+          <section className="reporting-dates" aria-labelledby="reporting-dates-title">
+            <h3 id="reporting-dates-title">{text.reportingDates}</h3>
+            <ol>
+              {reportingDateEntries.map(({ date, missing }) => (
+                <li key={date} className={missing ? "reporting-date-missing" : undefined}
+                  title={missing ? text.missingReport : undefined}>
+                  <time dateTime={date} aria-label={missing ? `${date}: ${text.missingReport}` : undefined}>{date}</time>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
         {activeTab !== "Balance Sheet" ? (
           <div className="empty-state statement-placeholder">
             <h3>{TAB_LABELS[language][activeTab]}</h3>
@@ -762,8 +836,11 @@ function App() {
                 <path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </span>
-            <h3>{loading ? text.loading : (language === "zh" ? "从一份报告开始" : "Start with a company report")}</h3>
-            <p>{loading ? (language === "zh" ? "正在整理财务数据…" : "Preparing your financial data…") : text.enterStockCode}</p>
+            <h3>{loading ? text.loading : allReportingDates.length > 0
+              ? (language === "zh" ? "暂无该报告期的数据" : "No reports for this period")
+              : (language === "zh" ? "从一份报告开始" : "Start with a company report")}</h3>
+            <p>{loading ? (language === "zh" ? "正在整理财务数据…" : "Preparing your financial data…")
+              : allReportingDates.length > 0 ? (language === "zh" ? "请选择其他报告期。" : "Choose another reporting period.") : text.enterStockCode}</p>
           </div>
         ) : (
           <div className="table-wrap">

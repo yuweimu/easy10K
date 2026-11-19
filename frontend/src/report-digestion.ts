@@ -326,7 +326,7 @@ function render(items: Report[]): void {
     identity.className = "report-identity";
     identity.replaceChildren();
     for (const [title, value] of [
-      ["Stock code", report.stock_code], ["Stock name", report.stock_name],
+      ["Stock code", report.stock_code],
       ["Reporting date", report.reporting_date],
     ]) {
       const line = document.createElement("div");

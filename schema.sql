@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS report_digestion (
         )),
 
     stock_code VARCHAR(12),
-    stock_name VARCHAR(12),
     reporting_date DATE,
 
     extraction_report TEXT,
@@ -49,6 +48,7 @@ CREATE INDEX IF NOT EXISTS report_digestion_stock_code_idx
 -- Upgrade existing tables without changing any stored extraction data.
 ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS extraction_audit TEXT;
 ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS digestion_report TEXT;
+ALTER TABLE report_digestion DROP COLUMN IF EXISTS stock_name;
 
 -- Rename the manual approval stage before enforcing the new allowed values.
 ALTER TABLE report_digestion DROP CONSTRAINT IF EXISTS report_digestion_digestion_stage_check;
@@ -78,3 +78,12 @@ BEGIN
         ALTER TABLE report_digestion RENAME COLUMN extraction_info TO extraction_report;
     END IF;
 END $$;
+
+-- Company details keyed by stock code; metadata may be filled in incrementally.
+CREATE TABLE IF NOT EXISTS stock_metadata (
+    stock_code VARCHAR(12) PRIMARY KEY CHECK (btrim(stock_code) <> ''),
+    stock_name VARCHAR(16) NOT NULL CHECK (btrim(stock_name) <> ''),
+    company_name TEXT,
+    company_homepage TEXT,
+    company_profile TEXT
+);

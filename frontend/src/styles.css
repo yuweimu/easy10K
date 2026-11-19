@@ -71,6 +71,8 @@ h2 { font-size: 1.45rem; }
 .stock-code-list { display: flex; flex-wrap: wrap; gap: 8px; max-height: 200px; overflow-y: auto; padding: 4px; margin: 12px -4px -4px; }
 .stock-code-list button { padding: 7px 11px; background: #f5f4fa; color: #51488e; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
 .stock-code-list button[aria-pressed="true"] { background: #6860ad; color: #fff; }
+.stock-code-list button.stock-complete { color: #187443; background: #edf8f0; }
+.stock-code-list button.stock-complete[aria-pressed="true"] { background: #d4eddd; box-shadow: inset 0 0 0 1px #187443; }
 label { color: #555970; display: block; font-size: 0.86rem; font-weight: 700; margin-bottom: 9px; }
 .search-controls { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .search-controls label { margin: 0; white-space: nowrap; }
@@ -102,6 +104,14 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .report-heading { align-items: center; display: flex; justify-content: space-between; gap: 20px; padding: 26px 24px; }
 .report-heading .eyebrow { font-size: 0.65rem; margin-bottom: 8px; }
 .report-heading h2 { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.reporting-dates { padding: 0 24px 20px; }
+.period-filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 24px 16px; }
+.period-filters button { padding: 7px 14px; background: #f5f4fa; color: #51488e; font-size: 0.85rem; }
+.period-filters button[aria-pressed="true"] { background: #6860ad; color: #fff; }
+.reporting-dates h3 { margin: 0 0 10px; color: #737c8e; font-size: 0.78rem; font-weight: 600; }
+.reporting-dates ol { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.reporting-dates li { padding: 5px 9px; border-radius: 6px; background: #f5f4fa; color: #51488e; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.reporting-dates .reporting-date-missing { color: #b42318; background: #fff0ee; }
 .report-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; color: #737c8e; font-size: 0.76rem; font-variant-numeric: tabular-nums; }
 .report-data-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 6px; background: #f0f7f4; color: #37705a; }
 .report-data-badge > span { width: 5px; height: 5px; border-radius: 50%; background: #4a8c71; }
@@ -152,13 +162,14 @@ thead th:first-child { border-right-color: #504d70; }
 .trend-toggle:focus-visible, .trend-close:focus-visible { outline: 2px solid #6860ad; outline-offset: 2px; }
 .sparkline { display: block; width: 96px; height: 24px; }
 .trend-empty { color: #74758a; }
-.trend-detail-row > td { background: #faf9fd; padding: 4px 24px 16px; white-space: normal; }
-.trend-detail { width: min(896px, calc(100vw - 196px)); margin-left: 96px; }
+.trend-detail-row > td { background: #faf9fd; padding: 4px 12px 12px; white-space: normal; }
+.trend-detail { width: min(1075.2px, calc(100vw - 64px)); margin-left: 10px; }
+.trend-chart-scroll { overflow: visible; }
 .trend-plot { display: block; position: relative; }
-.trend-close { position: absolute; top: 8%; right: 0; display: grid; place-items: center; width: 20px; height: 20px; min-height: 0; padding: 0; border-radius: 4px; background: #eeecf8; color: #51488e; font-size: 16px; line-height: 1; font-weight: 400; }
+.trend-close { position: absolute; top: 4px; right: 0; display: grid; place-items: center; width: 20px; height: 20px; min-height: 0; padding: 0; border-radius: 4px; background: #eeecf8; color: #51488e; font-size: 16px; line-height: 1; font-weight: 400; }
 .trend-close:hover { background: #e4e2ee; }
-.trend-chart { display: block; width: 100%; height: auto; color: #6860ad; margin-top: 0; overflow: visible; }
-.trend-chart text { fill: #555970; font-size: 11px; }
+.trend-chart { display: block; width: 100%; height: clamp(200px, 60vh, 504px); color: #6860ad; margin-top: 0; overflow: visible; }
+.trend-chart text { fill: #555970; font-size: 0.8rem; }
 .trend-axis { stroke: #e4e2ee; }
 .trend-chart .trend-point-label { font-variant-numeric: tabular-nums; paint-order: stroke; stroke: #faf9fd; stroke-width: 3px; stroke-linejoin: round; }
 .trend-chart .trend-bar { cursor: pointer; }
@@ -180,7 +191,7 @@ thead th:first-child { border-right-color: #504d70; }
   .brand-lockup { margin-bottom: 28px; }
   .report-summary { gap: 12px; }
   .report-preview-header h3 { font-size: 1rem; padding-left: 0; }
-  .trend-detail { margin-left: 0; width: calc(100vw - 80px); }
+  .trend-detail { margin-left: 10px; width: calc(100vw - 50px); }
   button { min-height: 46px; }
   .report-heading { align-items: flex-start; flex-direction: column; gap: 14px; }
   .report-tools { align-items: center; flex-wrap: wrap; }
