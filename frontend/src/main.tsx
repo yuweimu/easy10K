@@ -57,6 +57,14 @@ const AMOUNT_UNITS = {
 
 type AmountUnit = keyof typeof AMOUNT_UNITS;
 const REPORT_TABS = ["Balance Sheet", "Income Statement", "Cash Flow Statement"] as const;
+const PERIOD_FILTERS = [
+  { label: "全部", ending: "" },
+  { label: "年报", ending: "12-31" },
+  { label: "半年报", ending: "06-30" },
+  { label: "一季报", ending: "03-31" },
+  { label: "三季报", ending: "09-30" },
+] as const;
+type PeriodEnding = typeof PERIOD_FILTERS[number]["ending"];
 const TAB_LABELS = {
   en: {
     "Balance Sheet": "Balance Sheet",
@@ -400,6 +408,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [amountUnit, setAmountUnit] = useState<AmountUnit>("百万元");
   const [showDecimals, setShowDecimals] = useState(true);
+  const [periodEnding, setPeriodEnding] = useState<PeriodEnding>("");
   const [expandedTrendId, setExpandedTrendId] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState<{ itemId: number; message: string } | null>(null);
   useEffect(() => {
@@ -424,29 +433,38 @@ function App() {
   const [collapsedItemIds, setCollapsedItemIds] = useState<Set<number>>(
     () => new Set(),
   );
-  const reportingDates = useMemo(
+  const allReportingDates = useMemo(
     () => Array.from(new Set(report.map((item) => item.reporting_date))).sort().reverse(),
     [report],
   );
+  const filteredReport = useMemo(
+    () => report.filter((item) => item.reporting_date.endsWith(periodEnding)),
+    [report, periodEnding],
+  );
+  const reportingDates = useMemo(
+    () => allReportingDates.filter((date) => date.endsWith(periodEnding)),
+    [allReportingDates, periodEnding],
+  );
   const trendDates = useMemo(() => [...reportingDates].sort(), [reportingDates]);
   const reportingDateEntries = useMemo(() => {
-    if (!trendDates.length) return [];
-    const first = trendDates[0];
-    const last = trendDates[trendDates.length - 1];
-    const available = new Set(trendDates);
-    const dates = new Set(trendDates);
+    if (!allReportingDates.length) return [];
+    const first = allReportingDates[allReportingDates.length - 1];
+    const last = allReportingDates[0];
+    const available = new Set(allReportingDates);
+    const dates = new Set(allReportingDates);
     for (let year = Number(first.slice(0, 4)); year <= Number(last.slice(0, 4)); year += 1) {
       for (const quarterEnd of ["03-31", "06-30", "09-30", "12-31"]) {
         const date = `${year}-${quarterEnd}`;
         if (date >= first && date <= last) dates.add(date);
       }
     }
-    return [...dates].sort().map((date) => ({ date, missing: !available.has(date) }));
-  }, [trendDates]);
+    return [...dates].sort().filter((date) => date.endsWith(periodEnding))
+      .map((date) => ({ date, missing: !available.has(date) }));
+  }, [allReportingDates, periodEnding]);
   const groupedReport = useMemo(() => {
     const grouped = new Map<number, GroupedReportItem>();
 
-    for (const item of report) {
+    for (const item of filteredReport) {
       const existing = grouped.get(item.item_id);
       if (existing) {
         existing.amountsByDate.set(item.reporting_date, item.amount);
@@ -487,7 +505,7 @@ function App() {
 
     roots.sort(byItemId).forEach(appendWithChildren);
     return ordered;
-  }, [language, report]);
+  }, [language, filteredReport]);
   const visibleReport = useMemo(() => {
     return groupedReport.filter((item) => {
       let parentId = Math.floor(item.item_id / 100);
@@ -779,7 +797,20 @@ function App() {
           )}
         </div>
 
-        {activeTab === "Balance Sheet" && reportingDates.length > 0 && (
+        {activeTab === "Balance Sheet" && allReportingDates.length > 0 && (
+          <div className="period-filters" role="group" aria-label={language === "zh" ? "报告期筛选" : "Reporting period filter"}>
+            {PERIOD_FILTERS.map(({ label, ending }) => (
+              <button type="button" key={label} aria-pressed={periodEnding === ending}
+                onClick={() => {
+                  setPeriodEnding(ending);
+                  setPreviewDate(null);
+                  setCopyStatus(null);
+                }}>{label}</button>
+            ))}
+          </div>
+        )}
+
+        {activeTab === "Balance Sheet" && reportingDateEntries.length > 0 && (
           <section className="reporting-dates" aria-labelledby="reporting-dates-title">
             <h3 id="reporting-dates-title">{text.reportingDates}</h3>
             <ol>
@@ -805,8 +836,11 @@ function App() {
                 <path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </span>
-            <h3>{loading ? text.loading : (language === "zh" ? "从一份报告开始" : "Start with a company report")}</h3>
-            <p>{loading ? (language === "zh" ? "正在整理财务数据…" : "Preparing your financial data…") : text.enterStockCode}</p>
+            <h3>{loading ? text.loading : allReportingDates.length > 0
+              ? (language === "zh" ? "暂无该报告期的数据" : "No reports for this period")
+              : (language === "zh" ? "从一份报告开始" : "Start with a company report")}</h3>
+            <p>{loading ? (language === "zh" ? "正在整理财务数据…" : "Preparing your financial data…")
+              : allReportingDates.length > 0 ? (language === "zh" ? "请选择其他报告期。" : "Choose another reporting period.") : text.enterStockCode}</p>
           </div>
         ) : (
           <div className="table-wrap">
