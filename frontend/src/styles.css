@@ -102,6 +102,11 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .report-heading { align-items: center; display: flex; justify-content: space-between; gap: 20px; padding: 26px 24px; }
 .report-heading .eyebrow { font-size: 0.65rem; margin-bottom: 8px; }
 .report-heading h2 { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.reporting-dates { padding: 0 24px 20px; }
+.reporting-dates h3 { margin: 0 0 10px; color: #737c8e; font-size: 0.78rem; font-weight: 600; }
+.reporting-dates ol { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.reporting-dates li { padding: 5px 9px; border-radius: 6px; background: #f5f4fa; color: #51488e; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.reporting-dates .reporting-date-missing { color: #b42318; background: #fff0ee; }
 .report-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; color: #737c8e; font-size: 0.76rem; font-variant-numeric: tabular-nums; }
 .report-data-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 6px; background: #f0f7f4; color: #37705a; }
 .report-data-badge > span { width: 5px; height: 5px; border-radius: 50%; background: #4a8c71; }

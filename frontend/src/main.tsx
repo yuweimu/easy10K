@@ -85,6 +85,8 @@ const UI_TEXT = {
     recentSearches: "Recent searches",
     availableStocks: "Stocks with data",
     totalReports: "Total reports",
+    reportingDates: "Reporting dates (earliest to latest)",
+    missingReport: "Missing quarterly report",
     reports: "reports",
     noAvailableStocks: "No stocks have balance-sheet items yet.",
     stockCodesFailed: "Unable to load stock codes.",
@@ -121,6 +123,8 @@ const UI_TEXT = {
     recentSearches: "最近搜索",
     availableStocks: "已有数据的股票",
     totalReports: "报告总数",
+    reportingDates: "报告日期（从早到晚）",
+    missingReport: "缺少季度报告",
     reports: "份报告",
     noAvailableStocks: "暂无股票资产负债表数据。",
     stockCodesFailed: "无法加载股票代码。",
@@ -415,6 +419,20 @@ function App() {
     [report],
   );
   const trendDates = useMemo(() => [...reportingDates].sort(), [reportingDates]);
+  const reportingDateEntries = useMemo(() => {
+    if (!trendDates.length) return [];
+    const first = trendDates[0];
+    const last = trendDates[trendDates.length - 1];
+    const available = new Set(trendDates);
+    const dates = new Set(trendDates);
+    for (let year = Number(first.slice(0, 4)); year <= Number(last.slice(0, 4)); year += 1) {
+      for (const quarterEnd of ["03-31", "06-30", "09-30", "12-31"]) {
+        const date = `${year}-${quarterEnd}`;
+        if (date >= first && date <= last) dates.add(date);
+      }
+    }
+    return [...dates].sort().map((date) => ({ date, missing: !available.has(date) }));
+  }, [trendDates]);
   const groupedReport = useMemo(() => {
     const grouped = new Map<number, GroupedReportItem>();
 
@@ -749,6 +767,20 @@ function App() {
             </div>
           )}
         </div>
+
+        {activeTab === "Balance Sheet" && reportingDates.length > 0 && (
+          <section className="reporting-dates" aria-labelledby="reporting-dates-title">
+            <h3 id="reporting-dates-title">{text.reportingDates}</h3>
+            <ol>
+              {reportingDateEntries.map(({ date, missing }) => (
+                <li key={date} className={missing ? "reporting-date-missing" : undefined}
+                  title={missing ? text.missingReport : undefined}>
+                  <time dateTime={date} aria-label={missing ? `${date}: ${text.missingReport}` : undefined}>{date}</time>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
 
         {activeTab !== "Balance Sheet" ? (
           <div className="empty-state statement-placeholder">
