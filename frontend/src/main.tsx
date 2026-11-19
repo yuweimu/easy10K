@@ -20,7 +20,9 @@ type BalanceSheetItem = {
 
 type StockReportCount = {
   stock_code: string;
+  stock_name: string | null;
   report_count: number;
+  has_missing_reporting_dates: boolean;
 };
 
 type ReportItem = BalanceSheetItem & {
@@ -717,14 +719,15 @@ function App() {
         {stockCodesStatus === "error" && <p role="alert">{text.stockCodesFailed}</p>}
         {stockCodesStatus === "ready" && (availableStockCodes.length ? (
           <div className="stock-code-list">
-            {availableStockCodes.map(({ stock_code: code, report_count: count }) => (
-              <button type="button" key={code} disabled={loading}
+            {availableStockCodes.map(({ stock_code: code, stock_name: name, report_count: count, has_missing_reporting_dates: missing }) => (
+              <button type="button" key={code} disabled={loading} title={code}
+                className={missing === false ? "stock-complete" : undefined}
                 aria-pressed={reportStockCode === code}
                 onClick={() => {
                   setStockCode(code);
                   setActiveTab("Balance Sheet");
                   void loadReport(code);
-                }}>{code} <span className="stock-report-count">({count.toLocaleString()} {text.reports})</span></button>
+                }}>{name || code} <span className="stock-report-count">({count.toLocaleString()} {text.reports})</span></button>
             ))}
           </div>
         ) : <p>{text.noAvailableStocks}</p>)}

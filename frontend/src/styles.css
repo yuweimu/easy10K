@@ -71,6 +71,8 @@ h2 { font-size: 1.45rem; }
 .stock-code-list { display: flex; flex-wrap: wrap; gap: 8px; max-height: 200px; overflow-y: auto; padding: 4px; margin: 12px -4px -4px; }
 .stock-code-list button { padding: 7px 11px; background: #f5f4fa; color: #51488e; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
 .stock-code-list button[aria-pressed="true"] { background: #6860ad; color: #fff; }
+.stock-code-list button.stock-complete { color: #187443; background: #edf8f0; }
+.stock-code-list button.stock-complete[aria-pressed="true"] { background: #d4eddd; box-shadow: inset 0 0 0 1px #187443; }
 label { color: #555970; display: block; font-size: 0.86rem; font-weight: 700; margin-bottom: 9px; }
 .search-controls { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .search-controls label { margin: 0; white-space: nowrap; }
