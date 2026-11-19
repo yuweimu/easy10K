@@ -20,7 +20,7 @@ from line_item_storage import LineItemStorage
 REQUIRED_IDS = (11, 
                 1101, 110101, 110128, 
                 1102, 110231, 110242,
-                21, 2101, 2102, 
+                21, 2101, 
                 31, 3110, 311001, 311004, 311008)
 UNITS = {"元": 1, "千元": 1000, "万元": 10000, "百万元": 1000000, "亿元": 100000000}
 NUMBER = re.compile(r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
@@ -96,6 +96,9 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
     """Map Markdown rows to items, retaining column-shift evidence and errors."""
     amount_column = 1
     state = ParsedBalanceSheet()
+    # Match Unicode suffixes of long names and aliases after label normalization.
+    long_names = [clean_cell(name).replace("(", "（").replace(")", "）")
+                  for name in chart.items if len(clean_cell(name)) >= 16]
     parsed, ambiguous_rows, shifted_items = state.items, state.ambiguous_rows, state.shifted_items
     issues = state.issues
     for line_number, line in enumerate(markdown.splitlines(), 1):
@@ -113,9 +116,11 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
         label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", label)
         label = label.rstrip("：:")
         item = chart.get(label)
-        if item is None or item.item_id == 99000001:
+        if item is None or item.item_id in (0, 99000001):
             continue_if_total = re.search(r"负债[和及].*权益.*总计", label)
-            if item is None and not continue_if_total:
+            truncated_suffix = len(label) >= 3 and any(
+                len(name) > len(label) and name.endswith(label) for name in long_names)
+            if item is None and not continue_if_total and not truncated_suffix:
                 state.unmapped_rows.append({"line": line_number, "label": label})
             continue
         row_amount_column = select_amount_column(cells, amount_column)
@@ -142,27 +147,31 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
 
 
 def subtotal_children(parent_id: int, amounts: dict[int, Decimal],
-                      reporting_date: str | date | None) -> list[int]:
+                      reporting_date: str | date | None, *,
+                      present_items: set[int] | None = None) -> list[int]:
     """Select subtotal children using the hierarchy for the report's period."""
     if parent_id == 110110:
-        return [110111, 110113] if 110111 in amounts and 110113 in amounts else []
+        return [item_id for item_id in (110111, 110113) if item_id in amounts]
     prefix = str(parent_id)
     if len(prefix) not in (2, 4):
         return []
     children = [item_id for item_id in amounts
                 if str(item_id).startswith(prefix) and len(str(item_id)) == len(prefix) + 2]
-    if parent_id == 1101 and 110111 in amounts and 110113 in amounts:
-        children = [item_id for item_id in children if item_id != 110110]
-    legacy_children = {1101: (11012801, 11012802), 2101: (21013501, 21013502)}
-    if parent_id in legacy_children:
-        try:
-            legacy_hierarchy = date.fromisoformat(str(reporting_date)) < date(2017, 12, 31)
-        except ValueError:
-            # Missing or invalid dates are reported by metadata validation.
-            legacy_hierarchy = False
-        if legacy_hierarchy:
-            children.extend(item_id for item_id in legacy_children[parent_id] if item_id in amounts)
+    if parent_id == 1101 and 110110 in (present_items if present_items is not None else amounts):
+        children = [item_id for item_id in children if item_id not in (110111, 110113)]
     return children
+
+
+def subtotal_child_options(parent_id: int, amounts: dict[int, Decimal],
+                           reporting_date: str | date | None, present_items: set[int]) -> list[list[int]]:
+    """Try both placements of interest/dividends receivable or payable."""
+    children = subtotal_children(parent_id, amounts, reporting_date, present_items=present_items)
+    options = [children]
+    ambiguous_items = {1101: (11012801, 11012802), 2101: (21013501, 21013502)}
+    additional_children = [item_id for item_id in ambiguous_items.get(parent_id, ()) if item_id in amounts]
+    if additional_children:
+        options.append(children + additional_children)
+    return options
 
 
 def resolve_shifted_amounts(state: ParsedBalanceSheet, absolute_tolerance: Decimal,
@@ -178,26 +187,26 @@ def resolve_shifted_amounts(state: ParsedBalanceSheet, absolute_tolerance: Decim
         if parent_amount is None or len(str(parent_id)) not in (2, 4):
             continue
         amounts = {item_id: amount for item_id, (_, amount) in parsed.items() if amount is not None}
-        children = {item_id: amounts[item_id]
-                    for item_id in subtotal_children(parent_id, amounts, reporting_date)}
-        if not (shifted_items & (set(children) | {parent_id})):
+        options = subtotal_child_options(parent_id, amounts, reporting_date, set(parsed))
+        totals = [sum((-abs(amounts[item_id]) if item_id == 311003 else amounts[item_id]
+                       for item_id in children), Decimal(0)) for children in options]
+        if any(abs(parent_amount - total) <= max(absolute_tolerance,
+               relative_tolerance * max(abs(parent_amount), abs(total))) for total in totals):
             continue
-        contributions = {item_id: -abs(amount) if item_id == 311003 else amount
-                         for item_id, amount in children.items()}
-        total = sum(contributions.values(), Decimal(0))
-        tolerance = max(absolute_tolerance, relative_tolerance * max(abs(parent_amount), abs(total)))
-        if abs(parent_amount - total) <= tolerance:
-            continue
-        alternatives = []
-        for item_id, contribution in contributions.items():
-            if item_id not in ambiguous_rows or contribution == 0:
+        alternatives = {}
+        for children, total in zip(options, totals):
+            if not (shifted_items & (set(children) | {parent_id})):
                 continue
-            alternative = total - contribution
-            tolerance = max(absolute_tolerance, relative_tolerance * max(abs(parent_amount), abs(alternative)))
-            if abs(parent_amount - alternative) <= tolerance:
-                alternatives.append((item_id, alternative))
+            for item_id in children:
+                contribution = -abs(amounts[item_id]) if item_id == 311003 else amounts[item_id]
+                if item_id not in ambiguous_rows or contribution == 0:
+                    continue
+                alternative = total - contribution
+                tolerance = max(absolute_tolerance, relative_tolerance * max(abs(parent_amount), abs(alternative)))
+                if abs(parent_amount - alternative) <= tolerance:
+                    alternatives[item_id] = (alternative, total)
         if len(alternatives) == 1:
-            item_id, alternative = alternatives[0]
+            item_id, (alternative, total) = next(iter(alternatives.items()))
             item, amount = parsed[item_id]
             parsed[item_id] = (item, None)
             column_adjustments.append({"item_id": item_id, "line": ambiguous_rows[item_id],
@@ -226,9 +235,18 @@ def check_parent_totals(row: dict, parsed: dict[int, tuple[LineItem, Decimal | N
     """Validate subtotals and print their arithmetic equations."""
     issues, checks = result["issues"], result["checks"]
     amounts = {item_id: amount for item_id, (_, amount) in parsed.items() if amount is not None}
+    if 110110 in parsed and 110110 not in amounts:
+        issues.append("Item 110110: missing amount for 应收票据及应收账款")
     for parent_id, parent_amount in amounts.items():
-        children = subtotal_children(parent_id, amounts, row.get("reporting_date"))
-        if not children:
+        options = subtotal_child_options(parent_id, amounts, row.get("reporting_date"), set(parsed))
+        def option_difference(children):
+            total = sum((-abs(amounts[item_id]) if item_id == 311003 else amounts[item_id]
+                         for item_id in children), Decimal(0))
+            tolerance = max(absolute_tolerance, relative_tolerance * max(abs(parent_amount), abs(total)))
+            difference = abs(parent_amount - total)
+            return (difference > tolerance, difference)
+        children = min(options, key=option_difference)
+        if not children and parent_id != 110110:
             continue
         child_amounts = [-abs(amounts[item_id]) if item_id == 311003 else amounts[item_id]
                          for item_id in children]

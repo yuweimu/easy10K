@@ -496,7 +496,7 @@ class LineItemStorage:
             "pdf_hash", "pdf_creation_date", "download_url", "local_path", "digestion_stage",
             "stock_code", "reporting_date", "extraction_report",
             "balance_sheet", "balance_sheet_ex", "income_statement", "income_statement_ex",
-            "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit", "updated_at",
+            "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit", "digestion_report", "updated_at",
         )
         where = "" if show_passed else "WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass') "
         if only_manual_pass:
