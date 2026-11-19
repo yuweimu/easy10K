@@ -479,7 +479,7 @@ class LineItemStorage:
             raise ValueError("Invalid report digestion stage")
         fields = (
             "pdf_hash", "pdf_creation_date", "download_url", "local_path", "digestion_stage",
-            "stock_code", "stock_name", "reporting_date", "extraction_report",
+            "stock_code", "reporting_date", "extraction_report",
             "balance_sheet", "balance_sheet_ex", "income_statement", "income_statement_ex",
             "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit", "updated_at",
         )
