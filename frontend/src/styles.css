@@ -159,13 +159,14 @@ thead th:first-child { border-right-color: #504d70; }
 .trend-toggle:focus-visible, .trend-close:focus-visible { outline: 2px solid #6860ad; outline-offset: 2px; }
 .sparkline { display: block; width: 96px; height: 24px; }
 .trend-empty { color: #74758a; }
-.trend-detail-row > td { background: #faf9fd; padding: 4px 24px 16px; white-space: normal; }
-.trend-detail { width: min(896px, calc(100vw - 196px)); margin-left: 96px; }
+.trend-detail-row > td { background: #faf9fd; padding: 4px 12px 12px; white-space: normal; }
+.trend-detail { width: min(1075.2px, calc(100vw - 64px)); margin-left: 10px; }
+.trend-chart-scroll { overflow: visible; }
 .trend-plot { display: block; position: relative; }
-.trend-close { position: absolute; top: 8%; right: 0; display: grid; place-items: center; width: 20px; height: 20px; min-height: 0; padding: 0; border-radius: 4px; background: #eeecf8; color: #51488e; font-size: 16px; line-height: 1; font-weight: 400; }
+.trend-close { position: absolute; top: 4px; right: 0; display: grid; place-items: center; width: 20px; height: 20px; min-height: 0; padding: 0; border-radius: 4px; background: #eeecf8; color: #51488e; font-size: 16px; line-height: 1; font-weight: 400; }
 .trend-close:hover { background: #e4e2ee; }
-.trend-chart { display: block; width: 100%; height: auto; color: #6860ad; margin-top: 0; overflow: visible; }
-.trend-chart text { fill: #555970; font-size: 11px; }
+.trend-chart { display: block; width: 100%; height: clamp(200px, 60vh, 504px); color: #6860ad; margin-top: 0; overflow: visible; }
+.trend-chart text { fill: #555970; font-size: 0.8rem; }
 .trend-axis { stroke: #e4e2ee; }
 .trend-chart .trend-point-label { font-variant-numeric: tabular-nums; paint-order: stroke; stroke: #faf9fd; stroke-width: 3px; stroke-linejoin: round; }
 .trend-chart .trend-bar { cursor: pointer; }
@@ -187,7 +188,7 @@ thead th:first-child { border-right-color: #504d70; }
   .brand-lockup { margin-bottom: 28px; }
   .report-summary { gap: 12px; }
   .report-preview-header h3 { font-size: 1rem; padding-left: 0; }
-  .trend-detail { margin-left: 0; width: calc(100vw - 80px); }
+  .trend-detail { margin-left: 10px; width: calc(100vw - 50px); }
   button { min-height: 46px; }
   .report-heading { align-items: flex-start; flex-direction: column; gap: 14px; }
   .report-tools { align-items: center; flex-wrap: wrap; }
