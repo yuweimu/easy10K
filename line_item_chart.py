@@ -63,7 +63,11 @@ class LineItemChart:
                         f"Duplicate line-item name at {source_path}:"
                         f"{line_number}: {name!r}"
                     )
-                if item_id > 0:
+                if item_id == 0:
+                    # Resolve ignored labels and their truncated prefixes to ID 0.
+                    self.items[name] = LineItem(name, item_id, english_name)
+                    self.item_ids[name] = item_id
+                elif item_id > 0:
                     item = self._items_by_id.get(item_id)
                     if item is None:
                         item = LineItem(name, item_id, english_name)

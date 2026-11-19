@@ -97,8 +97,8 @@ function textDetails(value: string | null | undefined, title: string): HTMLTable
     copy.type = "button";
     copy.className = "copy-path";
     copy.textContent = "Copy";
-    copy.title = "Copy extraction report";
-    copy.setAttribute("aria-label", "Copy extraction report");
+    copy.title = `Copy ${title.toLowerCase().replace(/^view /, "")}`;
+    copy.setAttribute("aria-label", copy.title);
     const feedback = document.createElement("span");
     feedback.className = "copy-feedback";
     feedback.setAttribute("role", "status");
@@ -373,13 +373,13 @@ function render(items: Report[]): void {
     hash.replaceChildren(hashText, stageLine);
     tr.append(hash, files, identity,
       textDetails(report.extraction_report, "View report"),
-      auditCell(report.extraction_audit), content,
+      auditCell(report.extraction_audit), textDetails(report.digestion_report, "View digestion report"), content,
       updated);
     rows.append(tr);
   }
   if (!items.length) {
     const td = cell("No reports match the selected filter.");
-    td.colSpan = 7;
+    td.colSpan = 8;
     td.className = "empty";
     const tr = document.createElement("tr");
     tr.append(td);

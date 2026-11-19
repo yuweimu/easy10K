@@ -98,6 +98,22 @@ class LineItemChartTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Duplicate line-item name"):
             LineItemChart(duplicate_path)
 
+    def test_ignored_item_prefixes_resolve_to_zero(self) -> None:
+        items = LineItemChart()
+        for name in ("负债和所有者权益（或股东权益）总计", "负债和所有者权益（或股东权益",
+                     "负债和所有者权益（或股东权益）"):
+            with self.subTest(name=name):
+                self.assertEqual(items.get_item_id(name), 0)
+                self.assertEqual(items[name].item_id, 0)
+        self.assertEqual(items.get_item_id("股东权益"), 31)
+
+    def test_truncated_parent_equity_names_resolve_to_3110(self) -> None:
+        items = LineItemChart()
+        for name in ("归属于母公司股东权益合", "归属于母公司所有者权益（或股东"):
+            with self.subTest(name=name):
+                self.assertEqual(items.get_item_id(name), 3110)
+                self.assertEqual(items[name].item_id, 3110)
+
     def test_loads_default_source_file(self) -> None:
         items = LineItemChart()
 
