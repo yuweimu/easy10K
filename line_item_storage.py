@@ -544,7 +544,9 @@ class LineItemStorage:
         """Read a filtered, newest-first page without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("Page must be positive and page_size must be between 1 and 100")
-        if report_group not in (None, "InProgress", "ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated", "Search"):
+        if report_group not in (None, "InProgress", "ExtractionSuccess", "ExtractionError", "AuditPass", "AuditIssues",
+                                "BalanceSheetErr", "IncomeStatementErr", "CashFlowStatementErr", "CashFlowStatementOK",
+                                "ManualPass", "Deprecated", "Search"):
             raise ValueError("Unknown report group")
         if digestion_stage is not None and digestion_stage not in get_args(ReportDigestionStage):
             raise ValueError("Invalid report digestion stage")
@@ -559,10 +561,16 @@ class LineItemStorage:
         if only_manual_pass:
             where = "WHERE digestion_stage = 'ManualPass' "
         if report_group == "InProgress":
-            where = "WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass', 'Deprecated', 'ExtractionSuccess') "
-        elif report_group in ("ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated"):
+            where = ("WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass', 'Deprecated', 'ExtractionSuccess', "
+                     "'ExtractionError', 'AuditIssues', 'BalanceSheetErr', 'IncomeStatementErr', 'CashFlowStatementErr', "
+                     "'CashFlowStatementOK') ")
+        elif report_group in ("ExtractionSuccess", "ExtractionError", "AuditPass", "AuditIssues",
+                              "BalanceSheetErr", "IncomeStatementErr", "CashFlowStatementErr", "CashFlowStatementOK",
+                              "ManualPass", "Deprecated"):
             where = "WHERE digestion_stage = %s "
-        parameters = (report_group,) if report_group in ("ExtractionSuccess", "AuditPass", "ManualPass", "Deprecated") else ()
+        parameters = (report_group,) if report_group in ("ExtractionSuccess", "ExtractionError", "AuditPass", "AuditIssues",
+                                                        "BalanceSheetErr", "IncomeStatementErr", "CashFlowStatementErr", "CashFlowStatementOK",
+                                                        "ManualPass", "Deprecated") else ()
         if report_group == "Search":
             where = ""
         for column, value in (("pdf_hash", pdf_hash), ("stock_code", stock_code), ("digestion_stage", digestion_stage)):
