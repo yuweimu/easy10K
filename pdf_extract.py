@@ -48,6 +48,7 @@ STATEMENT_FIELDS = tuple(dict.fromkeys(STATEMENTS.values()))
 PERIOD_END = r"截至20\d{2}年\d{1,2}月\d{1,2}日止(?:\d{1,2}|[一二三四五六七八九十两]{1,3})个月期间"
 QUARTER_PERIOD = r"20\d{2}年第?[一二三四1-4]季度"
 DATE_RANGE_PERIOD = r"20\d{2}年\d{1,2}月\d{1,2}日[至到](?:20\d{2}年)?\d{1,2}月\d{1,2}日止期间"
+MONTH_RANGE_PERIOD = r"20\d{2}年\d{1,2}(?:月)?[—–－\-~～至到]\d{1,2}月"
 COMPARATIVE_PERIOD = (
     r"(?:截至20\d{2}年\d{1,2}月\d{1,2}日[和及]20\d{2}年\d{1,2}月\d{1,2}日|"
     r"20\d{2}年\d{1,2}[—–－\-~～至到]\d{1,2}月[和及]20\d{2}年\d{1,2}[—–－\-~～至到]\d{1,2}月)的"
@@ -57,7 +58,7 @@ HEADING = re.compile(
     r"[（(][\d一二三四五六七八九十]+[）)])?"
     rf"(?:{COMPARATIVE_PERIOD}|{PERIOD_END}|{DATE_RANGE_PERIOD}|20\d{{2}}年\d{{1,2}}月\d{{1,2}}日|20\d{{2}}年度|{QUARTER_PERIOD})?"
     r"(?:未经审计)?"
-    r"((?:(?:中期)?合并(?:及(?:母公司|公司))?|合共及公司|母公司)(?:资产负债表|(?:本报告期|年初[到至]报告期末)?利润表|"
+    r"((?:(?:中期)?合并(?:及(?:母公司|公司))?|合共及公司|母公司)(?:资产负债表|(?:年初[到至]报告期末)?利润表|"
     r"(?:年初[到至]报告期末)?现金流量表|所有者权益变动表|股东权益变动表)|资产负债表|利润表|现金流量表)"
     r"(?:[（(]未经审计[）)])?(?:[（(]续[）)])?$"
 )
@@ -109,7 +110,8 @@ def statement_title(text: str, following_lines: list[str] | tuple[str, ...] = ()
     if "资产负债表" in title:
         period = r"(?<!\d)20\d{2}(?:年\d{1,2}月\d{1,2}日|-\d{1,2}-\d{1,2})(?!\d)"
     elif "利润表" in title or "现金流量表" in title:
-        if re.search(PERIOD_END, context) or re.search(r"(?<!\d)20\d{2}年度", context):
+        if (re.search(PERIOD_END, context) or re.search(r"(?<!\d)20\d{2}年度", context)
+                or re.search(MONTH_RANGE_PERIOD, context)):
             return title
         if re.search(QUARTER_PERIOD, context):
             return title

@@ -96,80 +96,6 @@ Optional arguments: `--stock-list PATH`, `--reports-dir PATH`, `--timeout SECOND
 Defaults are relative to the project directory, not the current working directory.
 The runner exits nonzero if any stock fails or a stock-code field is invalid.
 
-### 1. Convert PDFs to Markdown
-
-On a conversion error, available Markdown (including partial output) is saved beside the source PDF with the same basename for investigation. An existing sibling Markdown file is backed up as `{basename}.previous-*.md` before replacement. Errors are recorded as `PDF2MD_ERROR` when the registry is available and the required PDF keys are known; the batch continues with the next file.
-
-Use stock-code subdirectories and reporting-date filenames for reports intended for the viewer:
-
-```text
-reports/
-└── 300750/
-    └── 2025-12-31.pdf
-```
-
-Convert a single PDF:
-
-```bash
-python mdgenerate.py reports/300750/2025-12-31.pdf --output markdown/300750/2025-12-31.md
-```
-
-Or recursively convert every `.pdf`/`.PDF` file, preserving subdirectories:
-
-```bash
-python mdgenerate.py reports --output markdown
-```
-
-Without `--output`, both single-file and directory conversion save reports to `./reports/markdown/{stock_code}/{stock_code}.{reporting_date}.{pdf_creation_time}.md`, relative to the current working directory. The PDF is first converted to a temporary Markdown file with `pymupdf4llm`, then stock code and reporting date are extracted from that file using the same balance-sheet rules as digestion. Creation time comes from PDF metadata. An undetermined reporting date uses `no-date` in the filename. If the stock code or creation time is missing, specify an explicit `--output`. Because the default filename is determined after conversion, existing-output protection is checked when publishing the completed temporary file. Explicit directory output continues to preserve source subdirectories and filenames.
-
-Existing output files are skipped. To replace them:
-
-```bash
-python mdgenerate.py reports --output markdown --force
-```
-
-Failed conversions leave existing output untouched and clean up their temporary files. An abruptly terminated process may leave a hidden `.tmp` file, but not a partially written final Markdown file.
-
-### 2. Preprocess the reports for browsing
-
-```bash
-python mdpreprocess.py
-```
-
-Defaults are `markdown` for input and `preprocessed` for output. Custom directories are supported:
-
-```bash
-python mdpreprocess.py --input-dir markdown --preprocessed-dir preprocessed
-```
-
-The preprocessor reads `INPUT_DIR/*/*.md`, so files must be exactly one subdirectory below the input root. It preserves source files and rewrites the corresponding preprocessed copies.
-
-Generated reports include:
-
-- A `__reportanchor-index` anchor at the contents heading, where present.
-- Stable section anchors such as `__reportanchor-financial-statements`.
-- Parent-scoped second-level subtitle anchors, shown as indented child links in the viewer navigation.
-- Contents links to matching sections.
-- For reports without contents, navigation built from standalone Chinese-numbered headings such as `一、主要财务数据`.
-- A hidden `REPORT_NAVIGATION` comment after `ORIGINAL_PDF_FILE_CREATION_DATE`, containing only section-link elements when that metadata and contents are present.
-- Balance-sheet item indentation and numeric/caption alignment.
-
-### 3. Digest original Markdown into PostgreSQL
-
-```bash
-python mddigest.py markdown/300750/2025-12-31.md
-```
-
-Or recursively digest a directory:
-
-```bash
-python mddigest.py markdown
-```
-
-Each report gets a fresh parser and storage state. The parser extracts stock code, reporting date, creation time, currency unit, and recognized consolidated balance-sheet items. Storage creates its table when the first item is persisted and upserts on stock code, reporting date, item ID, and creation time.
-
-Use the original `markdown` files for digestion, not the HTML-decorated `preprocessed` copies. Run digestion from the project root because the parser loads `line-item-chart.txt` relative to the working directory.
-
 ### Digest audited balance-sheet line items
 
 Run `python digest_balance_sheet.py` with `DATABASE_URL` configured to process reports
@@ -312,46 +238,6 @@ cause a nonzero exit code. An empty input directory produces an empty audit.
 These checks flag suspicious results; they do not certify every financial value
 or replace a visual review of source statements.
 
-### Preview a PDF as lightweight HTML
-
-```bash
-python pdf_preview.py "reports/download/600519/贵州茅台：2024年第一季度报告.pdf"
-python pdf_preview.py report.pdf --output preview.html --start-page 5 --end-page 10
-```
-
-[pdf_preview.py](./pdf_preview.py) produces a small text-first HTML reader by
-default. It uses plain selectable text, preserving line breaks and approximate
-column spacing but omitting images, charts, original fonts, and exact layout.
-Text is stored only once, rather than duplicated in a separate search index.
-The reader
-includes bookmarks (or page navigation when no bookmarks exist), page jumps,
-zoom, selectable text, page-level search, and printing. Open the generated HTML
-directly in a browser; no extension, server, or original PDF is required.
-
-By default HTML is saved beside the PDF. Existing HTML is preserved unless
-`--force` is supplied, and conversion publishes the output only after completion.
-Page ranges are one-based and inclusive. Search and bookmarks remain available.
-For a larger preview that retains the page appearance, use `--mode image`
-(90 DPI, JPEG quality 50 by default); `--dpi` and `--quality` control that mode's
-size/sharpness tradeoff. Scanned reports need prior OCR for text mode, otherwise
-use image mode to view them.
-
-### Preview a PDF as Markdown
-
-```bash
-python pdf_preview_md.py "reports/download/600519/贵州茅台：2024年第一季度报告.pdf" --output output/markdown/600519-2024Q1.md
-python pdf_preview_md.py report.pdf --start-page 5 --end-page 10 --force
-```
-
-[pdf_preview_md.py](./pdf_preview_md.py) is a standalone converter without database
-access. It preserves detected headings, emphasis, reading order, and Markdown
-tables, with a linked contents list and page markers. Output defaults to a `.md`
-file beside the source PDF. Existing output is protected unless `--force` is used;
-only completed conversions replace the destination. Images, charts, fonts, and
-exact positioning are not retained. Scanned pages need prior OCR. For borderless
-tables, try `--table-strategy text`; table detection should still be checked
-against the source report.
-
 ## Run the application
 
 Start the API in one terminal, with the Python environment activated:
@@ -421,9 +307,6 @@ npm run build
 
 | File / directory | Responsibility |
 | --- | --- |
-| [mdgenerate.py](./mdgenerate.py) | PDF-to-Markdown conversion. |
-| [mdpreprocess.py](./mdpreprocess.py) | Anchors, navigation metadata, and balance-sheet formatting. |
-| [mddigest.py](./mddigest.py) | Report parsing and financial-item extraction. |
 | [line_item_chart.py](./line_item_chart.py) | Load the bilingual item hierarchy. |
 | [line_item_storage.py](./line_item_storage.py) | Environment loading and PostgreSQL persistence. |
 | [main.py](./main.py) | FastAPI endpoints. |
