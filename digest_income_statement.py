@@ -16,6 +16,16 @@ REQUIRED_IDS = (51, 54, 56)
 def accounting_equations(state, result):
     values, equations = state.amounts, []
 
+    # Some reports omit the amount on OCI attribution rows while providing
+    # amounts for their children. Derive only missing/blank parents; an
+    # explicitly reported amount, including zero, remains authoritative.
+    for parent in (5701, 5703):
+        children = [item_id for item_id in values
+                    if str(item_id).startswith(str(parent))
+                    and len(str(item_id)) == len(str(parent)) + 2]
+        if (parent not in values or values[parent] is None) and children:
+            values[parent] = sum((values[item_id] or Decimal(0) for item_id in children), Decimal(0))
+
     def add(name, target, terms, required=()):
         if target in values:
             equations.append(Equation(name, target, tuple(terms), tuple(required)))

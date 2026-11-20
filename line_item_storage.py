@@ -583,12 +583,22 @@ class LineItemStorage:
         return dict(items=items, total=total, page=page, page_size=page_size, total_pages=total_pages)
 
     def get_balance_sheet_stock_codes(self) -> list[dict]:
+        return self.get_statement_stock_codes("balance_sheet")
+
+    @staticmethod
+    def _statement_table(statement: str) -> str:
+        if statement not in ("balance_sheet", "income_statement", "cash_flow_statement"):
+            raise ValueError("Unsupported statement")
+        return statement + "_items"
+
+    def get_statement_stock_codes(self, statement: str) -> list[dict]:
         """Return stock names and counts without excluding stocks missing metadata."""
+        table = self._statement_table(statement)
         with self._connect().cursor() as cursor:
             cursor.execute(
                 "SELECT stocks.stock_code, stocks.report_count, metadata.stock_name, stocks.reporting_dates FROM ("
                 "SELECT stock_code, COUNT(DISTINCT (reporting_date, report_creation_time)) "
-                "AS report_count, ARRAY_AGG(DISTINCT reporting_date) AS reporting_dates FROM balance_sheet_items "
+                f"AS report_count, ARRAY_AGG(DISTINCT reporting_date) AS reporting_dates FROM {table} "
                 "WHERE stock_code IS NOT NULL AND stock_code <> '' "
                 "GROUP BY stock_code) AS stocks "
                 "LEFT JOIN stock_metadata AS metadata ON metadata.stock_code = stocks.stock_code "
@@ -597,6 +607,17 @@ class LineItemStorage:
             return [{"stock_code": row[0], "report_count": row[1], "stock_name": row[2],
                      "has_missing_reporting_dates": _has_missing_quarters(row[3])}
                     for row in cursor.fetchall()]
+
+    def get_statement_items(self, statement: str, stock_code: str) -> list[dict]:
+        """Read statement values, preserving EPS units and exact report versions."""
+        table = self._statement_table(statement)
+        fields = ("reporting_date", "item_id", "amount", "report_creation_time", "amount_unit")
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                f"SELECT {', '.join(fields)} FROM {table} WHERE stock_code = %s "
+                "ORDER BY reporting_date, item_id, report_creation_time", (stock_code,),
+            )
+            return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
     def get_balance_sheet_items(self, stock_code: str) -> list[dict]:
         """Return the same ordered fields used by the balance-sheet API."""

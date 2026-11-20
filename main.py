@@ -204,6 +204,48 @@ def get_balance_sheet_items(stock_code: str) -> list[dict]:
             detail="Unable to fetch balance-sheet items",
         ) from exc
 
+@app.get("/income_statement_items")
+def get_income_statement_stock_codes() -> list[dict]:
+    return get_statement_stock_codes("income_statement")
+
+
+@app.get("/cash_flow_statement_items")
+def get_cash_flow_statement_stock_codes() -> list[dict]:
+    return get_statement_stock_codes("cash_flow_statement")
+
+
+def get_statement_stock_codes(statement: str) -> list[dict]:
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            return storage.get_statement_stock_codes(statement)
+        except Exception as exc:
+            logger.warning("Unable to fetch statement stock codes", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to fetch stock codes") from exc
+
+
+@app.get("/income_statement_items/{stock_code}")
+def get_income_statement_items(stock_code: str) -> list[dict]:
+    return get_statement_items("income_statement", stock_code)
+
+
+@app.get("/cash_flow_statement_items/{stock_code}")
+def get_cash_flow_statement_items(stock_code: str) -> list[dict]:
+    return get_statement_items("cash_flow_statement", stock_code)
+
+
+def get_statement_items(statement: str, stock_code: str) -> list[dict]:
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            return storage.get_statement_items(statement, stock_code)
+        except Exception as exc:
+            logger.warning("Unable to fetch statement items", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to fetch statement items") from exc
+
+
 def source_pdf_path(local_path):
     if not local_path:
         raise HTTPException(status_code=404, detail="Source PDF is unavailable")

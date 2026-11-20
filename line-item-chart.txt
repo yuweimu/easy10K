@@ -161,6 +161,7 @@
 	4207|退保金|Surrender Benefits
 	4209|赔付支出净额|Net Claims and Benefits Paid
 	4211|提取保险责任准备金净额|Net Increase in Insurance Contract Reserves
+	4211|提取保险合同准备金净额|Net Increase in Insurance Contract Reserves
 	4213|保单红利支出|Policyholder Dividends
 	4215|分保费用|Reinsurance Expenses
 	4217|税金及附加|Taxes and Surcharges
@@ -170,6 +171,7 @@
 	4225|财务费用|Finance Costs
 		422501|利息费用|Interest Expense Included in Finance Costs
 		422503|财务费用中的利息收入|Interest Income Included in Finance Costs
+	4227|资产减值损失|Asset Impairment Losses
 
 43|其他收益|Other Income
 44|投资收益|Investment Income
@@ -183,7 +185,9 @@
 50|资产处置收益|Gains on Disposal of Assets
 51|营业利润|Operating Profit
 52|营业外收入|Non-operating Income
+	5201|非流动资产处置利得|Invisible
 53|营业外支出|Non-operating Expenses
+	5301|非流动资产处置损失|Invisible
 54|利润总额|Profit Before Tax
 55|所得税费用|Income Tax Expense
 
@@ -203,11 +207,16 @@
 			57010105|其他权益工具投资公允价值变动|Changes in Fair Value of Investments in Other Equity Instruments
 			57010107|企业自身信用风险公允价值变动|Changes in Fair Value Attributable to the Entity's Own Credit Risk
 		570103|将重分类进损益的其他综合收益|Other Comprehensive Income That May Be Reclassified to Profit or Loss
+		570103|以后将重分类进损益的其他综合收益|Other Comprehensive Income That May Be Reclassified to Profit or Loss
 			57010301|权益法下可转损益的其他综合收益|Share of Other Comprehensive Income of Equity-accounted Investees That May Be Reclassified to Profit or Loss
 			57010303|其他债权投资公允价值变动|Changes in Fair Value of Other Debt Investments
+			57010303|可供出售金融资产公允价值变动损益|Changes in Fair Value Gains/Losses of Available-for-sale Financial Assets
 			57010305|金融资产重分类计入其他综合收益的金额|Amounts Recognized in Other Comprehensive Income on Reclassification of Financial Assets
+			57010305|持有至到期投资重分类为可供出售金融资产损益|Gains/Losses on Reclassification of Held-to-maturity Investments to Available-for-sale Financial Assets
 			57010307|其他债权投资信用减值准备|Credit Impairment Allowances for Other Debt Investments
 			57010309|现金流量套期储备|Cash Flow Hedge Reserve
+			57010309|现金流量套期储备（现金流量套期损益的有效部分）|Cash Flow Hedge Reserve (Effective Portion of Cash Flow Hedge Gains/Losses)
+			57010309|现金流量套期损益的有效部分|Effective Portion of Cash Flow Hedge Gains/Losses
 			57010311|外币财务报表折算差额|Foreign Currency Translation Differences
 			57010313|其他可重分类进损益的其他综合收益|Other Reclassifiable Other Comprehensive Income
 	5703|归属于少数股东的其他综合收益的税后净额|Other Comprehensive Income Attributable to Non-controlling Interests, Net of Tax

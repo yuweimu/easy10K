@@ -50,8 +50,11 @@ def parse_statement(markdown, chart, statement):
                "归属于母公司股东的综合收益总额": 5801,
                "投资损失": 44, "公允价值变动损失": 47, "资产处置损失": 50}
     amount_column, finance_details, oci_group = 1, False, None
+    in_operating_costs = False
     previous_label = previous_full_name = ""
-    for number, line in enumerate(markdown.splitlines(), 1):
+    lines = markdown.splitlines()
+    for index, line in enumerate(lines):
+        number = index + 1
         if not line.strip().startswith("|"):
             continue
         cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
@@ -68,7 +71,20 @@ def parse_statement(markdown, chart, statement):
         if item is None and len(label) >= 8:
             item = next((item for name, item in names.items() if name.startswith(label)), None)
         item_id = item.item_id if item else aliases.get(label) if statement == "income_statement" else None
+        if item_id is None and label and index + 1 < len(lines):
+            continuation_cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", lines[index + 1].strip().strip("|"))]
+            continuation_label = normalize_label(continuation_cells[0]) if continuation_cells else ""
+            continuation_has_amount = any(clean_cell(cell) for cell in continuation_cells[1:])
+            if continuation_label and not continuation_has_amount:
+                combined_label = label + continuation_label
+                continuation_item = names.get(combined_label)
+                if continuation_item is None and len(combined_label) >= 8:
+                    continuation_item = next((item for name, item in names.items()
+                                              if name.startswith(combined_label)), None)
+                item_id = continuation_item.item_id if continuation_item else aliases.get(combined_label)
         if statement == "income_statement":
+            if label == "资产减值损失" and in_operating_costs:
+                item_id = 4227
             if label == "利息收入" and finance_details:
                 item_id = 422503
             elif label == "其他" and oci_group == 570103:
@@ -79,11 +95,27 @@ def parse_statement(markdown, chart, statement):
                 finance_details = False
             if item_id in (570101, 570103):
                 oci_group = item_id
+            in_operating_costs = item_id is not None and (
+                item_id == 42 or str(item_id).startswith("42")
+            )
         if item_id is None:
             continuation = (previous_full_name.startswith(previous_label + label)
                             and not any(clean_cell(cell) for cell in cells[1:]))
             suffix = len(label) >= 3 and any(len(name) >= 16 and len(name) > len(label) and name.endswith(label) for name in names)
             if not continuation and not suffix:
+                column = select_amount_column(cells, amount_column)
+                amount_text = clean_cell(cells[column]) if len(cells) > column else ""
+                if not amount_text:
+                    continue
+                try:
+                    amount = parse_amount(amount_text)
+                except ValueError:
+                    amount = None
+                    amount_is_valid = False
+                else:
+                    amount_is_valid = True
+                if amount_is_valid and (amount is None or amount == 0):
+                    continue
                 state.unmapped_rows.append({"line": number, "label": label})
             continue
         previous_label, previous_full_name = label, normalize_label(chart._items_by_id[item_id].name)

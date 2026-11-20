@@ -373,18 +373,27 @@ function render(items: Report[]): void {
     stageLine.append(...Array.from(stage.childNodes));
     stageLine.append(stageEditor(report));
     hash.replaceChildren(hashText, stageLine);
+    const digestionReports = cell(null);
+    digestionReports.className = "digestion-content";
+    for (const [value, title] of [
+      [report.bs_digestion_report, "Balance sheet"],
+      [report.is_digestion_report, "Income statement"],
+      [report.cfs_digestion_report, "Cash flow statement"],
+    ]) {
+      if (!value) continue;
+      if (!digestionReports.querySelector("details")) digestionReports.replaceChildren();
+      digestionReports.append(...textDetails(value, title!).childNodes);
+    }
     tr.append(hash, files, identity,
       textDetails(report.extraction_report, "View report"),
       auditCell(report.extraction_audit),
-      textDetails(report.bs_digestion_report, "View balance-sheet digestion report"),
-      textDetails(report.is_digestion_report, "View income-statement digestion report"),
-      textDetails(report.cfs_digestion_report, "View cash-flow digestion report"), content,
+      digestionReports, content,
       updated);
     rows.append(tr);
   }
   if (!items.length) {
     const td = cell("No reports match the selected filter.");
-    td.colSpan = 10;
+    td.colSpan = 8;
     td.className = "empty";
     const tr = document.createElement("tr");
     tr.append(td);

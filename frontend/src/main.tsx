@@ -19,6 +19,7 @@ type BalanceSheetItem = {
   item_id: number;
   amount: number | string | null;
   report_creation_time: string;
+  amount_unit?: "元" | "元/股";
 };
 
 type StockReportCount = {
@@ -38,6 +39,7 @@ type GroupedReportItem = {
   item_id: number;
   label: string;
   indentLevel: number;
+  amountUnit: "元" | "元/股";
   amountsByDate: Map<string, BalanceSheetItem["amount"]>;
   sourceVersionsByDate: Map<string, string>;
 };
@@ -59,7 +61,13 @@ const AMOUNT_UNITS = {
 } as const;
 
 type AmountUnit = keyof typeof AMOUNT_UNITS;
+type DisplayUnit = AmountUnit | "元/股";
 const REPORT_TABS = ["Balance Sheet", "Income Statement", "Cash Flow Statement"] as const;
+const STATEMENT_ENDPOINTS = {
+  "Balance Sheet": "/balance_sheet_items",
+  "Income Statement": "/income_statement_items",
+  "Cash Flow Statement": "/cash_flow_statement_items",
+} as const;
 const PERIOD_FILTERS = [
   { label: "全部", ending: "" },
   { label: "年报", ending: "12-31" },
@@ -82,6 +90,16 @@ const TAB_LABELS = {
 } as const;
 type Language = "en" | "zh";
 
+// Legacy income statements classify asset impairment loss under operating
+// costs as item 4227. Keep that storage identity for digestion, but render it
+// under the established item 49 in the dashboard.
+const DISPLAY_ITEM_ID_ALIASES: Record<number, number> = { 4227: 49 };
+const HIDDEN_DISPLAY_ITEM_IDS = new Set([5201, 5301]);
+
+function displayItemId(itemId: number): number {
+  return DISPLAY_ITEM_ID_ALIASES[itemId] ?? itemId;
+}
+
 const UI_TEXT = {
   en: {
     financialReport: "Financial report",
@@ -93,7 +111,6 @@ const UI_TEXT = {
     showDecimals: "Show decimals",
     financialStatements: "Financial statements",
     companyReport: "Company report",
-    comingSoon: "This report is coming soon.",
     enterStockCode: "Enter a stock code to load its report.",
     financialItem: "Financial item",
     recentSearches: "Recent searches",
@@ -102,7 +119,7 @@ const UI_TEXT = {
     reportingDates: "Reporting dates (earliest to latest)",
     missingReport: "Missing quarterly report",
     reports: "reports",
-    noAvailableStocks: "No stocks have balance-sheet items yet.",
+    noAvailableStocks: "No stocks have data for this statement yet.",
     stockCodesFailed: "Unable to load stock codes.",
     closeChart: "Close chart",
     selectColumn: "Select a column to see its date and amount.",
@@ -131,7 +148,6 @@ const UI_TEXT = {
     showDecimals: "显示小数",
     financialStatements: "财务报表",
     companyReport: "公司报告",
-    comingSoon: "该报表即将推出。",
     enterStockCode: "请输入股票代码以加载报告。",
     financialItem: "财务项目",
     recentSearches: "最近搜索",
@@ -140,7 +156,7 @@ const UI_TEXT = {
     reportingDates: "报告日期（从早到晚）",
     missingReport: "缺少季度报告",
     reports: "份报告",
-    noAvailableStocks: "暂无股票资产负债表数据。",
+    noAvailableStocks: "暂无股票的该类报表数据。",
     stockCodesFailed: "无法加载股票代码。",
     closeChart: "关闭图表",
     selectColumn: "选择一列以查看日期和金额。",
@@ -174,15 +190,15 @@ async function getJson<T>(path: string): Promise<T> {
 
 function formatAmount(
   amount: BalanceSheetItem["amount"],
-  unit: AmountUnit,
+  unit: DisplayUnit,
   showDecimals: boolean,
 ): string {
   if (amount === null || amount === "") return "—";
-  const numericAmount = Number(amount) / AMOUNT_UNITS[unit];
+  const numericAmount = Number(amount) / (unit === "元/股" ? 1 : AMOUNT_UNITS[unit]);
   return Number.isFinite(numericAmount)
     ? numericAmount.toLocaleString(undefined, {
         minimumFractionDigits: showDecimals ? 2 : 0,
-        maximumFractionDigits: showDecimals ? 2 : 0,
+        maximumFractionDigits: unit === "元/股" ? 4 : showDecimals ? 2 : 0,
       })
     : String(amount);
 }
@@ -202,7 +218,7 @@ function getIndentLevel(itemId: number, chartById: Map<number, ChartItem>): numb
 function AmountTrend({ item, dates, unit, showDecimals, language, expanded = false, onClose }: {
   item: GroupedReportItem;
   dates: string[];
-  unit: AmountUnit;
+  unit: DisplayUnit;
   showDecimals: boolean;
   language: Language;
   expanded?: boolean;
@@ -294,13 +310,18 @@ function App() {
   );
   const text = UI_TEXT[language];
   const [activeTab, setActiveTab] = useState<typeof REPORT_TABS[number]>("Balance Sheet");
+  const statementEndpoint = STATEMENT_ENDPOINTS[activeTab];
+  const requestedStock = useRef("");
+  const reportRequest = useRef(0);
   const [stockCode, setStockCode] = useState("300750");
   const [availableStockCodes, setAvailableStockCodes] = useState<StockReportCount[]>([]);
   const totalReports = availableStockCodes.reduce((total, stock) => total + stock.report_count, 0);
   const [stockCodesStatus, setStockCodesStatus] = useState<"loading" | "ready" | "error">("loading");
   useEffect(() => {
     let cancelled = false;
-    getJson<StockReportCount[]>("/balance_sheet_items").then((codes) => {
+    setAvailableStockCodes([]);
+    setStockCodesStatus("loading");
+    getJson<StockReportCount[]>(statementEndpoint).then((codes) => {
       if (cancelled) return;
       setAvailableStockCodes(codes);
       setStockCodesStatus("ready");
@@ -308,7 +329,7 @@ function App() {
       if (!cancelled) setStockCodesStatus("error");
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [statementEndpoint]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchFocused, setSearchFocused] = useState(false);
   const [report, setReport] = useState<ReportItem[]>([]);
@@ -478,6 +499,7 @@ function App() {
           item_id: item.item_id,
           label: language === "zh" ? item.labelCn : item.labelEn,
           indentLevel: item.indentLevel,
+          amountUnit: item.amount_unit || "元",
           amountsByDate: new Map([[item.reporting_date, item.amount]]),
           sourceVersionsByDate: new Map([[item.reporting_date, item.report_creation_time]]),
         });
@@ -537,7 +559,7 @@ function App() {
       await navigator.clipboard.writeText(JSON.stringify({
         stock_code: reportStockCode,
         label: item.label,
-        amount_unit: "元",
+        amount_unit: item.amountUnit,
         amounts_by_date: Object.fromEntries(reportingDates.map((date) => [
           date, item.amountsByDate.get(date) ?? null,
         ])),
@@ -560,6 +582,8 @@ function App() {
   async function loadReport(selectedCode: string) {
     const code = selectedCode.trim();
     if (!code) return;
+    requestedStock.current = code;
+    const request = ++reportRequest.current;
 
     setRecentSearches((current) => {
       const next = [code, ...current.filter((value) => value !== code)].slice(0, 3);
@@ -572,28 +596,32 @@ function App() {
     });
 
     setLoading(true);
+    setReport([]);
+    setPreviewDate(null);
+    setCollapsedItemIds(new Set());
     setSourceSelection(null);
     setExpandedTrendId(null);
     setCopyStatus(null);
     setError(null);
     try {
-      const [chart, balanceSheetItems] = await Promise.all([
+      const [chart, statementItems] = await Promise.all([
         getJson<LineItemChartResponse>("/line-item-chart"),
         getJson<BalanceSheetItem[]>(
-          `/balance_sheet_items/${encodeURIComponent(code)}`,
+          `${statementEndpoint}/${encodeURIComponent(code)}`,
         ),
       ]);
+      if (request !== reportRequest.current) return;
 
       const chartItems: ChartItem[] = Array.isArray(chart)
-        ? chart.map((item) => ({
-            item_id: item.item_id,
+        ? chart.filter((item) => !HIDDEN_DISPLAY_ITEM_IDS.has(item.item_id)).map((item) => ({
+            item_id: displayItemId(item.item_id),
             label: (language === "zh" ? item.name_cn ?? item.name_en : item.name_en ?? item.name_cn) ?? text.unknownItem,
             labelCn: item.name_cn ?? item.name_en ?? text.unknownItem,
             labelEn: item.name_en ?? item.name_cn ?? text.unknownItem,
             parent_item_id: Math.floor(item.item_id / 100) || null,
           }))
-        : Object.values(chart).map((item) => ({
-            item_id: item.item_id,
+        : Object.values(chart).filter((item) => !HIDDEN_DISPLAY_ITEM_IDS.has(item.item_id)).map((item) => ({
+            item_id: displayItemId(item.item_id),
             label: item.label,
             labelCn: item.label,
             labelEn: item.label,
@@ -606,14 +634,16 @@ function App() {
       setReportStockCode(code);
       setPreviewDate(null);
       setReport(
-        balanceSheetItems.map((item) => ({
+        statementItems.filter((item) => !HIDDEN_DISPLAY_ITEM_IDS.has(item.item_id)).map((item) => ({
           ...item,
+          item_id: displayItemId(item.item_id),
           labelCn: chartById.get(item.item_id)?.labelCn ?? text.unknownItem,
           labelEn: chartById.get(item.item_id)?.labelEn ?? text.unknownItem,
           indentLevel: getIndentLevel(item.item_id, chartById),
         })),
       );
     } catch (requestError) {
+      if (request !== reportRequest.current) return;
       setReport([]);
       setError(
         requestError instanceof Error
@@ -621,9 +651,14 @@ function App() {
           : text.loadFailed,
       );
     } finally {
-      setLoading(false);
+      if (request === reportRequest.current) setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (requestedStock.current) void loadReport(requestedStock.current);
+    return () => { reportRequest.current += 1; };
+  }, [statementEndpoint]);
 
   return (
     <main className="page-shell">
@@ -758,7 +793,6 @@ function App() {
                 aria-pressed={reportStockCode === code}
                 onClick={() => {
                   setStockCode(code);
-                  setActiveTab("Balance Sheet");
                   void loadReport(code);
                 }}>{name || code} <span className="stock-report-count">({count.toLocaleString()} {text.reports})</span></button>
             ))}
@@ -795,7 +829,7 @@ function App() {
             <p className="eyebrow">{TAB_LABELS[language][activeTab]}</p>
             <h2>{reportStockCode || text.companyReport}</h2>
           </div>
-          {activeTab === "Balance Sheet" && groupedReport.length > 0 && (
+          {groupedReport.length > 0 && (
             <div className="report-summary">
               <span className="report-data-badge"><span aria-hidden="true" />{language === "zh" ? "已加载" : "Report loaded"}</span>
               <span>{groupedReport.length} {language === "zh" ? "个项目" : "items"}</span>
@@ -804,7 +838,7 @@ function App() {
           )}
         </div>
 
-        {activeTab === "Balance Sheet" && allReportingDates.length > 0 && (
+        {allReportingDates.length > 0 && (
           <div className="period-filters" role="group" aria-label={language === "zh" ? "报告期筛选" : "Reporting period filter"}>
             {PERIOD_FILTERS.map(({ label, ending }) => (
               <button type="button" key={label} aria-pressed={periodEnding === ending}
@@ -817,7 +851,7 @@ function App() {
           </div>
         )}
 
-        {activeTab === "Balance Sheet" && reportingDateEntries.length > 0 && (
+        {reportingDateEntries.length > 0 && (
           <section className="reporting-dates" aria-labelledby="reporting-dates-title">
             <h3 id="reporting-dates-title">{text.reportingDates}</h3>
             <ol>
@@ -831,12 +865,7 @@ function App() {
           </section>
         )}
 
-        {activeTab !== "Balance Sheet" ? (
-          <div className="empty-state statement-placeholder">
-            <h3>{TAB_LABELS[language][activeTab]}</h3>
-            <p>{text.comingSoon}</p>
-          </div>
-        ) : groupedReport.length === 0 ? (
+        {groupedReport.length === 0 ? (
           <div className="empty-state">
             <span className={`empty-state-symbol${loading ? " is-loading" : ""}`} aria-hidden="true">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
@@ -845,9 +874,11 @@ function App() {
             </span>
             <h3>{loading ? text.loading : allReportingDates.length > 0
               ? (language === "zh" ? "暂无该报告期的数据" : "No reports for this period")
+              : reportStockCode ? (language === "zh" ? "暂无该类报表数据" : "No data for this statement")
               : (language === "zh" ? "从一份报告开始" : "Start with a company report")}</h3>
             <p>{loading ? (language === "zh" ? "正在整理财务数据…" : "Preparing your financial data…")
-              : allReportingDates.length > 0 ? (language === "zh" ? "请选择其他报告期。" : "Choose another reporting period.") : text.enterStockCode}</p>
+              : allReportingDates.length > 0 ? (language === "zh" ? "请选择其他报告期。" : "Choose another reporting period.")
+              : reportStockCode ? (language === "zh" ? "请先完成该报表的数据解析，或选择其他公司。" : "Digest this statement first, or choose another company.") : text.enterStockCode}</p>
           </div>
         ) : (
           <div className="table-wrap">
@@ -915,6 +946,7 @@ function App() {
                         <span className="item-toggle-placeholder" />
                       )}
                       {item.label}
+                      {item.amountUnit === "元/股" && <small>（元/股）</small>}
                       <button type="button" className="trend-toggle"
                         title={expandedTrendId === item.item_id ? text.hideTrend : text.showTrend}
                         aria-label={`${expandedTrendId === item.item_id ? text.hideTrend : text.showTrend} ${item.label}${language === "zh" ? text.amountTrendFor : ` ${text.amountTrendFor}`}`}
@@ -940,7 +972,9 @@ function App() {
                     </td>
                     {reportingDates.map((date) => (
                       <td className="amount-column" key={date}>
-                        {item.amountsByDate.get(date) == null ? "—" : <button type="button" className="amount-source-link"
+                        {item.amountsByDate.get(date) == null ? "—" : activeTab !== "Balance Sheet"
+                          ? formatAmount(item.amountsByDate.get(date) ?? null, item.amountUnit === "元/股" ? "元/股" : amountUnit, item.amountUnit === "元/股" || showDecimals)
+                          : <button type="button" className="amount-source-link"
                           title={language === "zh" ? "查看原始报表行" : "View the source statement row"}
                           onClick={() => setSourceSelection({ stockCode: reportStockCode, date,
                             itemId: item.item_id, label: item.label,
@@ -955,7 +989,7 @@ function App() {
                       <td colSpan={reportingDates.length + 1}>
                         <div className="trend-detail">
                           <div className="trend-chart-scroll">
-                            <AmountTrend item={item} dates={trendDates} unit={amountUnit} showDecimals={showDecimals} language={language} expanded onClose={() => setExpandedTrendId(null)} />
+                            <AmountTrend item={item} dates={trendDates} unit={item.amountUnit === "元/股" ? "元/股" : amountUnit} showDecimals={showDecimals} language={language} expanded onClose={() => setExpandedTrendId(null)} />
                           </div>
                         </div>
                       </td>
