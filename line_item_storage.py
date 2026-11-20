@@ -17,8 +17,14 @@ load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 
 ReportDigestionStage = Literal[
     "Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
-    "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "DigestionSuccess", "DigestionError",
+    "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "BalanceSheetOK", "BalanceSheetErr",
+    "IncomStatementOK", "IncomeStatementErr", "CashFlowStatementOK", "CashFlowStatementErr",
 ]
+
+STATEMENT_DIGESTION = {
+    "income_statement": ("BalanceSheetOK", "IncomStatementOK", "IncomeStatementErr", "is_digestion_report", "income_statement_items"),
+    "cash_flow_statement": ("IncomStatementOK", "CashFlowStatementOK", "CashFlowStatementErr", "cfs_digestion_report", "cash_flow_statement_items"),
+}
 
 
 def _has_missing_quarters(reporting_dates: list[date]) -> bool:
@@ -418,10 +424,60 @@ class LineItemStorage:
                           item["amount"]) for item in report["items"]],
                     )
                 cursor.execute(
-                    "UPDATE report_digestion SET digestion_report = %s, digestion_stage = %s, "
+                    "UPDATE report_digestion SET bs_digestion_report = %s, digestion_stage = %s, "
                     "updated_at = CURRENT_TIMESTAMP WHERE pdf_hash = %s",
-                    (payload, "DigestionSuccess" if passed else "DigestionError", pdf_hash),
+                    (payload, "BalanceSheetOK" if passed else "BalanceSheetErr", pdf_hash),
                 )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        self._report_digestion_ready = True
+
+    def get_statement_reports(self, statement: str, *, pdf_hash: str | None = None) -> list[dict]:
+        """Read the next statement queue, or bypass the stage for an explicit hash."""
+        if statement not in STATEMENT_DIGESTION:
+            raise ValueError("Unsupported statement")
+        fields = ("pdf_hash", statement, "stock_code", "reporting_date", "pdf_creation_date")
+        condition, value = ("pdf_hash", pdf_hash) if pdf_hash is not None else ("digestion_stage", STATEMENT_DIGESTION[statement][0])
+        with self._connect().cursor() as cursor:
+            cursor.execute("SELECT " + ", ".join(fields) + f" FROM report_digestion WHERE {condition} = %s ORDER BY pdf_hash", (value,))
+            return [dict(zip(fields, row)) for row in cursor.fetchall()]
+
+    def store_statement_digestion(self, statement: str, row: dict, report: dict, *, allow_any_stage=False) -> None:
+        """Commit one statement's items, validation JSON, and processing stage atomically."""
+        if statement not in STATEMENT_DIGESTION:
+            raise ValueError("Unsupported statement")
+        queued, success, failure, report_field, table = STATEMENT_DIGESTION[statement]
+        pdf_hash = row["pdf_hash"]
+        if not isinstance(pdf_hash, str) or not pdf_hash.strip():
+            raise ValueError("PDF hash must be a nonblank string")
+        payload = json.dumps({key: value for key, value in report.items() if key != "items"}, ensure_ascii=False, allow_nan=False)
+        passed = report["passed"]
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                if not self._report_digestion_ready:
+                    cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
+                cursor.execute("SELECT digestion_stage FROM report_digestion WHERE pdf_hash = %s FOR UPDATE", (pdf_hash,))
+                current = cursor.fetchone()
+                if current is None:
+                    raise ValueError(f"Report {pdf_hash} not found")
+                if not allow_any_stage and current[0] != queued:
+                    raise ValueError(f"Report {pdf_hash} is no longer at {queued}")
+                if passed:
+                    if not all(row.get(field) for field in ("stock_code", "reporting_date", "pdf_creation_date")):
+                        raise ValueError("Missing metadata for statement item storage")
+                    cursor.executemany(
+                        f"INSERT INTO {table} (stock_code, reporting_date, item_id, report_creation_time, amount, amount_unit) "
+                        "VALUES (%s, %s, %s, %s, %s, %s) "
+                        "ON CONFLICT (stock_code, reporting_date, item_id, report_creation_time) "
+                        "DO UPDATE SET amount = EXCLUDED.amount, amount_unit = EXCLUDED.amount_unit",
+                        [(row["stock_code"], row["reporting_date"], item["item_id"], row["pdf_creation_date"],
+                          item["amount"], item.get("amount_unit", "元")) for item in report["items"]],
+                    )
+                cursor.execute(f"UPDATE report_digestion SET {report_field} = %s, digestion_stage = %s, "
+                               "updated_at = CURRENT_TIMESTAMP WHERE pdf_hash = %s", (payload, success if passed else failure, pdf_hash))
             connection.commit()
         except Exception:
             connection.rollback()
@@ -496,7 +552,8 @@ class LineItemStorage:
             "pdf_hash", "pdf_creation_date", "download_url", "local_path", "digestion_stage",
             "stock_code", "reporting_date", "extraction_report",
             "balance_sheet", "balance_sheet_ex", "income_statement", "income_statement_ex",
-            "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit", "digestion_report", "updated_at",
+            "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit",
+            "bs_digestion_report", "is_digestion_report", "cfs_digestion_report", "updated_at",
         )
         where = "" if show_passed else "WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass') "
         if only_manual_pass:
@@ -526,12 +583,22 @@ class LineItemStorage:
         return dict(items=items, total=total, page=page, page_size=page_size, total_pages=total_pages)
 
     def get_balance_sheet_stock_codes(self) -> list[dict]:
+        return self.get_statement_stock_codes("balance_sheet")
+
+    @staticmethod
+    def _statement_table(statement: str) -> str:
+        if statement not in ("balance_sheet", "income_statement", "cash_flow_statement"):
+            raise ValueError("Unsupported statement")
+        return statement + "_items"
+
+    def get_statement_stock_codes(self, statement: str) -> list[dict]:
         """Return stock names and counts without excluding stocks missing metadata."""
+        table = self._statement_table(statement)
         with self._connect().cursor() as cursor:
             cursor.execute(
                 "SELECT stocks.stock_code, stocks.report_count, metadata.stock_name, stocks.reporting_dates FROM ("
                 "SELECT stock_code, COUNT(DISTINCT (reporting_date, report_creation_time)) "
-                "AS report_count, ARRAY_AGG(DISTINCT reporting_date) AS reporting_dates FROM balance_sheet_items "
+                f"AS report_count, ARRAY_AGG(DISTINCT reporting_date) AS reporting_dates FROM {table} "
                 "WHERE stock_code IS NOT NULL AND stock_code <> '' "
                 "GROUP BY stock_code) AS stocks "
                 "LEFT JOIN stock_metadata AS metadata ON metadata.stock_code = stocks.stock_code "
@@ -541,13 +608,24 @@ class LineItemStorage:
                      "has_missing_reporting_dates": _has_missing_quarters(row[3])}
                     for row in cursor.fetchall()]
 
+    def get_statement_items(self, statement: str, stock_code: str) -> list[dict]:
+        """Read statement values, preserving EPS units and exact report versions."""
+        table = self._statement_table(statement)
+        fields = ("reporting_date", "item_id", "amount", "report_creation_time", "amount_unit")
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                f"SELECT {', '.join(fields)} FROM {table} WHERE stock_code = %s "
+                "ORDER BY reporting_date, item_id, report_creation_time", (stock_code,),
+            )
+            return [dict(zip(fields, row)) for row in cursor.fetchall()]
+
     def get_balance_sheet_items(self, stock_code: str) -> list[dict]:
         """Return the same ordered fields used by the balance-sheet API."""
         connection = self._connect()
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT reporting_date, item_id, amount
+                SELECT reporting_date, item_id, amount, report_creation_time
                 FROM balance_sheet_items
                 WHERE stock_code = %s
                 ORDER BY reporting_date, item_id, report_creation_time
@@ -555,7 +633,26 @@ class LineItemStorage:
                 (stock_code,),
             )
             rows = cursor.fetchall()
-        return [dict(zip(("reporting_date", "item_id", "amount"), row)) for row in rows]
+        return [dict(zip(("reporting_date", "item_id", "amount", "report_creation_time"), row)) for row in rows]
+
+    def get_balance_sheet_source(self, stock_code, reporting_date, item_id, report_creation_time):
+        """Resolve the exact displayed report version and its registered PDF."""
+        fields = ("pdf_hash", "local_path", "extraction_report", "balance_sheet", "amount", "report_creation_time", "download_url")
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                "SELECT r.pdf_hash, r.local_path, r.extraction_report, r.balance_sheet, b.amount, b.report_creation_time, r.download_url "
+                "FROM balance_sheet_items b JOIN report_digestion r "
+                "ON r.stock_code = b.stock_code AND r.reporting_date = b.reporting_date "
+                "AND r.pdf_creation_date = b.report_creation_time "
+                "WHERE b.stock_code = %s AND b.reporting_date = %s AND b.item_id = %s "
+                "AND b.report_creation_time = %s "
+                "ORDER BY r.updated_at DESC, r.pdf_hash LIMIT 2",
+                (stock_code, reporting_date, item_id, report_creation_time),
+            )
+            rows = cursor.fetchall()
+        if len(rows) > 1:
+            raise ValueError("Multiple PDFs match this report version; source verification is ambiguous")
+        return dict(zip(fields, rows[0])) if rows else None
 
     def close(self) -> None:
         if self._connection is not None:

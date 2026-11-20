@@ -147,3 +147,145 @@
 0|负债和股东权益总计|Total Liabilities and Shareholders’ Equity
 0|负债和所有者权益（或股东权益）总计|Total Liabilities and Owners’ Equity (or Shareholders’ Equity)
 0|负债和所有者权益总计|Total Liabilities and Owners’ Equity
+
+41|营业总收入|Total Operating Revenue
+	4101|营业收入|Operating Revenue
+	4103|利息收入|Interest Income
+	4105|已赚保费|Earned Premiums
+	4107|手续费及佣金收入|Fee and Commission Income
+
+42|营业总成本|Total Operating Costs
+	4201|营业成本|Cost of Revenue
+	4203|利息支出|Interest Expense
+	4205|手续费及佣金支出|Fee and Commission Expense
+	4207|退保金|Surrender Benefits
+	4209|赔付支出净额|Net Claims and Benefits Paid
+	4211|提取保险责任准备金净额|Net Increase in Insurance Contract Reserves
+	4211|提取保险合同准备金净额|Net Increase in Insurance Contract Reserves
+	4213|保单红利支出|Policyholder Dividends
+	4215|分保费用|Reinsurance Expenses
+	4217|税金及附加|Taxes and Surcharges
+	4219|销售费用|Selling Expenses
+	4221|管理费用|Administrative Expenses
+	4223|研发费用|Research and Development Expenses
+	4225|财务费用|Finance Costs
+		422501|利息费用|Interest Expense Included in Finance Costs
+		422503|财务费用中的利息收入|Interest Income Included in Finance Costs
+	4227|资产减值损失|Asset Impairment Losses
+
+43|其他收益|Other Income
+44|投资收益|Investment Income
+	4401|对联营企业和合营企业的投资收益|Investment Income from Associates and Joint Ventures
+	4403|以摊余成本计量的金融资产终止确认收益|Gains on Derecognition of Financial Assets Measured at Amortized Cost
+45|汇兑收益|Foreign Exchange Gains
+46|净敞口套期收益|Net Exposure Hedging Gains
+47|公允价值变动收益|Gains from Changes in Fair Value
+48|信用减值损失|Credit Impairment Losses
+49|资产减值损失|Asset Impairment Losses
+50|资产处置收益|Gains on Disposal of Assets
+51|营业利润|Operating Profit
+52|营业外收入|Non-operating Income
+	5201|非流动资产处置利得|Invisible
+53|营业外支出|Non-operating Expenses
+	5301|非流动资产处置损失|Invisible
+54|利润总额|Profit Before Tax
+55|所得税费用|Income Tax Expense
+
+56|净利润|Net Profit
+	5601|按经营持续性分类|Classification by Continuity of Operations
+		560101|持续经营净利润|Net Profit from Continuing Operations
+		560103|终止经营净利润|Net Profit from Discontinued Operations
+	5602|按所有权归属分类|Classification by Ownership Attribution
+		560201|归属于母公司股东的净利润|Net Profit Attributable to Shareholders of the Parent
+		560203|少数股东损益|Net Profit Attributable to Non-controlling Interests
+
+57|其他综合收益的税后净额|Other Comprehensive Income, Net of Tax
+	5701|归属母公司所有者的其他综合收益的税后净额|Other Comprehensive Income Attributable to Owners of the Parent, Net of Tax
+		570101|不能重分类进损益的其他综合收益|Other Comprehensive Income That Will Not Be Reclassified to Profit or Loss
+			57010101|重新计量设定受益计划变动额|Remeasurements of Defined Benefit Plans
+			57010103|权益法下不能转损益的其他综合收益|Share of Other Comprehensive Income of Equity-accounted Investees That Will Not Be Reclassified to Profit or Loss
+			57010105|其他权益工具投资公允价值变动|Changes in Fair Value of Investments in Other Equity Instruments
+			57010107|企业自身信用风险公允价值变动|Changes in Fair Value Attributable to the Entity's Own Credit Risk
+		570103|将重分类进损益的其他综合收益|Other Comprehensive Income That May Be Reclassified to Profit or Loss
+		570103|以后将重分类进损益的其他综合收益|Other Comprehensive Income That May Be Reclassified to Profit or Loss
+			57010301|权益法下可转损益的其他综合收益|Share of Other Comprehensive Income of Equity-accounted Investees That May Be Reclassified to Profit or Loss
+			57010303|其他债权投资公允价值变动|Changes in Fair Value of Other Debt Investments
+			57010303|可供出售金融资产公允价值变动损益|Changes in Fair Value Gains/Losses of Available-for-sale Financial Assets
+			57010305|金融资产重分类计入其他综合收益的金额|Amounts Recognized in Other Comprehensive Income on Reclassification of Financial Assets
+			57010305|持有至到期投资重分类为可供出售金融资产损益|Gains/Losses on Reclassification of Held-to-maturity Investments to Available-for-sale Financial Assets
+			57010307|其他债权投资信用减值准备|Credit Impairment Allowances for Other Debt Investments
+			57010309|现金流量套期储备|Cash Flow Hedge Reserve
+			57010309|现金流量套期储备（现金流量套期损益的有效部分）|Cash Flow Hedge Reserve (Effective Portion of Cash Flow Hedge Gains/Losses)
+			57010309|现金流量套期损益的有效部分|Effective Portion of Cash Flow Hedge Gains/Losses
+			57010311|外币财务报表折算差额|Foreign Currency Translation Differences
+			57010313|其他可重分类进损益的其他综合收益|Other Reclassifiable Other Comprehensive Income
+	5703|归属于少数股东的其他综合收益的税后净额|Other Comprehensive Income Attributable to Non-controlling Interests, Net of Tax
+
+58|综合收益总额|Total Comprehensive Income
+	5801|归属于母公司所有者的综合收益总额|Total Comprehensive Income Attributable to Owners of the Parent
+	5803|归属于少数股东的综合收益总额|Total Comprehensive Income Attributable to Non-controlling Interests
+
+59|每股收益|Earnings per Share
+	5901|基本每股收益|Basic Earnings per Share
+	5903|稀释每股收益|Diluted Earnings per Share
+
+81|经营活动产生的现金流量净额|Net Cash from Operating Activities
+	8101|经营活动现金流入小计|Total Cash Inflows from Operating Activities
+		810101|销售商品、提供劳务收到的现金|Cash Received from Sales of Goods and Rendering of Services
+		810103|客户存款和同业存放款项净增加额|Net Increase in Customer Deposits and Deposits from Other Banks
+		810105|向中央银行借款净增加额|Net Increase in Borrowings from the Central Bank
+		810107|向其他金融机构拆入资金净增加额|Net Increase in Borrowings from Other Financial Institutions
+		810109|收到原保险合同保费取得的现金|Cash Received from Premiums on Direct Insurance Contracts
+		810111|收到再保业务现金净额|Net Cash Received from Reinsurance Business
+		810113|保户储金及投资款净增加额|Net Increase in Policyholder Deposits and Investment Funds
+		810115|收取利息、手续费及佣金的现金|Cash Received from Interest, Fees and Commissions
+		810117|拆入资金净增加额|Net Increase in Funds Borrowed
+		810119|回购业务资金净增加额|Net Increase in Funds from Repurchase Transactions
+		810121|代理买卖证券收到的现金净额|Net Cash Received from Securities Brokerage Transactions
+		810123|收到的税费返还|Tax Refunds Received
+		810125|收到其他与经营活动有关的现金|Other Cash Received Relating to Operating Activities
+	8102|经营活动现金流出小计|Total Cash Outflows from Operating Activities
+		810201|购买商品、接受劳务支付的现金|Cash Paid for Goods and Services
+		810203|客户贷款及垫款净增加额|Net Increase in Loans and Advances to Customers
+		810205|存放中央银行和同业款项净增加额|Net Increase in Deposits with the Central Bank and Other Banks
+		810207|支付原保险合同赔付款项的现金|Cash Paid for Claims on Direct Insurance Contracts
+		810209|拆出资金净增加额|Net Increase in Funds Lent
+		810211|支付利息、手续费及佣金的现金|Cash Paid for Interest, Fees and Commissions
+		810213|支付保单红利的现金|Cash Paid for Policyholder Dividends
+		810215|支付给职工及为职工支付的现金|Cash Paid to and on Behalf of Employees
+		810217|支付的各项税费|Cash Paid for Taxes and Levies
+		810219|支付其他与经营活动有关的现金|Other Cash Paid Relating to Operating Activities
+
+82|投资活动产生的现金流量净额|Net Cash from Investing Activities
+	8201|投资活动现金流入小计|Total Cash Inflows from Investing Activities
+		820101|收回投资收到的现金|Cash Received from Recovery of Investments
+		820103|取得投资收益收到的现金|Cash Received from Investment Income
+		820105|处置固定资产、无形资产和其他长期资产收回的现金净额|Net Cash Received from Disposal of Fixed Assets, Intangible Assets and Other Long-term Assets
+		820107|处置子公司及其他营业单位收到的现金净额|Net Cash Received from Disposal of Subsidiaries and Other Business Units
+		820109|收到其他与投资活动有关的现金|Other Cash Received Relating to Investing Activities
+	8202|投资活动现金流出小计|Total Cash Outflows from Investing Activities
+		820201|购建固定资产、无形资产和其他长期资产支付的现金|Cash Paid to Acquire and Construct Fixed Assets, Intangible Assets and Other Long-term Assets
+		820203|投资支付的现金|Cash Paid for Investments
+		820205|质押贷款净增加额|Net Increase in Pledged Loans
+		820207|取得子公司及其他营业单位支付的现金净额|Net Cash Paid to Acquire Subsidiaries and Other Business Units
+		820209|支付其他与投资活动有关的现金|Other Cash Paid Relating to Investing Activities
+
+83|筹资活动产生的现金流量净额|Net Cash from Financing Activities
+	8301|筹资活动现金流入小计|Total Cash Inflows from Financing Activities
+		830101|吸收投资收到的现金|Cash Received from Capital Contributions
+			83010101|子公司吸收少数股东投资收到的现金|Cash Received by Subsidiaries from Capital Contributions by Non-controlling Shareholders
+			83010101|其中：子公司吸收少数股东投资收到的现金|Cash Received by Subsidiaries from Capital Contributions by Non-controlling Shareholders
+		830103|取得借款收到的现金|Cash Received from Borrowings
+		830105|收到其他与筹资活动有关的现金|Other Cash Received Relating to Financing Activities
+	8302|筹资活动现金流出小计|Total Cash Outflows from Financing Activities
+		830201|偿还债务支付的现金|Cash Paid for Repayment of Debt
+		830203|分配股利、利润或偿付利息支付的现金|Cash Paid for Dividends, Profit Distributions and Interest
+			83020301|子公司支付给少数股东的股利、利润|Dividends and Profits Paid by Subsidiaries to Non-controlling Shareholders
+			83020301|其中：子公司支付给少数股东的股利、利润|Dividends and Profits Paid by Subsidiaries to Non-controlling Shareholders
+		830205|支付其他与筹资活动有关的现金|Other Cash Paid Relating to Financing Activities
+
+84|汇率变动对现金及现金等价物的影响|Effect of Exchange Rate Changes on Cash and Cash Equivalents
+85|现金及现金等价物净增加额|Net Increase in Cash and Cash Equivalents
+86|期初现金及现金等价物余额|Cash and Cash Equivalents at the Beginning of the Period
+86|加：期初现金及现金等价物余额|Cash and Cash Equivalents at the Beginning of the Period
+87|期末现金及现金等价物余额|Cash and Cash Equivalents at the End of the Period

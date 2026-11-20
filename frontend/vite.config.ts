@@ -26,7 +26,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        // Keep the proxy target aligned with the FastAPI launch configuration.
+        // On systems where localhost resolves to ::1 first, targeting localhost
+        // can produce ECONNREFUSED even though uvicorn is bound to 127.0.0.1.
+        target: "http://127.0.0.1:8000",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },

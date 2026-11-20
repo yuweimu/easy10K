@@ -22,7 +22,8 @@ const label = document.querySelector<HTMLElement>("#page-label")!;
 const error = document.querySelector<HTMLElement>("#error")!;
 let page = 1, totalPages = 1, loading = false;
 const stages = ["Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
-  "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "DigestionSuccess", "DigestionError"];
+  "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "BalanceSheetOK", "BalanceSheetErr",
+  "IncomStatementOK", "IncomeStatementErr", "CashFlowStatementOK", "CashFlowStatementErr"];
 for (const stage of stages) {
   searchStage.add(new Option(stage, stage));
 }
@@ -165,8 +166,9 @@ function render(items: Report[]): void {
     hash.textContent = report.pdf_hash.slice(0, 6);
     const stage = cell(report.digestion_stage);
     const badge = document.createElement("span");
-    const hasIssues = report.digestion_stage.endsWith("Error") || report.digestion_stage === "AuditIssues";
-    const passed = report.digestion_stage.endsWith("Success")
+    const hasIssues = report.digestion_stage.endsWith("Error") || report.digestion_stage === "AuditIssues"
+      || report.digestion_stage.endsWith("Err");
+    const passed = report.digestion_stage.endsWith("Success") || report.digestion_stage.endsWith("OK")
       || ["AuditPass", "ManualPass"].includes(report.digestion_stage);
     badge.className = `badge ${hasIssues ? "error" : passed ? "done" : "pending"}`;
     badge.textContent = report.digestion_stage;
@@ -371,9 +373,21 @@ function render(items: Report[]): void {
     stageLine.append(...Array.from(stage.childNodes));
     stageLine.append(stageEditor(report));
     hash.replaceChildren(hashText, stageLine);
+    const digestionReports = cell(null);
+    digestionReports.className = "digestion-content";
+    for (const [value, title] of [
+      [report.bs_digestion_report, "Balance sheet"],
+      [report.is_digestion_report, "Income statement"],
+      [report.cfs_digestion_report, "Cash flow statement"],
+    ]) {
+      if (!value) continue;
+      if (!digestionReports.querySelector("details")) digestionReports.replaceChildren();
+      digestionReports.append(...textDetails(value, title!).childNodes);
+    }
     tr.append(hash, files, identity,
       textDetails(report.extraction_report, "View report"),
-      auditCell(report.extraction_audit), textDetails(report.digestion_report, "View digestion report"), content,
+      auditCell(report.extraction_audit),
+      digestionReports, content,
       updated);
     rows.append(tr);
   }

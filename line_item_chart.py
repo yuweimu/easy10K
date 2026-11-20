@@ -58,11 +58,20 @@ class LineItemChart:
                         f"Invalid line-item definition at {source_path}:"
                         f"{line_number}: {raw_line.rstrip()!r}"
                     ) from None
-                if name in self.items:
-                    raise ValueError(
-                        f"Duplicate line-item name at {source_path}:"
-                        f"{line_number}: {name!r}"
-                    )
+                existing = self.items.get(name)
+                if existing is not None:
+                    if existing.english_name != english_name:
+                        raise ValueError(
+                            f"Duplicate line-item name at {source_path}:"
+                            f"{line_number}: {name!r}"
+                        )
+                    if item_id > 0 and item_id not in self._items_by_id:
+                        self._items_by_id[item_id] = LineItem(name, item_id, english_name)
+                    # Keep the later definition as the canonical name lookup;
+                    # callers that need the legacy ID can select it by context.
+                    self.items[name] = self._items_by_id.get(item_id, existing)
+                    self.item_ids[name] = item_id
+                    continue
                 if item_id == 0:
                     # Resolve ignored labels and their truncated prefixes to ID 0.
                     self.items[name] = LineItem(name, item_id, english_name)

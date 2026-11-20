@@ -1,6 +1,6 @@
 """Validate and digest the first amount column of AuditPass balance sheets.
 
-Run: python digest_line_items.py [--hash PDF_HASH]
+Run: python digest_balance_sheet.py [--hash PDF_HASH]
 Amounts are checked in statement units, then converted to yuan for storage.
 The default tolerance is the greater of 0.01 statement units and 0.1 percent.
 """
@@ -101,7 +101,9 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
                   for name in chart.items if len(clean_cell(name)) >= 16]
     parsed, ambiguous_rows, shifted_items = state.items, state.ambiguous_rows, state.shifted_items
     issues = state.issues
-    for line_number, line in enumerate(markdown.splitlines(), 1):
+    lines = markdown.splitlines()
+    for index, line in enumerate(lines):
+        line_number = index + 1
         if not line.strip().startswith("|"):
             continue
         cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
@@ -116,6 +118,13 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
         label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", label)
         label = label.rstrip("：:")
         item = chart.get(label)
+        if item is None and label and index + 1 < len(lines):
+            continuation_cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", lines[index + 1].strip().strip("|"))]
+            continuation_label = clean_cell(continuation_cells[0]) if continuation_cells else ""
+            continuation_label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", continuation_label).rstrip("：:")
+            continuation_has_amount = any(clean_cell(cell) for cell in continuation_cells[1:])
+            if continuation_label and not continuation_has_amount:
+                item = chart.get(label + continuation_label)
         if item is None or item.item_id in (0, 99000001):
             continue_if_total = re.search(r"负债[和及].*权益.*总计", label)
             truncated_suffix = len(label) >= 3 and any(
