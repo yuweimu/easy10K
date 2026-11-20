@@ -19,8 +19,12 @@ CREATE TABLE IF NOT EXISTS report_digestion (
             'ManualPass',
             'Deprecated',
             'NoStatements',
-            'DigestionSuccess',
-            'DigestionError'
+            'BalanceSheetOK',
+            'BalanceSheetErr',
+            'IncomStatementOK',
+            'IncomeStatementErr',
+            'CashFlowStatementOK',
+            'CashFlowStatementErr'
         )),
 
     stock_code VARCHAR(12),
@@ -34,8 +38,10 @@ CREATE TABLE IF NOT EXISTS report_digestion (
     cash_flow_statement TEXT,
     cash_flow_statement_ex TEXT,
     extraction_audit TEXT,
-    -- JSON-serialized digestion results.
-    digestion_report TEXT,
+    -- JSON-serialized digestion results for each financial statement.
+    bs_digestion_report TEXT,
+    is_digestion_report TEXT,
+    cfs_digestion_report TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -47,20 +53,50 @@ CREATE INDEX IF NOT EXISTS report_digestion_stock_code_idx
 
 -- Upgrade existing tables without changing any stored extraction data.
 ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS extraction_audit TEXT;
-ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS digestion_report TEXT;
+-- Preserve balance-sheet checks when upgrading the former shared report column.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_attribute
+        WHERE attrelid = 'report_digestion'::regclass
+          AND attname = 'digestion_report' AND NOT attisdropped
+    ) THEN
+        IF EXISTS (
+            SELECT 1 FROM pg_attribute
+            WHERE attrelid = 'report_digestion'::regclass
+              AND attname = 'bs_digestion_report' AND NOT attisdropped
+        ) THEN
+            UPDATE report_digestion
+                SET bs_digestion_report = COALESCE(bs_digestion_report, digestion_report);
+            ALTER TABLE report_digestion DROP COLUMN digestion_report;
+        ELSE
+            ALTER TABLE report_digestion RENAME COLUMN digestion_report TO bs_digestion_report;
+        END IF;
+    END IF;
+END $$;
+ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS bs_digestion_report TEXT;
+ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS is_digestion_report TEXT;
+ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS cfs_digestion_report TEXT;
 ALTER TABLE report_digestion DROP COLUMN IF EXISTS stock_name;
 
--- Rename the manual approval stage before enforcing the new allowed values.
+-- Rename legacy stages before enforcing the new allowed values.
 ALTER TABLE report_digestion DROP CONSTRAINT IF EXISTS report_digestion_digestion_stage_check;
 UPDATE report_digestion SET digestion_stage = 'ManualPass'
     WHERE digestion_stage = 'HandPass';
+UPDATE report_digestion SET digestion_stage = CASE digestion_stage
+        WHEN 'DigestionSuccess' THEN 'BalanceSheetOK'
+        WHEN 'DigestionError' THEN 'BalanceSheetErr'
+    END
+    WHERE digestion_stage IN ('DigestionSuccess', 'DigestionError');
 ALTER TABLE report_digestion ADD CONSTRAINT report_digestion_digestion_stage_check
     CHECK (digestion_stage IN (
         'Downloaded', 'PreviewSuccess', 'PreviewError',
         'ExtractionSuccess', 'ExtractionError',
         'AuditPass', 'AuditIssues', 'ManualPass',
         'Deprecated', 'NoStatements',
-        'DigestionSuccess', 'DigestionError'
+        'BalanceSheetOK', 'BalanceSheetErr',
+        'IncomStatementOK', 'IncomeStatementErr',
+        'CashFlowStatementOK', 'CashFlowStatementErr'
     ));
 
 -- Preserve existing extraction content when upgrading an older installation.
@@ -78,6 +114,27 @@ BEGIN
         ALTER TABLE report_digestion RENAME COLUMN extraction_info TO extraction_report;
     END IF;
 END $$;
+
+-- Monetary statement values are normalized to yuan; EPS remains yuan per share.
+CREATE TABLE IF NOT EXISTS income_statement_items (
+    stock_code VARCHAR(12) NOT NULL,
+    reporting_date DATE NOT NULL,
+    item_id INTEGER NOT NULL,
+    report_creation_time TEXT NOT NULL,
+    amount NUMERIC(28, 8) NOT NULL,
+    amount_unit TEXT NOT NULL CHECK (amount_unit IN ('元', '元/股')),
+    UNIQUE (stock_code, reporting_date, item_id, report_creation_time)
+);
+
+CREATE TABLE IF NOT EXISTS cash_flow_statement_items (
+    stock_code VARCHAR(12) NOT NULL,
+    reporting_date DATE NOT NULL,
+    item_id INTEGER NOT NULL,
+    report_creation_time TEXT NOT NULL,
+    amount NUMERIC(28, 8) NOT NULL,
+    amount_unit TEXT NOT NULL DEFAULT '元' CHECK (amount_unit = '元'),
+    UNIQUE (stock_code, reporting_date, item_id, report_creation_time)
+);
 
 -- Company details keyed by stock code; metadata may be filled in incrementally.
 CREATE TABLE IF NOT EXISTS stock_metadata (
