@@ -253,6 +253,7 @@
 		810211|支付利息、手续费及佣金的现金|Cash Paid for Interest, Fees and Commissions
 		810213|支付保单红利的现金|Cash Paid for Policyholder Dividends
 		810215|支付给职工及为职工支付的现金|Cash Paid to and on Behalf of Employees
+		810215|支付给职工以及为职工支付的现金|Cash Paid to and on Behalf of Employees
 		810217|支付的各项税费|Cash Paid for Taxes and Levies
 		810219|支付其他与经营活动有关的现金|Other Cash Paid Relating to Operating Activities
 
