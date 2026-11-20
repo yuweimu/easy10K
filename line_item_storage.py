@@ -547,7 +547,7 @@ class LineItemStorage:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT reporting_date, item_id, amount
+                SELECT reporting_date, item_id, amount, report_creation_time
                 FROM balance_sheet_items
                 WHERE stock_code = %s
                 ORDER BY reporting_date, item_id, report_creation_time
@@ -555,7 +555,26 @@ class LineItemStorage:
                 (stock_code,),
             )
             rows = cursor.fetchall()
-        return [dict(zip(("reporting_date", "item_id", "amount"), row)) for row in rows]
+        return [dict(zip(("reporting_date", "item_id", "amount", "report_creation_time"), row)) for row in rows]
+
+    def get_balance_sheet_source(self, stock_code, reporting_date, item_id, report_creation_time):
+        """Resolve the exact displayed report version and its registered PDF."""
+        fields = ("pdf_hash", "local_path", "extraction_report", "balance_sheet", "amount", "report_creation_time", "download_url")
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                "SELECT r.pdf_hash, r.local_path, r.extraction_report, r.balance_sheet, b.amount, b.report_creation_time, r.download_url "
+                "FROM balance_sheet_items b JOIN report_digestion r "
+                "ON r.stock_code = b.stock_code AND r.reporting_date = b.reporting_date "
+                "AND r.pdf_creation_date = b.report_creation_time "
+                "WHERE b.stock_code = %s AND b.reporting_date = %s AND b.item_id = %s "
+                "AND b.report_creation_time = %s "
+                "ORDER BY r.updated_at DESC, r.pdf_hash LIMIT 2",
+                (stock_code, reporting_date, item_id, report_creation_time),
+            )
+            rows = cursor.fetchall()
+        if len(rows) > 1:
+            raise ValueError("Multiple PDFs match this report version; source verification is ambiguous")
+        return dict(zip(fields, rows[0])) if rows else None
 
     def close(self) -> None:
         if self._connection is not None:

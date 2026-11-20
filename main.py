@@ -1,7 +1,9 @@
 # main.py
 import logging
+import re
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, Response
@@ -9,6 +11,7 @@ from pydantic import BaseModel
 from line_item_chart import LineItemChart
 from line_item_storage import LineItemStorage, ReportDigestionStage
 from report_renderer import render_report
+from report_sources import locate_source, render_page
 
 # 1. Initialize the FastAPI application
 app = FastAPI()
@@ -16,6 +19,7 @@ logger = logging.getLogger(__name__)
 line_item_chart = LineItemChart()
 REPORTS_DIR = Path(__file__).resolve().parent / "preprocessed"
 PROJECT_DIR = Path(__file__).resolve().parent
+SOURCE_CACHE_DIR = PROJECT_DIR / "reports" / ".source-cache"
 
 # 2. Define the structure of the data we expect (Pydantic Model)
 class WordInput(BaseModel):
@@ -199,6 +203,78 @@ def get_balance_sheet_items(stock_code: str) -> list[dict]:
             status_code=503,
             detail="Unable to fetch balance-sheet items",
         ) from exc
+
+def source_pdf_path(local_path):
+    if not local_path:
+        raise HTTPException(status_code=404, detail="Source PDF is unavailable")
+    path = (PROJECT_DIR / local_path).resolve()
+    if not path.is_relative_to((PROJECT_DIR / "reports").resolve()):
+        raise HTTPException(status_code=403, detail="Source is outside report directories")
+    if path.suffix.lower() != ".pdf" or not path.is_file():
+        raise HTTPException(status_code=404, detail="Source PDF is unavailable")
+    return path
+
+
+@app.get("/balance_sheet_items/{stock_code}/{reporting_date}/{item_id}/source")
+def get_item_source(stock_code: str, reporting_date: str, item_id: int,
+                    report_creation_time: str = Query(min_length=1)):
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            record = storage.get_balance_sheet_source(stock_code, reporting_date, item_id, report_creation_time)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except Exception as error:
+            logger.warning("Unable to resolve source report", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to resolve source report") from error
+    if not record:
+        raise HTTPException(status_code=404, detail="No source PDF registered for this report version")
+    download_url = record.get("download_url")
+    parsed_url = urlsplit(download_url or "")
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        download_url = None
+    fallback = {"pdf_hash": record["pdf_hash"], "download_url": download_url}
+    try:
+        path = source_pdf_path(record["local_path"])
+        source = locate_source(record, item_id, path, SOURCE_CACHE_DIR)
+    except HTTPException as error:
+        raise HTTPException(status_code=error.status_code, detail={"message": error.detail, **fallback}) from error
+    except (OSError, ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=409, detail={"message": str(error), **fallback}) from error
+    page_url = f"/report-source/{source['pdf_hash']}/page/{source['page_number']}.png"
+    source["page_image_url"] = page_url
+    source["image_url"] = f"{page_url}?top={source['excerpt_top']}&bottom={source['excerpt_bottom']}"
+    source["download_url"] = download_url
+    return source
+
+
+@app.get("/report-source/{pdf_hash}/page/{page_number}.png")
+def get_source_image(pdf_hash: str, page_number: int,
+                     width: int = Query(default=960, ge=960, le=1600),
+                     top: float = Query(default=0, ge=0, le=1),
+                     bottom: float = Query(default=1, ge=0, le=1)):
+    if not re.fullmatch(r"[a-f0-9]{32}", pdf_hash) or page_number < 1 or top >= bottom or width not in (960, 1600):
+        raise HTTPException(status_code=422, detail="Invalid source image parameters")
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            local_path = storage.get_digestion_pdf_path(pdf_hash)
+        except Exception as error:
+            logger.warning("Unable to fetch source PDF path", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to load source image") from error
+    path = source_pdf_path(local_path)
+    try:
+        image_path = render_page(path, pdf_hash, page_number, SOURCE_CACHE_DIR,
+                                 width=width, top=top, bottom=bottom)
+    except (OSError, ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return FileResponse(image_path, media_type="image/png", headers={
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+    })
+
 
 @app.post("/submit/")
 def submit_word(data: WordInput):

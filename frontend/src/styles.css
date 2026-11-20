@@ -154,6 +154,22 @@ thead th:first-child { border-right-color: #504d70; }
   text-align: right;
 }
 
+.amount-source-link { padding: 2px 0; min-height: 0; background: transparent; color: inherit; font: inherit; font-variant-numeric: tabular-nums; text-decoration: underline dotted #b4acd4; text-underline-offset: 4px; }
+.amount-source-link:hover { color: #51488e; }
+.source-preview-dialog { width: min(1000px, calc(100vw - 32px)); max-height: 90vh; padding: 20px; border: 1px solid #d6d3e4; border-radius: 14px; color: #20283b; background: #fff; overflow: auto; }
+.source-preview-dialog::backdrop { background: #20283b77; }
+.source-preview-toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.source-preview-toolbar h2 { font-size: 1.15rem; }
+.source-preview-toolbar p, .source-preview-caption { color: #737c8e; font-size: 0.82rem; }
+.source-preview-toolbar > button { padding: 2px 10px; font-size: 1.4rem; }
+.source-preview-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; font-size: 0.85rem; }
+.source-preview-controls button { padding: 7px 12px; background: #eeecf8; color: #51488e; }
+.source-preview-controls button[aria-pressed="true"] { background: #6860ad; color: white; }
+.source-page-image { position: relative; width: 100%; border: 1px solid #e0e3ec; }
+.source-page-image img { display: block; width: 100%; height: auto; }
+.source-row-highlight { position: absolute; border: 2px solid #c38b00; background: #ffd85826; pointer-events: none; }
+.source-pdf-links { display: flex; flex-wrap: wrap; gap: 16px; }
+
 .trend-toggle { display: inline-flex; vertical-align: middle; align-items: center; justify-content: center; width: 22px; height: 22px; min-height: 0; margin-left: 6px; padding: 0; border-radius: 4px; background: transparent; color: #85849b; }
 .trend-toggle:hover, .trend-toggle[aria-expanded="true"] { background: #eeecf8; color: #51488e; }
 .copy-action { position: relative; display: inline-flex; vertical-align: middle; margin-left: 6px; }

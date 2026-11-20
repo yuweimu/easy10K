@@ -20,6 +20,7 @@ import pymupdf
 
 from report_metadata import match_dates, match_stock_code, match_title_reporting_date
 from line_item_storage import LineItemStorage
+from report_sources import normalized_bbox, warm_statement_previews
 
 
 STATEMENTS = {
@@ -138,6 +139,7 @@ class Statement:
     pages: list[int] = field(default_factory=list)
     rows: list[list[str]] = field(default_factory=list)
     text: str = ""
+    source_rows: list[dict] = field(default_factory=list)
 
     def markdown(self) -> str:
         """Include the caption (notably currency units) and extracted tables."""
@@ -273,6 +275,11 @@ def extract_report(pdf_path: str | Path) -> ReportExtraction:
                     if dates:
                         result.balance_sheet_reporting_date = dates[0]
                 for table, extracted in table_data:
+                    for source_row, cells in zip(table.rows, extracted):
+                        if ending is None or source_row.bbox[1] < ending:
+                            active.source_rows.append({"page_number": page_number,
+                                "bbox": normalized_bbox(page, source_row.bbox),
+                                "cells": [cell or "" for cell in cells]})
                     retained = [cells for row, cells in zip(table.rows, extracted)
                                 if ending is None or row.bbox[1] < ending]
                     active.rows.extend(clean_rows(retained))
@@ -356,6 +363,7 @@ def main() -> int:
                     stock_code=result.stock_code, reporting_date=result.reporting_date,
                     pdf_creation_date=result.pdf_creation_time,
                 )
+                warm_statement_previews(result)
                 missing = [name for name, text in markdown.items() if not text or not text.strip()]
                 if missing:
                     raise ValueError(f"Empty extracted statements: {', '.join(missing)}")

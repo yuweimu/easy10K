@@ -1,6 +1,7 @@
 import { Fragment, StrictMode, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { trendDateLabelIndices } from "./trend-date-labels";
+import { SourcePreview, type SourceSelection } from "./SourcePreview";
 import "./styles.css";
 
 type LineItem = {
@@ -17,6 +18,7 @@ type BalanceSheetItem = {
   reporting_date: string;
   item_id: number;
   amount: number | string | null;
+  report_creation_time: string;
 };
 
 type StockReportCount = {
@@ -37,6 +39,7 @@ type GroupedReportItem = {
   label: string;
   indentLevel: number;
   amountsByDate: Map<string, BalanceSheetItem["amount"]>;
+  sourceVersionsByDate: Map<string, string>;
 };
 
 type ChartItem = {
@@ -411,6 +414,7 @@ function App() {
   const [periodEnding, setPeriodEnding] = useState<PeriodEnding>("");
   const [expandedTrendId, setExpandedTrendId] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState<{ itemId: number; message: string } | null>(null);
+  const [sourceSelection, setSourceSelection] = useState<SourceSelection | null>(null);
   useEffect(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(RECENT_SEARCHES_KEY) || "null");
@@ -468,12 +472,14 @@ function App() {
       const existing = grouped.get(item.item_id);
       if (existing) {
         existing.amountsByDate.set(item.reporting_date, item.amount);
+        existing.sourceVersionsByDate.set(item.reporting_date, item.report_creation_time);
       } else {
         grouped.set(item.item_id, {
           item_id: item.item_id,
           label: language === "zh" ? item.labelCn : item.labelEn,
           indentLevel: item.indentLevel,
           amountsByDate: new Map([[item.reporting_date, item.amount]]),
+          sourceVersionsByDate: new Map([[item.reporting_date, item.report_creation_time]]),
         });
       }
     }
@@ -566,6 +572,7 @@ function App() {
     });
 
     setLoading(true);
+    setSourceSelection(null);
     setExpandedTrendId(null);
     setCopyStatus(null);
     setError(null);
@@ -933,11 +940,13 @@ function App() {
                     </td>
                     {reportingDates.map((date) => (
                       <td className="amount-column" key={date}>
-                        {formatAmount(
-                          item.amountsByDate.get(date) ?? null,
-                          amountUnit,
-                          showDecimals,
-                        )}
+                        {item.amountsByDate.get(date) == null ? "—" : <button type="button" className="amount-source-link"
+                          title={language === "zh" ? "查看原始报表行" : "View the source statement row"}
+                          onClick={() => setSourceSelection({ stockCode: reportStockCode, date,
+                            itemId: item.item_id, label: item.label,
+                            creationTime: item.sourceVersionsByDate.get(date) || "" })}>
+                          {formatAmount(item.amountsByDate.get(date) ?? null, amountUnit, showDecimals)}
+                        </button>}
                       </td>
                     ))}
                   </tr>
@@ -1017,6 +1026,8 @@ function App() {
         </div>
       )}
       </div>
+      {sourceSelection && <SourcePreview selection={sourceSelection} apiBase={API_BASE_URL}
+        language={language} onClose={() => setSourceSelection(null)} />}
     </main>
   );
 }
