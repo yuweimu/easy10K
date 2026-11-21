@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import re
 
-from pdf_extract import STATEMENTS, ReportExtraction, Statement, extract_report
+from extract import STATEMENTS, ReportExtraction, Statement, extract_report
 from line_item_storage import LineItemStorage
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -19,7 +19,7 @@ NUMBER = re.compile(r"(?<![\d.])[-−]?\d[\d,]*\.\d{2,}(?!\d)")
 def audit_report(report: ReportExtraction, pdf_path: Path) -> dict:
     """Check metadata, statement structure, boundaries, and decimal coverage."""
     entry = {"file": str(pdf_path), "issues": [], "statements": {}}
-    for key in ("stock_code", "reporting_date", "pdf_creation_time"):
+    for key in ("stock_code", "reporting_date"):
         entry[key] = getattr(report, key)
         if not entry[key]:
             entry["issues"].append("missing " + key)
@@ -80,6 +80,9 @@ def load_cached_report(path: Path) -> ReportExtraction:
 def load_report_json(payload: str) -> ReportExtraction:
     """Reconstruct statement objects from a saved extraction JSON payload."""
     data = json.loads(payload)
+    # Older extraction reports included this field; creation time now comes
+    # exclusively from the download-stage database record.
+    data.pop("pdf_creation_time", None)
     for key in dict.fromkeys(STATEMENTS.values()):
         if data[key] is not None:
             data[key] = Statement(**data[key])
@@ -142,7 +145,7 @@ def audit_reports(input_dir: Path, output_dir: Path, *, cached: bool = False) ->
         entry = {"file": str(relative_path), "issues": [], "statements": {}}
         try:
             folder = output_dir / path.relative_to(input_dir).with_suffix("")
-            cache = folder / "extraction_report.sjon"
+            cache = folder / "extraction_report.json"
             report = load_cached_report(cache) if cached and cache.exists() else extract_report(path)
             entry = audit_report(report, relative_path)
             folder.mkdir(parents=True, exist_ok=True)
@@ -167,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Extract PDFs from this directory instead of auditing database rows")
     parser.add_argument("--output-dir", type=Path, default=PROJECT_DIR / "extracted/pdf")
     parser.add_argument("--cached", action="store_true",
-                        help="Trust saved extraction_report.sjon results; extract only uncached PDFs")
+                        help="Trust saved extraction_report.json results; extract only uncached PDFs")
     parser.add_argument("--fail-on-issues", action="store_true",
                         help="Return exit code 1 if any report has audit issues")
     args = parser.parse_args(argv)

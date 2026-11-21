@@ -8,12 +8,12 @@ import unittest
 from unittest.mock import patch
 
 from audit_pdf_extraction import audit_extracted_reports, audit_report, audit_reports, load_cached_report, main
-from pdf_extract import STATEMENTS, ReportExtraction, Statement
+from extract import STATEMENTS, ReportExtraction, Statement
 
 
 def sample_report():
     report = ReportExtraction("sample.pdf", stock_code="002304",
-                              reporting_date="2025-12-31", pdf_creation_time="20260301000000")
+                              reporting_date="2025-12-31")
     for title, key in STATEMENTS.items():
         setattr(report, key, Statement(title, pages=[1],
                                       rows=[["项目", "1.00", "2.00"] for _ in range(10)],
@@ -37,7 +37,7 @@ class AuditPDFExtractionTests(unittest.TestCase):
 
     def test_legacy_extraction_json_without_date_sources_still_loads(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "extraction_report.sjon"
+            path = Path(directory) / "extraction_report.json"
             data = asdict(sample_report())
             for key in ("title_reporting_date", "balance_sheet_reporting_date", "reporting_dates_match"):
                 del data[key]
@@ -168,8 +168,8 @@ class AuditPDFExtractionTests(unittest.TestCase):
             folder.mkdir(parents=True)
             data = asdict(sample_report())
             del data["pdf_hash"]
-            (folder / "extraction_report.sjon").write_text(json.dumps(data))
-            self.assertEqual(load_cached_report(folder / "extraction_report.sjon").pdf_hash, "")
+            (folder / "extraction_report.json").write_text(json.dumps(data))
+            self.assertEqual(load_cached_report(folder / "extraction_report.json").pdf_hash, "")
             with patch("audit_pdf_extraction.extract_report") as extract, redirect_stdout(io.StringIO()):
                 results = audit_reports(source, root / "output", cached=True)
             extract.assert_not_called()

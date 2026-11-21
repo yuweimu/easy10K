@@ -55,7 +55,7 @@ def get_report_digestion(
     page_size: int = Query(default=25, ge=1, le=100),
     show_passed: bool = False,
     only_manual_pass: bool = False,
-    report_group: Literal["InProgress", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+    report_group: Literal["InProgress", "FileErr", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
                           "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                           "ManualPass", "Deprecated", "Search"] | None = None,
     pdf_hash: str | None = Query(default=None, max_length=128),

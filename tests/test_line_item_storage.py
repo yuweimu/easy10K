@@ -128,16 +128,27 @@ class LineItemStorageTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_get_downloaded_reports_filters_stage_without_schema_writes(self):
-        self.cursor.fetchall.return_value = [("hash", "reports/report.pdf")]
+    def test_get_reports_at_FileOK_filters_stage_without_schema_writes(self):
+        self.cursor.fetchall.return_value = [("hash", "reports/report.pdf", "600519", date(2025, 12, 31))]
         with LineItemStorage("postgresql://test") as storage:
-            rows = storage.get_downloaded_reports()
-        self.assertEqual(rows, [{"pdf_hash": "hash", "local_path": "reports/report.pdf"}])
+            rows = storage.get_reports_at_FileOK()
+        self.assertEqual(rows, [{"pdf_hash": "hash", "local_path": "reports/report.pdf",
+                                 "stock_code": "600519", "reporting_date": date(2025, 12, 31)}])
         self.cursor.execute.assert_called_once_with(
-            "SELECT pdf_hash, local_path FROM report_digestion "
+            "SELECT pdf_hash, local_path, stock_code, reporting_date FROM report_digestion "
             "WHERE digestion_stage = %s ORDER BY pdf_hash", ("FileOK",))
         self.connection.commit.assert_not_called()
         self.connection.close.assert_called_once()
+
+    def test_get_report_by_hash_reads_registered_report(self):
+        self.cursor.fetchone.return_value = ("hash", "reports/report.pdf", "600519", date(2025, 12, 31))
+        with LineItemStorage("postgresql://test") as storage:
+            row = storage.get_report_by_hash("hash")
+        self.assertEqual(row, {"pdf_hash": "hash", "local_path": "reports/report.pdf",
+                               "stock_code": "600519", "reporting_date": date(2025, 12, 31)})
+        self.cursor.execute.assert_called_once_with(
+            "SELECT pdf_hash, local_path, stock_code, reporting_date FROM report_digestion WHERE pdf_hash = %s",
+            ("hash",))
 
     def test_get_extracted_reports_filters_success_without_schema_writes(self):
         self.cursor.fetchall.return_value = [("hash", "reports/report.pdf", "{}")]
@@ -173,8 +184,8 @@ class LineItemStorageTests(unittest.TestCase):
         count, rows = self.cursor.execute.call_args_list
         for query in (count.args[0], rows.args[0]):
             self.assertIn(
-                "WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass', 'Deprecated', 'ExtractOK', "
-                "'ExtractErr', 'AuditIssues', 'BalanceErr', 'IncomeErr', "
+                "WHERE digestion_stage NOT IN ('ManualPass', 'Deprecated', 'FileErr', 'ExtractErr', 'AuditIssues', "
+                "'BalanceErr', 'IncomeErr', "
                 "'CashFlowErr', 'CashFlowOK')",
                 query,
             )
