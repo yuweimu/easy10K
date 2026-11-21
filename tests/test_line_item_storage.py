@@ -135,7 +135,7 @@ class LineItemStorageTests(unittest.TestCase):
         self.assertEqual(rows, [{"pdf_hash": "hash", "local_path": "reports/report.pdf"}])
         self.cursor.execute.assert_called_once_with(
             "SELECT pdf_hash, local_path FROM report_digestion "
-            "WHERE digestion_stage = %s ORDER BY pdf_hash", ("Downloaded",))
+            "WHERE digestion_stage = %s ORDER BY pdf_hash", ("FileOK",))
         self.connection.commit.assert_not_called()
         self.connection.close.assert_called_once()
 
@@ -312,7 +312,7 @@ class LineItemStorageTests(unittest.TestCase):
     def test_explicit_hash_can_save_digestion_at_other_stages(self):
         row = {"pdf_hash": "hash", "stock_code": "600519", "reporting_date": "2025-12-31",
                "pdf_creation_date": "created"}
-        for current_stage in ("ManualPass", "Deprecated", "BalanceSheetErr", "BalanceSheetOK", "Downloaded"):
+        for current_stage in ("ManualPass", "Deprecated", "BalanceSheetErr", "BalanceSheetOK", "FileOK", "FileErr"):
             for passed in (True, False):
                 with self.subTest(stage=current_stage, passed=passed):
                     self.cursor.fetchone.return_value = (current_stage,)
@@ -367,7 +367,7 @@ class LineItemStorageTests(unittest.TestCase):
                 storage.update_report_digestion_stage("hash", "invalid")
             self.driver.connect.assert_not_called()
             self.cursor.fetchone.return_value = None
-            self.assertIsNone(storage.update_report_digestion_stage("missing", "Downloaded"))
+            self.assertIsNone(storage.update_report_digestion_stage("missing", "FileOK"))
 
     def test_manual_pass_and_no_statements_stages_are_persisted_and_allowed_by_schema(self):
         for stage in ("ManualPass", "NoStatements"):
@@ -474,20 +474,23 @@ class LineItemStorageTests(unittest.TestCase):
         self.connection.commit.assert_called_once()
         self.assertFalse(storage._report_registry_ready)
 
-    def test_downloaded_report_inserts_new_hash_and_preserves_existing_row(self):
+    def test_downloaded_report_upserts_metadata_and_preserves_existing_identifiers(self):
         with LineItemStorage("postgresql://test") as storage:
             for url in ("https://example.com/first.pdf", "https://example.com/second.pdf"):
-                storage.store_downloaded_report("hash", url, str(Path("reports/report.pdf").resolve()))
+                storage.store_downloaded_report("hash", url, str(Path("reports/report.pdf").resolve()),
+                                               stock_code="300750", reporting_date="2025-12-31")
         calls = self.cursor.execute.call_args_list
         self.assertEqual(len(calls), 3)
         self.assertIn("CREATE TABLE IF NOT EXISTS report_digestion", calls[0].args[0])
         for call, url in zip(calls[1:], ("https://example.com/first.pdf", "https://example.com/second.pdf")):
             query, parameters = call.args
-            self.assertIn("INSERT INTO report_digestion (pdf_hash, download_url, local_path, digestion_stage)", query)
-            self.assertIn("VALUES (%s, %s, %s, 'Downloaded')", query)
-            self.assertIn("ON CONFLICT (pdf_hash) DO NOTHING", query)
-            self.assertNotIn("UPDATE", query)
-            self.assertEqual(parameters, ("hash", url, "reports/report.pdf"))
+            self.assertIn("INSERT INTO report_digestion (", query)
+            self.assertIn("download_report,", query)
+            self.assertIn("stock_code, reporting_date, pdf_creation_date, digestion_stage", query)
+            self.assertIn("ON CONFLICT (pdf_hash) DO UPDATE SET", query)
+            self.assertIn("download_report = COALESCE(EXCLUDED.download_report, report_digestion.download_report)", query)
+            self.assertIn("stock_code = COALESCE(EXCLUDED.stock_code, report_digestion.stock_code)", query)
+            self.assertEqual(parameters, ("hash", url, "reports/report.pdf", None, "300750", "2025-12-31", None))
         self.assertEqual(self.connection.commit.call_count, 2)
         self.assertFalse(storage._report_digestion_ready)
 

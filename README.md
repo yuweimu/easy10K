@@ -165,7 +165,7 @@ without inserting items. The storage writer initializes the new tables from
 
 ### Audit direct PDF statement extraction
 
-To extract registered reports at the `Downloaded` stage with
+To extract registered reports at the `FileOK` stage with
 [pdf_extract.py](./pdf_extract.py), configure `DATABASE_URL` and run:
 
 ```bash
@@ -174,7 +174,7 @@ python pdf_extract.py -o extracted/pdf
 ```
 
 Inputs come from `report_digestion.local_path` for rows whose stage is exactly
-`Downloaded`; no PDF path argument is required. Other stages are left unchanged.
+`FileOK`; no PDF path argument is required. Other stages are left unchanged.
 Each file's MD5 hash must match its registered `pdf_hash` before results are saved.
 Output folders preserve paths relative to the PDFs' common parent directory,
 keeping reports with identical names in different folders separate.
@@ -225,12 +225,12 @@ python audit_pdf_extraction.py --input-dir reports --output-dir extracted/pdf
 Pass `--input-dir` to recursively extract and audit local PDFs instead.
 The default output is anchored to the project directory, so the script can be
 launched from another working directory. In directory mode, each PDF gets a mirrored output subdirectory
-containing `report.json` and separate statement Markdown files. Generated files
+containing `extraction_report.sjon` and separate statement Markdown files. Generated files
 are replaced on reruns, and `audit.json` is updated after every report. A failed
 file is recorded without stopping the batch.
 
 In directory mode, use `--cached` to audit saved extractions without reconverting PDFs that already
-have `report.json`. Cached mode does not check source freshness; omit it after
+have `extraction_report.sjon`. Cached mode does not check source freshness; omit it after
 changing PDFs or extraction logic. Use `--fail-on-issues` to return exit code 1
 when any report is flagged (for automation). By default, audit findings do not
 cause a nonzero exit code. An empty input directory produces an empty audit.

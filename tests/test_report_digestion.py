@@ -47,7 +47,7 @@ class ReportDigestionTests(unittest.TestCase):
             storage.update_report_digestion_stage.assert_called_once_with("hash", "ManualPass")
 
     def test_api_stage_update_missing_report_and_unavailable_database(self):
-        data = ReportStageUpdate(digestion_stage="Downloaded")
+        data = ReportStageUpdate(digestion_stage="FileOK")
         with patch("main.LineItemStorage") as factory, patch("main.logger.warning"):
             storage = factory.return_value.__enter__.return_value
             storage.update_report_digestion_stage.return_value = None
@@ -100,7 +100,7 @@ class ReportDigestionTests(unittest.TestCase):
         connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = (26,)
-        cursor.fetchall.return_value = [("abc123", "created", "url", "path", "Downloaded",
+        cursor.fetchall.return_value = [("abc123", "created", "url", "path", '{"title":"report"}', "FileOK",
                                        "600519", None, "info", "balance", None,
                                        "income", None, "cash", None, "audit result", '{"passed":true}',
                                        '{"statement":"income"}', '{"statement":"cash_flow"}', None)]
@@ -117,7 +117,8 @@ class ReportDigestionTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["cfs_digestion_report"], '{"statement":"cash_flow"}')
         self.assertNotIn("digestion_report", result["items"][0])
         self.assertNotIn("stock_name", result["items"][0])
-        self.assertEqual(len(result["items"][0]), 19)
+        self.assertEqual(result["items"][0]["download_report"], '{"title":"report"}')
+        self.assertEqual(len(result["items"][0]), 20)
         sql, parameters = cursor.execute.call_args.args
         self.assertIn("ORDER BY updated_at DESC NULLS LAST, pdf_hash", sql)
         self.assertEqual(parameters, (25, 25))

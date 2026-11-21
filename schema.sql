@@ -2,16 +2,16 @@
 -- This creates a separate table; it does not migrate or modify report_registry.
 CREATE TABLE IF NOT EXISTS report_digestion (
     pdf_hash TEXT PRIMARY KEY CHECK (btrim(pdf_hash) <> ''),
-    -- Keep the original PDF metadata date, including its format/time-zone suffix.
-    pdf_creation_date TEXT,
+    -- Normalized PDF metadata creation timestamp.
+    pdf_creation_date TIMESTAMPTZ,
     download_url TEXT,
     local_path TEXT,
+    download_report TEXT,
 
-    digestion_stage TEXT NOT NULL DEFAULT 'Downloaded'
+    digestion_stage TEXT NOT NULL DEFAULT 'FileOK'
         CHECK (digestion_stage IN (
-            'Downloaded',
-            'PreviewSuccess',
-            'PreviewError',
+            'FileOK',
+            'FileErr',
             'ExtractionSuccess',
             'ExtractionError',
             'AuditPass',
@@ -51,8 +51,30 @@ CREATE INDEX IF NOT EXISTS report_digestion_pdf_hash_digestion_stage_idx
 CREATE INDEX IF NOT EXISTS report_digestion_stock_code_idx
     ON report_digestion (stock_code);
 
--- Upgrade existing tables without changing any stored extraction data.
+-- Upgrade existing tables while preserving parseable PDF metadata.
 ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS extraction_audit TEXT;
+ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS download_report TEXT;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'report_digestion'
+          AND column_name = 'pdf_creation_date'
+          AND data_type = 'text'
+    ) THEN
+        ALTER TABLE report_digestion
+            ALTER COLUMN pdf_creation_date TYPE TIMESTAMPTZ
+            USING CASE
+                WHEN pdf_creation_date ~ '^D:[0-9]{14}$'
+                    THEN to_timestamp(substring(pdf_creation_date FROM 3), 'YYYYMMDDHH24MISS')
+                WHEN pdf_creation_date ~ '^[0-9]{14}$'
+                    THEN to_timestamp(pdf_creation_date, 'YYYYMMDDHH24MISS')
+                ELSE NULL
+            END;
+    END IF;
+END $$;
 -- Preserve balance-sheet checks when upgrading the former shared report column.
 DO $$
 BEGIN
@@ -81,6 +103,10 @@ ALTER TABLE report_digestion DROP COLUMN IF EXISTS stock_name;
 
 -- Rename legacy stages before enforcing the new allowed values.
 ALTER TABLE report_digestion DROP CONSTRAINT IF EXISTS report_digestion_digestion_stage_check;
+UPDATE report_digestion SET digestion_stage = 'FileOK'
+    WHERE digestion_stage IN ('Downloaded', 'PreviewSuccess');
+UPDATE report_digestion SET digestion_stage = 'FileErr'
+    WHERE digestion_stage = 'PreviewError';
 UPDATE report_digestion SET digestion_stage = 'ManualPass'
     WHERE digestion_stage = 'HandPass';
 UPDATE report_digestion SET digestion_stage = CASE digestion_stage
@@ -90,7 +116,7 @@ UPDATE report_digestion SET digestion_stage = CASE digestion_stage
     WHERE digestion_stage IN ('DigestionSuccess', 'DigestionError');
 ALTER TABLE report_digestion ADD CONSTRAINT report_digestion_digestion_stage_check
     CHECK (digestion_stage IN (
-        'Downloaded', 'PreviewSuccess', 'PreviewError',
+        'FileOK', 'FileErr',
         'ExtractionSuccess', 'ExtractionError',
         'AuditPass', 'AuditIssues', 'ManualPass',
         'Deprecated', 'NoStatements',

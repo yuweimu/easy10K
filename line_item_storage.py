@@ -3,9 +3,10 @@
 import importlib
 import json
 import os
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+import re
 from types import TracebackType
 from typing import Literal, Self, get_args
 
@@ -16,7 +17,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 
 ReportDigestionStage = Literal[
-    "Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
+    "FileOK", "FileErr", "ExtractionSuccess", "ExtractionError",
     "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "BalanceSheetOK", "BalanceSheetErr",
     "IncomStatementOK", "IncomeStatementErr", "CashFlowStatementOK", "CashFlowStatementErr",
 ]
@@ -46,6 +47,22 @@ def _registry_path(value: str | None) -> str | None:
     return os.path.relpath(Path(value).resolve()) if value else None
 
 
+def _normalize_pdf_creation_date(value: str | datetime | None) -> str | datetime | None:
+    """Convert PyMuPDF's compact creation timestamp to a database datetime."""
+    if not isinstance(value, str):
+        return value
+    match = re.fullmatch(r"D:?(\d{14})([+-]\d{2}'?\d{2}'?)?", value)
+    if not match:
+        return value or None
+    created = datetime.strptime(match.group(1), "%Y%m%d%H%M%S")
+    offset = match.group(2)
+    if offset:
+        sign = 1 if offset[0] == "+" else -1
+        hours, minutes = map(int, re.findall(r"\d{2}", offset))
+        created = created.replace(tzinfo=timezone(sign * timedelta(hours=hours, minutes=minutes)))
+    return created.replace(tzinfo=created.tzinfo or timezone.utc)
+
+
 class LineItemStorage:
     def __init__(self, database_url: str | None = None) -> None:
         self.database_url = database_url if database_url is not None else os.getenv("DATABASE_URL")
@@ -54,8 +71,13 @@ class LineItemStorage:
         self._report_registry_ready = False
         self._report_digestion_ready = False
 
-    def store_downloaded_report(self, pdf_hash: str, download_url: str, local_path: str) -> None:
-        """Register a completed download, leaving existing PDF hashes unchanged."""
+    def store_downloaded_report(
+        self, pdf_hash: str, download_url: str, local_path: str, *,
+        stock_code: str | None = None, reporting_date: str | None = None,
+        pdf_creation_date: str | None = None,
+        download_report: str | None = None,
+    ) -> None:
+        """Register a completed download and retain any available identifiers."""
         if not all(isinstance(value, str) and value.strip()
                    for value in (pdf_hash, download_url, local_path)):
             raise ValueError("Download hash, URL, and local path must be nonblank strings")
@@ -67,11 +89,22 @@ class LineItemStorage:
                 cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
             cursor.execute(
                 """
-                INSERT INTO report_digestion (pdf_hash, download_url, local_path, digestion_stage)
-                VALUES (%s, %s, %s, 'Downloaded')
-                ON CONFLICT (pdf_hash) DO NOTHING
+                INSERT INTO report_digestion (
+                    pdf_hash, download_url, local_path, download_report,
+                    stock_code, reporting_date, pdf_creation_date, digestion_stage
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'FileOK')
+                ON CONFLICT (pdf_hash) DO UPDATE SET
+                    download_url = EXCLUDED.download_url,
+                    local_path = EXCLUDED.local_path,
+                    download_report = COALESCE(EXCLUDED.download_report, report_digestion.download_report),
+                    stock_code = COALESCE(EXCLUDED.stock_code, report_digestion.stock_code),
+                    reporting_date = COALESCE(EXCLUDED.reporting_date, report_digestion.reporting_date),
+                    pdf_creation_date = COALESCE(EXCLUDED.pdf_creation_date, report_digestion.pdf_creation_date),
+                    updated_at = CURRENT_TIMESTAMP
                 """,
-                (pdf_hash, download_url, _registry_path(local_path)),
+                (pdf_hash, download_url, _registry_path(local_path), download_report,
+                 stock_code or None, reporting_date or None,
+                 _normalize_pdf_creation_date(pdf_creation_date)),
             )
         connection.commit()
         self._report_digestion_ready = True
@@ -113,7 +146,7 @@ class LineItemStorage:
                 """,
                 (pdf_hash, extraction_report, balance_sheet, income_statement, cash_flow_statement,
                  _registry_path(local_path), stock_code or None, reporting_date or None,
-                 pdf_creation_date or None),
+                 _normalize_pdf_creation_date(pdf_creation_date) or None),
             )
         connection.commit()
         self._report_digestion_ready = True
@@ -361,7 +394,7 @@ class LineItemStorage:
             cursor.execute(
                 "SELECT pdf_hash, local_path FROM report_digestion "
                 "WHERE digestion_stage = %s ORDER BY pdf_hash",
-                ("Downloaded",),
+                ("FileOK",),
             )
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
@@ -553,7 +586,7 @@ class LineItemStorage:
         if digestion_stage is not None and digestion_stage not in get_args(ReportDigestionStage):
             raise ValueError("Invalid report digestion stage")
         fields = (
-            "pdf_hash", "pdf_creation_date", "download_url", "local_path", "digestion_stage",
+            "pdf_hash", "pdf_creation_date", "download_url", "local_path", "download_report", "digestion_stage",
             "stock_code", "reporting_date", "extraction_report",
             "balance_sheet", "balance_sheet_ex", "income_statement", "income_statement_ex",
             "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit",

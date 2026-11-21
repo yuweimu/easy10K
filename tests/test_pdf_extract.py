@@ -39,7 +39,7 @@ class PDFExtractTests(unittest.TestCase):
             extract.assert_not_called()
             storage.store_extracted_report.assert_not_called()
             storage.update_report_digestion_stage.assert_not_called()
-            output.assert_called_once_with("No reports at Downloaded stage.")
+            output.assert_called_once_with("No reports at FileOK stage.")
 
     def test_cli_requires_database_and_handles_query_failure(self):
         for configured in (False, True):
@@ -139,7 +139,7 @@ class PDFExtractTests(unittest.TestCase):
                 self.assertEqual(saved.args[0], result.pdf_hash)
                 self.assertEqual(json.loads(saved.args[1]), asdict(result))
                 folder = root / "output" / result.pdf_hash / "report"
-                self.assertEqual((folder / "report.json").read_text(), saved.args[1] + "\n")
+                self.assertEqual((folder / "extraction_report.sjon").read_text(), saved.args[1] + "\n")
                 for name, content in zip(("balance_sheet", "income_statement", "cash_flow_statement"),
                                          saved.args[2:]):
                     self.assertEqual((folder / f"{name}.md").read_text(), content)
@@ -902,8 +902,12 @@ class PDFExtractTests(unittest.TestCase):
         for title, expected in (
             ("**2023 **年半年度报告", "2023-06-30"),
             ("2024 年第一季度报告", "2024-03-31"),
+            ("2024年一季度报告.pdf", "2024-03-31"),
+            ("2024年一季报.pdf", "2024-03-31"),
             ("2017 年年度报告", "2017-12-31"),
             ("2019 年第三季度报告", "2019-09-30"),
+            ("2024三季报.pdf", "2024-09-30"),
+            ("2024年报.pdf", "2024-12-31"),
         ):
             with self.subTest(title=title), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "report.pdf"

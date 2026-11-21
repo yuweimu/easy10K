@@ -19,11 +19,50 @@ import re
 import sys
 import time
 
+import pymupdf
+
 from pdf_download import download_pdf, parse_delay, report_filename, save_download_log, validate_delay_range
 from line_item_storage import LineItemStorage
+from report_metadata import match_title_reporting_date
 
 
 DEFAULT_REPORTS_DIR = Path(__file__).resolve().parent / "reports" / "cninfo"
+SKIPPED_TITLE_MARKERS = ("已取消", "正文", "摘要")
+
+
+def should_skip_title(title):
+    return any(marker in title for marker in SKIPPED_TITLE_MARKERS)
+
+
+def extract_local_report_metadata(local_path):
+    """Extract identifiers from the stock-code directory and report filename."""
+    path = Path(local_path).resolve()
+    stock_code = next((part for part in reversed(path.parts[:-1])
+                       if re.fullmatch(r"\d{6}", part)), None)
+    reporting_date = match_title_reporting_date(path.stem)
+    if reporting_date is None:
+        match = re.search(r"(?<!\d)(20\d{2})[-_.](0[1-9]|1[0-2])[-_.](0[1-9]|[12]\d|3[01])(?!\d)", path.stem)
+        reporting_date = "-".join(match.groups()) if match else None
+    return stock_code, reporting_date
+
+
+def extract_pdf_creation_time(local_path):
+    try:
+        with pymupdf.open(local_path) as document:
+            return (document.metadata or {}).get("creationDate") or None
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def metadata_warnings(stock_code, reporting_date, pdf_creation_time):
+    warnings = []
+    if not stock_code:
+        warnings.append("stock_code unavailable from local file path")
+    if not reporting_date:
+        warnings.append("reporting_date unavailable from local file name")
+    if not pdf_creation_time:
+        warnings.append("pdf_creation_time unavailable from PDF metadata")
+    return warnings
 
 
 def post_json(path, payload, timeout=30):
@@ -84,7 +123,8 @@ def cninfo_pdf_urls(stock_code, org_id=None, *, column=None):
         for item in announcements:
             title = item.get("announcementTitle") or ""
             path = item.get("adjunctUrl") or ""
-            if not path.lower().endswith(".pdf") or "摘要" in title:
+            if (not path.lower().endswith(".pdf") or should_skip_title(title)
+                    or "摘要" in title):
                 continue
             compact_title = re.sub(r"\s+", "", title)
             if "英文" in compact_title:
@@ -108,7 +148,7 @@ def cninfo_pdf_urls(stock_code, org_id=None, *, column=None):
 
 def completed_downloads(stock_code, output_dir):
     """Trust a completed local listing without contacting CNInfo."""
-    log_path = Path(output_dir) / stock_code / "downloads.json"
+    log_path = Path(output_dir) / stock_code / "download_reports.json"
     if not log_path.is_file():
         return None
     log = json.loads(log_path.read_text(encoding="utf-8"))
@@ -136,7 +176,7 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
     validate_delay_range(*delay)
     directory = Path(output_dir) / stock_code
     directory.mkdir(parents=True, exist_ok=True)
-    log_path = directory / "downloads.json"
+    log_path = directory / "download_reports.json"
     log = json.loads(log_path.read_text(encoding="utf-8")) if log_path.exists() else {
         "stock_code": stock_code, "downloads": {},
     }
@@ -154,6 +194,7 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
         owners[filename.casefold()] = url
     retry_reports = [{"title": entry["title"], "download_url": url}
                      for url, entry in entries.items()
+                     if not should_skip_title(entry.get("title", ""))
                      if entry.get("status") in {"ERROR", "DOWNLOADING", "DOWNLOADED"}
                      or not entry.get("pdf_hash")]
     log["listing_complete"] = False
@@ -162,6 +203,8 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
     failed = False
     for report in chain(retry_reports, reports):
         title, url = report["title"], report["download_url"]
+        if should_skip_title(title):
+            continue
         if url in seen:
             continue
         seen.add(url)
@@ -174,9 +217,12 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
             owners[filename.casefold()] = url
             entry = entries[url] = {"title": title, "download_url": url, "file": filename, "attempts": 0}
         destination = directory / entry["file"]
+        local_stock_code, reporting_date = extract_local_report_metadata(destination)
+        entry.update(stock_code=local_stock_code, reporting_date=reporting_date)
         needs_fetch = (not destination.is_file() or entry.get("status") == "DOWNLOADING"
                        or (entry.get("status") == "ERROR" and entry.get("error_stage") != "enrollment"))
         if not needs_fetch:
+            print(f"Network download request: NO\t{url}", flush=True)
             print(f"Skipping existing file: {destination}", file=sys.stderr, flush=True)
         else:
             seconds = random.uniform(*delay)
@@ -187,6 +233,7 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
             save_download_log(log_path, log)
             time.sleep(seconds)
             try:
+                print(f"Network download request: YES\t{url}", flush=True)
                 info = download_pdf(url, destination, referer="https://www.cninfo.com.cn/")
                 entry.update(info or {})
             except (OSError, ValueError, IncompleteRead) as error:
@@ -196,6 +243,15 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
                 save_download_log(log_path, log)
                 print(f"Failed: {url}: {error}", file=sys.stderr, flush=True)
                 continue
+        pdf_creation_time = extract_pdf_creation_time(destination)
+        warnings = metadata_warnings(local_stock_code, reporting_date, pdf_creation_time)
+        entry["pdf_creation_time"] = pdf_creation_time
+        if warnings:
+            entry["warnings"] = warnings
+            for warning in warnings:
+                print(f"Warning: {destination}: {warning}", flush=True)
+        else:
+            entry.pop("warnings", None)
         entry["status"] = "DOWNLOADED"
         save_download_log(log_path, log)
         try:
@@ -206,7 +262,14 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
             with LineItemStorage() as storage:
                 if not storage.database_url:
                     raise RuntimeError("DATABASE_URL is not configured")
-                storage.store_downloaded_report(entry["pdf_hash"], url, entry["local_path"])
+                storage.store_downloaded_report(
+                    entry["pdf_hash"], url, entry["local_path"],
+                    stock_code=local_stock_code, reporting_date=reporting_date,
+                    pdf_creation_date=pdf_creation_time,
+                    download_report=json.dumps(entry, ensure_ascii=False, sort_keys=True),
+                )
+                if warnings:
+                    storage.update_report_digestion_stage(entry["pdf_hash"], "FileErr")
             entry["status"] = "DONE"
             entry.pop("error", None)
             entry.pop("error_stage", None)
@@ -222,6 +285,75 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
     return int(failed)
 
 
+def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
+    """Enroll PDFs already listed locally, without contacting CNInfo or fetching URLs."""
+    directory = Path(output_dir) / stock_code
+    log_path = directory / "download_reports.json"
+    if not log_path.is_file():
+        raise ValueError(f"Download report log not found: {log_path}")
+    log = json.loads(log_path.read_text(encoding="utf-8"))
+    if (not isinstance(log, dict) or log.get("stock_code") != stock_code
+            or not isinstance(log.get("downloads"), dict)):
+        raise ValueError(f"Invalid download report log: {log_path}")
+
+    failed = False
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise RuntimeError("DATABASE_URL is not configured")
+        for url, entry in log["downloads"].items():
+            if not isinstance(entry, dict):
+                failed = True
+                print(f"Unable to enroll {url}: invalid download report entry", file=sys.stderr, flush=True)
+                continue
+            filename = entry.get("file")
+            if (not isinstance(filename, str) or Path(filename).name != filename
+                    or any(char in filename for char in ("/", "\\", "\x00"))
+                    or not filename.endswith(".pdf")):
+                failed = True
+                print(f"Unable to enroll {url}: invalid PDF filename", file=sys.stderr, flush=True)
+                continue
+            destination = directory / filename
+            if not destination.is_file():
+                failed = True
+                print(f"Unable to enroll {destination}: file not found", file=sys.stderr, flush=True)
+                continue
+            local_stock_code, reporting_date = extract_local_report_metadata(destination)
+            pdf_creation_time = extract_pdf_creation_time(destination)
+            warnings = metadata_warnings(local_stock_code, reporting_date, pdf_creation_time)
+            entry.update(
+                stock_code=local_stock_code, reporting_date=reporting_date,
+                pdf_creation_time=pdf_creation_time, local_path=str(destination.resolve()),
+            )
+            if warnings:
+                entry["warnings"] = warnings
+                for warning in warnings:
+                    print(f"Warning: {destination}: {warning}", flush=True)
+            else:
+                entry.pop("warnings", None)
+            try:
+                with destination.open("rb") as pdf:
+                    entry["pdf_hash"] = file_digest(pdf, lambda: md5(usedforsecurity=False)).hexdigest()
+                storage.store_downloaded_report(
+                    entry["pdf_hash"], entry.get("download_url", url), entry["local_path"],
+                    stock_code=local_stock_code, reporting_date=reporting_date,
+                    pdf_creation_date=pdf_creation_time,
+                    download_report=json.dumps(entry, ensure_ascii=False, sort_keys=True),
+                )
+                if warnings:
+                    storage.update_report_digestion_stage(entry["pdf_hash"], "FileErr")
+                entry["status"] = "DONE"
+                entry.pop("error", None)
+                entry.pop("error_stage", None)
+                print(f"Enrolled local PDF: {destination}", flush=True)
+            except Exception as error:
+                failed = True
+                entry.update(status="ERROR", error_stage="enrollment", error=str(error))
+                print(f"Unable to enroll {destination}: {error}", file=sys.stderr, flush=True)
+            entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+            save_download_log(log_path, log)
+    return int(failed)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stock_code", help="Six-digit stock code, e.g. 300750")
@@ -233,10 +365,14 @@ def main(argv=None):
                         help="Download root; a stock-code subfolder is created")
     parser.add_argument("--urls-only", action="store_true", help="Print titles and URLs without downloading")
     parser.add_argument("--refresh", action="store_true", help="Query CNInfo even when the download log is complete")
+    parser.add_argument("--enroll-only", action="store_true",
+                        help="Enroll PDFs from the local download report without network access")
     args = parser.parse_args(argv)
     try:
         if not re.fullmatch(r"\d{6}", args.stock_code):
             raise ValueError("Stock code must contain exactly six digits")
+        if args.enroll_only:
+            return enroll_local_reports(args.stock_code, args.output_dir)
         cached = None if args.refresh else completed_downloads(args.stock_code, args.output_dir)
         if cached is not None:
             if args.urls_only:

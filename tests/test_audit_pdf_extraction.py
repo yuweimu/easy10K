@@ -37,7 +37,7 @@ class AuditPDFExtractionTests(unittest.TestCase):
 
     def test_legacy_extraction_json_without_date_sources_still_loads(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "report.json"
+            path = Path(directory) / "extraction_report.sjon"
             data = asdict(sample_report())
             for key in ("title_reporting_date", "balance_sheet_reporting_date", "reporting_dates_match"):
                 del data[key]
@@ -168,8 +168,8 @@ class AuditPDFExtractionTests(unittest.TestCase):
             folder.mkdir(parents=True)
             data = asdict(sample_report())
             del data["pdf_hash"]
-            (folder / "report.json").write_text(json.dumps(data))
-            self.assertEqual(load_cached_report(folder / "report.json").pdf_hash, "")
+            (folder / "extraction_report.sjon").write_text(json.dumps(data))
+            self.assertEqual(load_cached_report(folder / "extraction_report.sjon").pdf_hash, "")
             with patch("audit_pdf_extraction.extract_report") as extract, redirect_stdout(io.StringIO()):
                 results = audit_reports(source, root / "output", cached=True)
             extract.assert_not_called()

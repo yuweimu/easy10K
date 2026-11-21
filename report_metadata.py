@@ -38,10 +38,13 @@ def match_dates(line: str) -> list[str]:
 def match_title_reporting_date(text: str) -> str | None:
     """Read a report period from title text, allowing whitespace and Markdown bold."""
     compact = re.sub(r"[\s*]+", "", text)
-    match = re.search(r"(?<!\d)(20\d{2})年(年度|第一季度|第三季度|半年度)报告", compact)
+    match = re.search(r"(?<!\d)(20\d{2})年?(年度|年|第一季度|一季度|一季|第三季度|三季度|半年度|半年)(?:报告|报)", compact)
     if not match:
         return None
-    suffix = {"年度": "12-31", "第一季度": "03-31", "第三季度": "09-30", "半年度": "06-30"}
+    suffix = {
+        "年度": "12-31", "年": "12-31", "第一季度": "03-31", "一季度": "03-31", "一季": "03-31",
+        "第三季度": "09-30", "三季度": "09-30", "半年度": "06-30", "半年": "06-30",
+    }
     return f"{match.group(1)}-{suffix[match.group(2)]}"
 
 

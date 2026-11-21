@@ -1,7 +1,7 @@
 """Extract identifiers and consolidated financial statements from text PDFs.
 
 Usage: python pdf_extract.py --output-dir extracted/pdf
-Processes registered reports at the Downloaded stage using their local_path.
+Processes registered reports at the FileOK stage using their local_path.
 Without --output-dir, prints extraction progress and a statement summary per PDF.
 Amounts remain strings so their original precision and units are preserved.
 """
@@ -328,10 +328,10 @@ def main() -> int:
         try:
             reports = storage.get_downloaded_reports()
         except Exception as error:
-            print(f"Unable to load Downloaded reports: {error}", file=sys.stderr)
+            print(f"Unable to load FileOK reports: {error}", file=sys.stderr)
             return 1
         if not reports:
-            print("No reports at Downloaded stage.")
+            print("No reports at FileOK stage.")
             return 0
         paths = [Path(report["local_path"]).resolve() for report in reports if report["local_path"]]
         root = Path(os.path.commonpath([path.parent for path in paths])) if paths else Path.cwd()
@@ -355,7 +355,7 @@ def main() -> int:
                 if args.output_dir:
                     destination = args.output_dir / path.relative_to(root).with_suffix("")
                     destination.mkdir(parents=True, exist_ok=True)
-                    (destination / "report.json").write_text(payload + "\n", encoding="utf-8")
+                    (destination / "extraction_report.sjon").write_text(payload + "\n", encoding="utf-8")
                     for name in STATEMENT_FIELDS:
                         if markdown[name] is not None:
                             (destination / f"{name}.md").write_text(markdown[name], encoding="utf-8")

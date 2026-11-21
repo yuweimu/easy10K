@@ -21,7 +21,7 @@ const summary = document.querySelector<HTMLElement>("#summary")!;
 const label = document.querySelector<HTMLElement>("#page-label")!;
 const error = document.querySelector<HTMLElement>("#error")!;
 let page = 1, totalPages = 1, loading = false;
-const stages = ["Downloaded", "PreviewSuccess", "PreviewError", "ExtractionSuccess", "ExtractionError",
+const stages = ["FileOK", "FileErr", "ExtractionSuccess", "ExtractionError",
   "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "BalanceSheetOK", "BalanceSheetErr",
   "IncomStatementOK", "IncomeStatementErr", "CashFlowStatementOK", "CashFlowStatementErr"];
 for (const stage of stages) {
@@ -385,6 +385,7 @@ function render(items: Report[]): void {
       digestionReports.append(...textDetails(value, title!).childNodes);
     }
     tr.append(hash, files, identity,
+      textDetails(report.download_report, "View download report"),
       textDetails(report.extraction_report, "View report"),
       auditCell(report.extraction_audit),
       digestionReports, content,
@@ -393,7 +394,7 @@ function render(items: Report[]): void {
   }
   if (!items.length) {
     const td = cell("No reports match the selected filter.");
-    td.colSpan = 8;
+    td.colSpan = 9;
     td.className = "empty";
     const tr = document.createElement("tr");
     tr.append(td);

@@ -142,7 +142,7 @@ def audit_reports(input_dir: Path, output_dir: Path, *, cached: bool = False) ->
         entry = {"file": str(relative_path), "issues": [], "statements": {}}
         try:
             folder = output_dir / path.relative_to(input_dir).with_suffix("")
-            cache = folder / "report.json"
+                cache = folder / "extraction_report.sjon"
             report = load_cached_report(cache) if cached and cache.exists() else extract_report(path)
             entry = audit_report(report, relative_path)
             folder.mkdir(parents=True, exist_ok=True)
@@ -167,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Extract PDFs from this directory instead of auditing database rows")
     parser.add_argument("--output-dir", type=Path, default=PROJECT_DIR / "extracted/pdf")
     parser.add_argument("--cached", action="store_true",
-                        help="Trust saved report.json results; extract only uncached PDFs")
+                        help="Trust saved extraction_report.sjon results; extract only uncached PDFs")
     parser.add_argument("--fail-on-issues", action="store_true",
                         help="Return exit code 1 if any report has audit issues")
     args = parser.parse_args(argv)
