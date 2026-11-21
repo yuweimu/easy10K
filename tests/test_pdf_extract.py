@@ -15,26 +15,60 @@ class PDFExtractTests(unittest.TestCase):
     def test_cli_queries_downloaded_reports_without_path_arguments(self):
         with patch("pdf_extract.extract_report", return_value=ReportExtraction(
                 "reports/report.pdf", pdf_hash="registered",
+                stock_code="600519", reporting_date="2025-12-31",
                 balance_sheet=Statement("合并资产负债表", text="Assets"),
                 income_statement=Statement("合并利润表", text="Profit"),
                 cash_flow_statement=Statement("合并现金流量表", text="Cash"))) as extract, \
                 patch("pdf_extract.LineItemStorage") as factory, patch("builtins.print"), \
                 patch("sys.argv", ["pdf_extract.py"]):
             storage = factory.return_value.__enter__.return_value
-            storage.get_downloaded_reports.return_value = [
-                {"pdf_hash": "registered", "local_path": "reports/report.pdf"}]
+            storage.get_reports_at_FileOK.return_value = [
+                {"pdf_hash": "registered", "local_path": "reports/report.pdf",
+                 "stock_code": "600519", "reporting_date": "2025-12-31"}]
             self.assertEqual(main(), 0)
-            storage.get_downloaded_reports.assert_called_once_with()
+            storage.get_reports_at_FileOK.assert_called_once_with()
             extract.assert_called_once_with(Path("reports/report.pdf").resolve())
             storage.get_report_digestion_stage.assert_not_called()
             self.assertEqual(storage.store_extracted_report.call_args.args[0], "registered")
+
+    def test_cli_marks_metadata_mismatch_as_extraction_error(self):
+        with patch("pdf_extract.extract_report", return_value=ReportExtraction(
+                "report.pdf", pdf_hash="registered", stock_code="000001", reporting_date="2025-12-31")), \
+                patch("pdf_extract.LineItemStorage") as factory, patch("builtins.print"), \
+                patch("sys.argv", ["pdf_extract.py"]):
+            storage = factory.return_value.__enter__.return_value
+            storage.get_reports_at_FileOK.return_value = [{
+                "pdf_hash": "registered", "local_path": "report.pdf",
+                "stock_code": "600519", "reporting_date": "2025-12-31",
+            }]
+            self.assertEqual(main(), 1)
+            storage.store_extracted_report.assert_not_called()
+            storage.update_report_digestion_stage.assert_called_once_with("registered", "ExtractErr")
+
+    def test_cli_extracts_selected_hash_without_fileok_queue(self):
+        with patch("pdf_extract.extract_report", return_value=ReportExtraction(
+                "report.pdf", pdf_hash="registered", stock_code="600519", reporting_date="2025-12-31",
+                balance_sheet=Statement("合并资产负债表", text="Assets"),
+                income_statement=Statement("合并利润表", text="Profit"),
+                cash_flow_statement=Statement("合并现金流量表", text="Cash"))), \
+                patch("pdf_extract.LineItemStorage") as factory, patch("builtins.print"), \
+                patch("sys.argv", ["pdf_extract.py", "--hash", "registered"]):
+            storage = factory.return_value.__enter__.return_value
+            storage.get_report_by_hash.return_value = {
+                "pdf_hash": "registered", "local_path": "report.pdf",
+                "stock_code": "600519", "reporting_date": "2025-12-31",
+            }
+            self.assertEqual(main(), 0)
+            storage.get_report_by_hash.assert_called_once_with("registered")
+            storage.get_reports_at_FileOK.assert_not_called()
+            storage.store_extracted_report.assert_called_once()
 
     def test_cli_empty_downloaded_queue_does_not_extract_or_write(self):
         with patch("pdf_extract.extract_report") as extract, \
                 patch("pdf_extract.LineItemStorage") as factory, patch("builtins.print") as output, \
                 patch("sys.argv", ["pdf_extract.py"]):
             storage = factory.return_value.__enter__.return_value
-            storage.get_downloaded_reports.return_value = []
+            storage.get_reports_at_FileOK.return_value = []
             self.assertEqual(main(), 0)
             extract.assert_not_called()
             storage.store_extracted_report.assert_not_called()
@@ -48,12 +82,12 @@ class PDFExtractTests(unittest.TestCase):
                     patch("sys.argv", ["pdf_extract.py"]):
                 storage = factory.return_value.__enter__.return_value
                 storage.database_url = "test" if configured else ""
-                storage.get_downloaded_reports.side_effect = RuntimeError("database unavailable")
+                storage.get_reports_at_FileOK.side_effect = RuntimeError("database unavailable")
                 self.assertEqual(main(), 1)
                 extract.assert_not_called()
                 storage.store_extracted_report.assert_not_called()
                 if not configured:
-                    storage.get_downloaded_reports.assert_not_called()
+                    storage.get_reports_at_FileOK.assert_not_called()
 
     def test_cli_marks_extraction_error_after_resetting_failed_transaction(self):
         for failure in ("extraction", "database"):
@@ -62,7 +96,7 @@ class PDFExtractTests(unittest.TestCase):
                     patch("sys.argv", ["pdf_extract.py"]):
                 storage = factory.return_value.__enter__.return_value
                 storage.database_url = "test"
-                storage.get_downloaded_reports.return_value = [
+                storage.get_reports_at_FileOK.return_value = [
                     {"pdf_hash": "registered", "local_path": "report.pdf"}]
                 if failure == "extraction":
                     extract.side_effect = ValueError("bad PDF")
@@ -78,7 +112,7 @@ class PDFExtractTests(unittest.TestCase):
                 patch("pdf_extract.LineItemStorage") as factory, patch("builtins.print") as output, \
                 patch("sys.argv", ["pdf_extract.py"]):
             storage = factory.return_value.__enter__.return_value
-            storage.get_downloaded_reports.return_value = [
+            storage.get_reports_at_FileOK.return_value = [
                 {"pdf_hash": name, "local_path": name + ".pdf"} for name in ("first", "second")]
             storage.update_report_digestion_stage.side_effect = RuntimeError("database unavailable")
             self.assertEqual(main(), 1)
@@ -93,7 +127,7 @@ class PDFExtractTests(unittest.TestCase):
                 patch("pdf_extract.LineItemStorage") as factory, patch("builtins.print"), \
                 patch("sys.argv", ["pdf_extract.py"]):
             storage = factory.return_value.__enter__.return_value
-            storage.get_downloaded_reports.return_value = [
+            storage.get_reports_at_FileOK.return_value = [
                 {"pdf_hash": "no-path", "local_path": None},
                 {"pdf_hash": "missing-file", "local_path": str(Path(directory) / "missing.pdf")}]
             self.assertEqual(main(), 1)
@@ -106,7 +140,7 @@ class PDFExtractTests(unittest.TestCase):
                 "report.pdf", pdf_hash="different")), patch("pdf_extract.LineItemStorage") as factory, \
                 patch("builtins.print") as output, patch("sys.argv", ["pdf_extract.py"]):
             storage = factory.return_value.__enter__.return_value
-            storage.get_downloaded_reports.return_value = [
+            storage.get_reports_at_FileOK.return_value = [
                 {"pdf_hash": "registered", "local_path": "report.pdf"}]
             self.assertEqual(main(), 1)
             storage.store_extracted_report.assert_not_called()
@@ -121,14 +155,14 @@ class PDFExtractTests(unittest.TestCase):
             paths = [root / folder / "report.pdf" for folder in ("first", "second")]
             results = [ReportExtraction(
                 pdf_file=str(path), pdf_hash=path.parent.name, stock_code="600519",
-                reporting_date="2025-12-31", pdf_creation_time="20260313165727",
+                reporting_date="2025-12-31",
                 balance_sheet=Statement("合并资产负债表", text="Assets"),
                 income_statement=Statement("合并利润表", text="Profit"),
                 cash_flow_statement=Statement("合并现金流量表", text="Cash"),
             ) for path in paths]
             extract.side_effect = results
             storage = factory.return_value.__enter__.return_value
-            storage.get_downloaded_reports.return_value = [
+            storage.get_reports_at_FileOK.return_value = [
                 {"pdf_hash": result.pdf_hash, "local_path": str(path)}
                 for result, path in zip(results, paths)]
             with patch("sys.argv", ["pdf_extract.py", "-o", str(root / "output")]):
@@ -139,7 +173,7 @@ class PDFExtractTests(unittest.TestCase):
                 self.assertEqual(saved.args[0], result.pdf_hash)
                 self.assertEqual(json.loads(saved.args[1]), asdict(result))
                 folder = root / "output" / result.pdf_hash / "report"
-                self.assertEqual((folder / "extraction_report.sjon").read_text(), saved.args[1] + "\n")
+                self.assertEqual((folder / "extraction_report.json").read_text(), saved.args[1] + "\n")
                 for name, content in zip(("balance_sheet", "income_statement", "cash_flow_statement"),
                                          saved.args[2:]):
                     self.assertEqual((folder / f"{name}.md").read_text(), content)
@@ -150,7 +184,7 @@ class PDFExtractTests(unittest.TestCase):
                 "report.pdf", pdf_hash="hash")), patch("pdf_extract.LineItemStorage") as factory, \
                 patch("builtins.print") as output, patch("sys.argv", ["pdf_extract.py"]):
             storage = factory.return_value.__enter__.return_value
-            storage.get_downloaded_reports.return_value = [
+            storage.get_reports_at_FileOK.return_value = [
                 {"pdf_hash": "hash", "local_path": "report.pdf"}]
             self.assertEqual(main(), 1)
             self.assertEqual(storage.store_extracted_report.call_args.args[2:], (None, None, None))
@@ -169,7 +203,7 @@ class PDFExtractTests(unittest.TestCase):
                     if empty is None:
                         setattr(result, field, None)
                     storage = factory.return_value.__enter__.return_value
-                    storage.get_downloaded_reports.return_value = [
+                    storage.get_reports_at_FileOK.return_value = [
                         {"pdf_hash": "hash", "local_path": "report.pdf"}]
                     with patch("pdf_extract.extract_report", return_value=result), \
                             patch.object(Statement, "markdown", autospec=True,
@@ -877,7 +911,6 @@ class PDFExtractTests(unittest.TestCase):
             result = extract_report(path)
         self.assertEqual(result.stock_code, "000408")
         self.assertEqual(result.reporting_date, "2025-12-31")
-        self.assertEqual(result.pdf_creation_time, "20260313165727")
         self.assertEqual(result.balance_sheet.pages, [1, 2])
         self.assertIn("LIABILITY", result.balance_sheet.text)
         self.assertNotIn("PARENT", result.balance_sheet.text)
@@ -986,18 +1019,17 @@ class PDFExtractTests(unittest.TestCase):
     def test_sample_reports_when_available(self):
         reports = Path(__file__).resolve().parents[1] / "reports"
         samples = [
-            ("藏格矿业2025", "000408", "2025-12-31", "20260313165727"),
-            ("宁德时代2025", "300750", "2025-12-31", "20260309191613"),
-            ("泸州老窖2026q2", "000568", "2026-06-30", "20260824162929"),
+            ("藏格矿业2025", "000408", "2025-12-31"),
+            ("宁德时代2025", "300750", "2025-12-31"),
+            ("泸州老窖2026q2", "000568", "2026-06-30"),
         ]
         if not all((reports / f"{name}.pdf").exists() for name, *_ in samples):
             self.skipTest("Local sample PDFs are not available")
-        for name, code, date, creation_time in samples:
+        for name, code, date in samples:
             with self.subTest(report=name):
                 result = extract_report(reports / f"{name}.pdf")
                 self.assertEqual(result.stock_code, code)
                 self.assertEqual(result.reporting_date, date)
-                self.assertEqual(result.pdf_creation_time, creation_time)
                 for field in STATEMENTS.values():
                     statement = getattr(result, field)
                     self.assertIsNotNone(statement)

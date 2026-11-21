@@ -387,12 +387,22 @@ class LineItemStorage:
             row = cursor.fetchone()
         return row[0] if row else None
 
-    def get_downloaded_reports(self) -> list[dict]:
-        """Read registered PDFs awaiting extraction without modifying the database."""
-        fields = ("pdf_hash", "local_path")
+    def get_report_by_hash(self, pdf_hash: str) -> dict | None:
+        """Read one registered PDF and its download metadata by hash."""
+        fields = ("pdf_hash", "local_path", "stock_code", "reporting_date")
         with self._connect().cursor() as cursor:
             cursor.execute(
-                "SELECT pdf_hash, local_path FROM report_digestion "
+                "SELECT pdf_hash, local_path, stock_code, reporting_date FROM report_digestion "
+                "WHERE pdf_hash = %s", (pdf_hash,))
+            row = cursor.fetchone()
+        return dict(zip(fields, row)) if row else None
+
+    def get_reports_at_FileOK(self) -> list[dict]:
+        """Read registered PDFs awaiting extraction without modifying the database."""
+        fields = ("pdf_hash", "local_path", "stock_code", "reporting_date")
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                "SELECT pdf_hash, local_path, stock_code, reporting_date FROM report_digestion "
                 "WHERE digestion_stage = %s ORDER BY pdf_hash",
                 ("FileOK",),
             )

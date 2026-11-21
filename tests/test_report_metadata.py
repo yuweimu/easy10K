@@ -1,6 +1,6 @@
 import unittest
 
-from report_metadata import extract_report_identifiers, match_stock_code
+from report_metadata import extract_report_identifiers, match_filename_reporting_date, match_stock_code
 
 
 class StockCodeTests(unittest.TestCase):
@@ -22,11 +22,29 @@ class StockCodeTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertIsNone(match_stock_code(text))
 
+    def test_skips_lines_with_more_than_28_nonempty_characters(self):
+        self.assertIsNone(match_stock_code("公司股票代码：002304这是一个超过长度限制的长文本内容"))
+
     def test_markdown_identifier_extraction(self):
         self.assertEqual(
             extract_report_identifiers("A 股代码 | 002304\n1、合并资产负债表\n2012年6月30日"),
             ("002304", "2012-06-30"),
         )
+
+class FilenameReportingDateTests(unittest.TestCase):
+    def test_report_filename_patterns(self):
+        for filename, expected in (
+            ("**2023 **年半年度报告.pdf", "2023-06-30"),
+            ("2024 年第一季度报告.pdf", "2024-03-31"),
+            ("2024年一季度报告.pdf", "2024-03-31"),
+            ("2024年一季报.pdf", "2024-03-31"),
+            ("2017 年年度报告.pdf", "2017-12-31"),
+            ("2019 年第三季度报告.pdf", "2019-09-30"),
+            ("2024三季报.pdf", "2024-09-30"),
+            ("2024年报.pdf", "2024-12-31"),
+        ):
+            with self.subTest(filename=filename):
+                self.assertEqual(match_filename_reporting_date(filename), expected)
 
 
 if __name__ == "__main__":

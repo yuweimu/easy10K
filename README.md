@@ -225,12 +225,12 @@ python audit_pdf_extraction.py --input-dir reports --output-dir extracted/pdf
 Pass `--input-dir` to recursively extract and audit local PDFs instead.
 The default output is anchored to the project directory, so the script can be
 launched from another working directory. In directory mode, each PDF gets a mirrored output subdirectory
-containing `extraction_report.sjon` and separate statement Markdown files. Generated files
+containing `extraction_report.json` and separate statement Markdown files. Generated files
 are replaced on reruns, and `audit.json` is updated after every report. A failed
 file is recorded without stopping the batch.
 
 In directory mode, use `--cached` to audit saved extractions without reconverting PDFs that already
-have `extraction_report.sjon`. Cached mode does not check source freshness; omit it after
+have `extraction_report.json`. Cached mode does not check source freshness; omit it after
 changing PDFs or extraction logic. Use `--fail-on-issues` to return exit code 1
 when any report is flagged (for automation). By default, audit findings do not
 cause a nonzero exit code. An empty input directory produces an empty audit.

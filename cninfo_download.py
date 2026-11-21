@@ -23,7 +23,7 @@ import pymupdf
 
 from pdf_download import download_pdf, parse_delay, report_filename, save_download_log, validate_delay_range
 from line_item_storage import LineItemStorage
-from report_metadata import match_title_reporting_date
+from report_metadata import match_filename_reporting_date
 
 
 DEFAULT_REPORTS_DIR = Path(__file__).resolve().parent / "reports" / "cninfo"
@@ -39,7 +39,7 @@ def extract_local_report_metadata(local_path):
     path = Path(local_path).resolve()
     stock_code = next((part for part in reversed(path.parts[:-1])
                        if re.fullmatch(r"\d{6}", part)), None)
-    reporting_date = match_title_reporting_date(path.stem)
+    reporting_date = match_filename_reporting_date(path.stem)
     if reporting_date is None:
         match = re.search(r"(?<!\d)(20\d{2})[-_.](0[1-9]|1[0-2])[-_.](0[1-9]|[12]\d|3[01])(?!\d)", path.stem)
         reporting_date = "-".join(match.groups()) if match else None
