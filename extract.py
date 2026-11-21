@@ -1,6 +1,6 @@
 """Extract identifiers and consolidated financial statements from text PDFs.
 
-Usage: python pdf_extract.py --output-dir extracted/pdf
+Usage: python extract.py --output-dir extracted/pdf
 Processes registered reports at the FileOK stage using their local_path.
 Without --output-dir, prints extraction progress and a statement summary per PDF.
 Amounts remain strings so their original precision and units are preserved.

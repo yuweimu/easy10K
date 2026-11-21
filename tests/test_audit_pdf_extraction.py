@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from audit_pdf_extraction import audit_extracted_reports, audit_report, audit_reports, load_cached_report, main
-from pdf_extract import STATEMENTS, ReportExtraction, Statement
+from extract import STATEMENTS, ReportExtraction, Statement
 
 
 def sample_report():

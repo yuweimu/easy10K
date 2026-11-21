@@ -10,7 +10,7 @@ import pymupdf
 from fastapi.testclient import TestClient
 
 import main
-from pdf_extract import extract_report
+from extract import extract_report
 from report_sources import locate_source, normalized_bbox, render_page
 
 

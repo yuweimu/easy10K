@@ -166,11 +166,11 @@ without inserting items. The storage writer initializes the new tables from
 ### Audit direct PDF statement extraction
 
 To extract registered reports at the `FileOK` stage with
-[pdf_extract.py](./pdf_extract.py), configure `DATABASE_URL` and run:
+[extract.py](./extract.py), configure `DATABASE_URL` and run:
 
 ```bash
-python pdf_extract.py
-python pdf_extract.py -o extracted/pdf
+python extract.py
+python extract.py -o extracted/pdf
 ```
 
 Inputs come from `report_digestion.local_path` for rows whose stage is exactly
@@ -193,7 +193,7 @@ Without `-o`, the extractor prints progress and statement summaries.
 remaining PDFs continue, with exit code 1 if any report fails. Successful reports
  are saved at `ExtractOK`.
 
-Use [audit_pdf_extraction.py](./audit_pdf_extraction.py) to screen metadata, table
+Use [audit_extraction.py](./audit_extraction.py) to screen metadata, table
 structure, page spans, and decimal-value coverage. By default it reads
 `report_digestion` rows where `digestion_stage = 'ExtractOK'` using
 `DATABASE_URL` from the environment or `.env`. It audits the stored
@@ -218,8 +218,8 @@ The output `audit.json` includes each row's `pdf_hash`; malformed extractions
 are recorded without stopping the batch.
 
 ```bash
-python audit_pdf_extraction.py
-python audit_pdf_extraction.py --input-dir reports --output-dir extracted/pdf
+python audit_extraction.py
+python audit_extraction.py --input-dir reports --output-dir extracted/pdf
 ```
 
 Pass `--input-dir` to recursively extract and audit local PDFs instead.

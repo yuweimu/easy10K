@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import re
 
-from pdf_extract import STATEMENTS, ReportExtraction, Statement, extract_report
+from extract import STATEMENTS, ReportExtraction, Statement, extract_report
 from line_item_storage import LineItemStorage
 
 PROJECT_DIR = Path(__file__).resolve().parent
