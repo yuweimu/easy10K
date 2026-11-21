@@ -259,7 +259,11 @@ function render(items: Report[]): void {
     creationLine.className = "pdf-creation-date";
     creationLine.textContent = `Created: ${report.pdf_creation_date || "—"}`;
     creationLine.title = "PDF creation date";
-    files.replaceChildren(sourceLine, localLine, creationLine);
+    const metadataLine = document.createElement("div");
+    metadataLine.className = "pdf-metadata";
+    metadataLine.textContent = `${report.stock_code || "—"} · ${report.reporting_date || "—"}`;
+    metadataLine.title = `Stock code: ${report.stock_code || "—"}; Reporting date: ${report.reporting_date || "—"}`;
+    files.replaceChildren(sourceLine, localLine, creationLine, metadataLine);
     const content = cell(null);
     content.className = "digestion-content";
     const fields = [
@@ -324,18 +328,6 @@ function render(items: Report[]): void {
       updated.replaceChildren(dateLine, timeLine);
     }
     updated.classList.add("updated-at");
-    const identity = cell(null);
-    identity.className = "report-identity";
-    identity.replaceChildren();
-    for (const [title, value] of [
-      ["Stock code", report.stock_code],
-      ["Reporting date", report.reporting_date],
-    ]) {
-      const line = document.createElement("div");
-      line.textContent = value || "—";
-      line.title = `${title}: ${value || "—"}`;
-      identity.append(line);
-    }
     const hashText = document.createElement("div");
     hashText.textContent = hash.textContent;
     hashText.title = report.pdf_hash;
@@ -372,7 +364,8 @@ function render(items: Report[]): void {
     stageLine.className = "pdf-stage-line";
     stageLine.append(...Array.from(stage.childNodes));
     stageLine.append(stageEditor(report));
-    hash.replaceChildren(hashText, stageLine);
+    const downloadReport = textDetails(report.download_report, "Download report");
+    hash.replaceChildren(hashText, stageLine, downloadReport);
     const digestionReports = cell(null);
     digestionReports.className = "digestion-content";
     for (const [value, title] of [
@@ -384,8 +377,7 @@ function render(items: Report[]): void {
       if (!digestionReports.querySelector("details")) digestionReports.replaceChildren();
       digestionReports.append(...textDetails(value, title!).childNodes);
     }
-    tr.append(hash, files, identity,
-      textDetails(report.download_report, "View download report"),
+    tr.append(hash, files,
       textDetails(report.extraction_report, "View report"),
       auditCell(report.extraction_audit),
       digestionReports, content,
@@ -394,7 +386,7 @@ function render(items: Report[]): void {
   }
   if (!items.length) {
     const td = cell("No reports match the selected filter.");
-    td.colSpan = 9;
+    td.colSpan = 7;
     td.className = "empty";
     const tr = document.createElement("tr");
     tr.append(td);
