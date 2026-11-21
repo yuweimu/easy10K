@@ -85,7 +85,15 @@ function cell(value: string | null | undefined, mono = false): HTMLTableCellElem
   return td;
 }
 
-function textDetails(value: string | null | undefined, title: string): HTMLTableCellElement {
+function formatJson(value: string): string {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+function textDetails(value: string | null | undefined, title: string, prettyJson = false): HTMLTableCellElement {
   const td = cell(null);
   td.className = "digestion-content";
   if (value) {
@@ -123,7 +131,7 @@ function textDetails(value: string | null | undefined, title: string): HTMLTable
     copyControl.append(copy, feedback);
     heading.append(copyControl);
     const text = document.createElement("pre");
-    text.textContent = value;
+    text.textContent = prettyJson ? formatJson(value) : value;
     details.append(heading, text);
     td.replaceChildren(details);
   }
@@ -272,11 +280,11 @@ function render(items: Report[]): void {
     metadataLine.className = "pdf-metadata";
     metadataLine.textContent = `${report.stock_code || "—"} · ${report.reporting_date || "—"}`;
     metadataLine.title = `Stock code: ${report.stock_code || "—"}; Reporting date: ${report.reporting_date || "—"}`;
-    const downloadReport = textDetails(report.download_report, "Download report");
+    const downloadReport = textDetails(report.download_report, "Download report", true);
     const downloadReportLine = document.createElement("div");
     downloadReportLine.className = "pdf-download-report";
     downloadReportLine.append(...Array.from(downloadReport.childNodes));
-    files.replaceChildren(sourceLine, downloadReportLine, localLine, creationLine, metadataLine);
+    files.replaceChildren(sourceLine, localLine, creationLine, metadataLine, downloadReportLine);
     const content = cell(null);
     content.className = "digestion-content";
     const fields = [

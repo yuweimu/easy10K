@@ -82,7 +82,7 @@ def statement_title(text: str, following_lines: list[str] | tuple[str, ...] = ()
     match = HEADING.fullmatch(heading)
     if not match:
         return None
-    title = match.group(1).replace("合共及公司", "合并及公司")
+    title = match.group(1)
     metadata_lines = []
     for line in [line for line in following_lines if is_metadata_context_line(line)][:5]:
         # Metadata after another heading belongs to that statement.

@@ -10,7 +10,7 @@
 .pdf-files { overflow: visible; }
 .pdf-hash { overflow: visible; }
 .pdf-source-line { font-size: 12px; margin-bottom: 5px; }
-.pdf-download-report { margin-bottom: 5px; }
+.pdf-download-report { margin-top: 5px; }
 .pdf-local-line { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: calc(12px + 1pt); }
 .pdf-creation-date { margin-top: 5px; font-size: 11px; color: #738095; }
 .report-identity { line-height: 1.6; }
