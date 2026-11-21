@@ -589,7 +589,7 @@ class LineItemStorage:
         """Read a filtered, newest-first page without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("Page must be positive and page_size must be between 1 and 100")
-        if report_group not in (None, "InProgress", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+        if report_group not in (None, "InProgress", "FileErr", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
                                 "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                                 "ManualPass", "Deprecated", "Search"):
             raise ValueError("Unknown report group")
@@ -606,14 +606,14 @@ class LineItemStorage:
         if only_manual_pass:
             where = "WHERE digestion_stage = 'ManualPass' "
         if report_group == "InProgress":
-            where = ("WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass', 'Deprecated', 'ExtractOK', "
-                     "'ExtractErr', 'AuditIssues', 'BalanceErr', 'IncomeErr', 'CashFlowErr', "
+            where = ("WHERE digestion_stage NOT IN ('ManualPass', 'Deprecated', 'FileErr', 'ExtractErr', 'AuditIssues', "
+                     "'BalanceErr', 'IncomeErr', 'CashFlowErr', "
                      "'CashFlowOK') ")
-        elif report_group in ("ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+        elif report_group in ("FileErr", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
                               "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                               "ManualPass", "Deprecated"):
             where = "WHERE digestion_stage = %s "
-        parameters = (report_group,) if report_group in ("ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+        parameters = (report_group,) if report_group in ("FileErr", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
                                                         "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                                                         "ManualPass", "Deprecated") else ()
         if report_group == "Search":

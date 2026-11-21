@@ -184,8 +184,8 @@ class LineItemStorageTests(unittest.TestCase):
         count, rows = self.cursor.execute.call_args_list
         for query in (count.args[0], rows.args[0]):
             self.assertIn(
-                "WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass', 'Deprecated', 'ExtractOK', "
-                "'ExtractErr', 'AuditIssues', 'BalanceErr', 'IncomeErr', "
+                "WHERE digestion_stage NOT IN ('ManualPass', 'Deprecated', 'FileErr', 'ExtractErr', 'AuditIssues', "
+                "'BalanceErr', 'IncomeErr', "
                 "'CashFlowErr', 'CashFlowOK')",
                 query,
             )

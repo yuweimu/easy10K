@@ -191,7 +191,7 @@ class ReportDigestionTests(unittest.TestCase):
                     pdf_hash=None, stock_code=None, digestion_stage=None)
 
     def test_report_tabs_filter_counts_and_rows_consistently(self):
-        for group in ("InProgress", "ExtractErr", "AuditIssues", "BalanceErr",
+        for group in ("InProgress", "FileErr", "ExtractErr", "AuditIssues", "BalanceErr",
                       "IncomeErr", "CashFlowErr", "CashFlowOK",
                       "AuditPass", "ManualPass"):
             with self.subTest(group=group):
@@ -207,8 +207,7 @@ class ReportDigestionTests(unittest.TestCase):
                 for call in cursor.execute.call_args_list:
                     if group == "InProgress":
                         self.assertIn("WHERE digestion_stage NOT IN (", call.args[0])
-                        for stage in ("ManualPass", "AuditPass", "Deprecated", "ExtractOK",
-                                      "ExtractErr", "AuditIssues", "BalanceErr",
+                        for stage in ("ManualPass", "Deprecated", "FileErr", "ExtractErr", "AuditIssues", "BalanceErr",
                                       "IncomeErr", "CashFlowErr", "CashFlowOK"):
                             self.assertIn(f"'{stage}'", call.args[0])
                     else:

@@ -165,7 +165,8 @@ function render(items: Report[]): void {
     const hash = cell(report.pdf_hash, true);
     hash.textContent = report.pdf_hash.slice(0, 6);
     const stage = cell(report.digestion_stage);
-    const badge = document.createElement("span");
+    const badge = document.createElement("button");
+    badge.type = "button";
     const hasIssues = report.digestion_stage.endsWith("Error") || report.digestion_stage === "AuditIssues"
       || report.digestion_stage.endsWith("Err");
     const passed = report.digestion_stage.endsWith("Success") || report.digestion_stage.endsWith("OK")
@@ -173,6 +174,14 @@ function render(items: Report[]): void {
     badge.className = `badge ${hasIssues ? "error" : passed ? "done" : "pending"}`;
     badge.textContent = report.digestion_stage;
     if (report.digestion_stage === "ManualPass") badge.title = "Manually marked as passed";
+    badge.setAttribute("aria-expanded", "false");
+    badge.setAttribute("aria-label", `Edit stage ${report.digestion_stage}`);
+    const editor = stageEditor(report);
+    editor.hidden = true;
+    badge.addEventListener("click", () => {
+      editor.hidden = !editor.hidden;
+      badge.setAttribute("aria-expanded", String(!editor.hidden));
+    });
     stage.replaceChildren(badge);
     const download = cell(report.download_url);
     if (report.download_url) {
@@ -263,7 +272,11 @@ function render(items: Report[]): void {
     metadataLine.className = "pdf-metadata";
     metadataLine.textContent = `${report.stock_code || "—"} · ${report.reporting_date || "—"}`;
     metadataLine.title = `Stock code: ${report.stock_code || "—"}; Reporting date: ${report.reporting_date || "—"}`;
-    files.replaceChildren(sourceLine, localLine, creationLine, metadataLine);
+    const downloadReport = textDetails(report.download_report, "Download report");
+    const downloadReportLine = document.createElement("div");
+    downloadReportLine.className = "pdf-download-report";
+    downloadReportLine.append(...Array.from(downloadReport.childNodes));
+    files.replaceChildren(sourceLine, downloadReportLine, localLine, creationLine, metadataLine);
     const content = cell(null);
     content.className = "digestion-content";
     const fields = [
@@ -363,9 +376,8 @@ function render(items: Report[]): void {
     const stageLine = document.createElement("div");
     stageLine.className = "pdf-stage-line";
     stageLine.append(...Array.from(stage.childNodes));
-    stageLine.append(stageEditor(report));
-    const downloadReport = textDetails(report.download_report, "Download report");
-    hash.replaceChildren(hashText, stageLine, downloadReport);
+    stageLine.append(editor);
+    hash.replaceChildren(hashText, stageLine);
     const digestionReports = cell(null);
     digestionReports.className = "digestion-content";
     for (const [value, title] of [
