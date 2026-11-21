@@ -213,6 +213,7 @@
 			57010303|可供出售金融资产公允价值变动损益|Changes in Fair Value Gains/Losses of Available-for-sale Financial Assets
 			57010305|金融资产重分类计入其他综合收益的金额|Amounts Recognized in Other Comprehensive Income on Reclassification of Financial Assets
 			57010305|持有至到期投资重分类为可供出售金融资产损益|Gains/Losses on Reclassification of Held-to-maturity Investments to Available-for-sale Financial Assets
+			57010306|应收款项融资公允价值变动|Changes in Fair Value of Receivables Financing
 			57010307|其他债权投资信用减值准备|Credit Impairment Allowances for Other Debt Investments
 			57010309|现金流量套期储备|Cash Flow Hedge Reserve
 			57010309|现金流量套期储备（现金流量套期损益的有效部分）|Cash Flow Hedge Reserve (Effective Portion of Cash Flow Hedge Gains/Losses)
@@ -228,6 +229,7 @@
 59|每股收益|Earnings per Share
 	5901|基本每股收益|Basic Earnings per Share
 	5903|稀释每股收益|Diluted Earnings per Share
+
 
 81|经营活动产生的现金流量净额|Net Cash from Operating Activities
 	8101|经营活动现金流入小计|Total Cash Inflows from Operating Activities

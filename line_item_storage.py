@@ -434,12 +434,14 @@ class LineItemStorage:
             raise
         self._report_digestion_ready = True
 
-    def get_statement_reports(self, statement: str, *, pdf_hash: str | None = None) -> list[dict]:
-        """Read the next statement queue, or bypass the stage for an explicit hash."""
+    def get_statement_reports(self, statement: str, *, pdf_hash: str | None = None,
+                              retry: bool = False) -> list[dict]:
+        """Read queued statements, retrying only the matching error stage when requested."""
         if statement not in STATEMENT_DIGESTION:
             raise ValueError("Unsupported statement")
         fields = ("pdf_hash", statement, "stock_code", "reporting_date", "pdf_creation_date")
-        condition, value = ("pdf_hash", pdf_hash) if pdf_hash is not None else ("digestion_stage", STATEMENT_DIGESTION[statement][0])
+        stage = STATEMENT_DIGESTION[statement][2] if retry else STATEMENT_DIGESTION[statement][0]
+        condition, value = ("pdf_hash", pdf_hash) if pdf_hash is not None else ("digestion_stage", stage)
         with self._connect().cursor() as cursor:
             cursor.execute("SELECT " + ", ".join(fields) + f" FROM report_digestion WHERE {condition} = %s ORDER BY pdf_hash", (value,))
             return [dict(zip(fields, row)) for row in cursor.fetchall()]

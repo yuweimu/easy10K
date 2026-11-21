@@ -231,8 +231,11 @@ class StatementDigestionTests(unittest.TestCase):
             storage.store_statement_digestion.reset_mock()
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(module.main(["--hash", "A" * 32, "--dry-run"]), 0)
-            storage.get_statement_reports.assert_called_with(field, pdf_hash="a" * 32)
+            storage.get_statement_reports.assert_called_with(field, pdf_hash="a" * 32, retry=False)
             storage.store_statement_digestion.assert_not_called()
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(module.main(["--retry", "--dry-run"]), 0)
+            storage.get_statement_reports.assert_called_with(field, pdf_hash=None, retry=True)
 
     @patch("statement_digestion.LineItemStorage")
     def test_cli_saves_failure_and_continues_after_storage_error(self, factory):
