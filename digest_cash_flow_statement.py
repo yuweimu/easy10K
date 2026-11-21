@@ -1,4 +1,4 @@
-"""Validate cash-flow statements after IncomStatementOK, or any report with --hash.
+"""Validate cash-flow statements after IncomeOK, or any report with --hash.
 
 Run: python digest_cash_flow_statement.py [--hash PDF_HASH] [--dry-run]
 Net cash flows may be zero or negative. Minority-interest '其中' rows are

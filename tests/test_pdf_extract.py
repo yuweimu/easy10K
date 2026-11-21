@@ -71,7 +71,7 @@ class PDFExtractTests(unittest.TestCase):
                     storage.store_extracted_report.side_effect = RuntimeError("write failed")
                 self.assertEqual(main(), 1)
                 self.assertEqual(storage.method_calls[-2:], [
-                    call.close(), call.update_report_digestion_stage("registered", "ExtractionError")])
+                    call.close(), call.update_report_digestion_stage("registered", "ExtractErr")])
 
     def test_cli_continues_when_saving_extraction_error_fails(self):
         with patch("pdf_extract.extract_report", side_effect=ValueError("bad PDF")) as extract, \
@@ -84,9 +84,9 @@ class PDFExtractTests(unittest.TestCase):
             self.assertEqual(main(), 1)
             self.assertEqual(extract.call_count, 2)
             self.assertEqual(storage.update_report_digestion_stage.call_args_list, [
-                call("first", "ExtractionError"), call("second", "ExtractionError")])
+                call("first", "ExtractErr"), call("second", "ExtractErr")])
             self.assertEqual(storage.close.call_count, 4)
-            self.assertTrue(any("unable to save ExtractionError" in str(c) for c in output.call_args_list))
+            self.assertTrue(any("unable to save ExtractErr" in str(c) for c in output.call_args_list))
 
     def test_cli_missing_path_or_file_marks_registered_hash(self):
         with tempfile.TemporaryDirectory() as directory, \
@@ -98,7 +98,7 @@ class PDFExtractTests(unittest.TestCase):
                 {"pdf_hash": "missing-file", "local_path": str(Path(directory) / "missing.pdf")}]
             self.assertEqual(main(), 1)
             self.assertEqual(storage.update_report_digestion_stage.call_args_list, [
-                call("no-path", "ExtractionError"), call("missing-file", "ExtractionError")])
+                call("no-path", "ExtractErr"), call("missing-file", "ExtractErr")])
             storage.store_extracted_report.assert_not_called()
 
     def test_cli_rejects_file_hash_mismatch_without_saving_extraction(self):
@@ -110,7 +110,7 @@ class PDFExtractTests(unittest.TestCase):
                 {"pdf_hash": "registered", "local_path": "report.pdf"}]
             self.assertEqual(main(), 1)
             storage.store_extracted_report.assert_not_called()
-            storage.update_report_digestion_stage.assert_called_once_with("registered", "ExtractionError")
+            storage.update_report_digestion_stage.assert_called_once_with("registered", "ExtractErr")
             self.assertTrue(any("PDF hash mismatch" in str(c) for c in output.call_args_list))
 
     def test_cli_stores_json_and_identical_markdown_preserving_folders(self):
@@ -155,7 +155,7 @@ class PDFExtractTests(unittest.TestCase):
             self.assertEqual(main(), 1)
             self.assertEqual(storage.store_extracted_report.call_args.args[2:], (None, None, None))
             self.assertTrue(any("Empty extracted statements" in str(c) for c in output.call_args_list))
-            storage.update_report_digestion_stage.assert_called_once_with("hash", "ExtractionError")
+            storage.update_report_digestion_stage.assert_called_once_with("hash", "ExtractErr")
 
     def test_cli_any_missing_or_blank_markdown_marks_extraction_error(self):
         fields = ("balance_sheet", "income_statement", "cash_flow_statement")
@@ -177,7 +177,7 @@ class PDFExtractTests(unittest.TestCase):
                         self.assertEqual(main(), 1)
                     saved = storage.store_extracted_report.call_args
                     self.assertEqual(saved.args[2 + fields.index(field)], empty)
-                    storage.update_report_digestion_stage.assert_called_once_with("hash", "ExtractionError")
+            storage.update_report_digestion_stage.assert_called_once_with("hash", "ExtractErr")
 
     def test_cli_rejects_obsolete_path_argument(self):
         with patch("sys.argv", ["pdf_extract.py", "report.pdf"]), \

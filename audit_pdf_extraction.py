@@ -91,7 +91,7 @@ def write_json(path: Path, data: object) -> None:
 
 
 def audit_extracted_reports(output_dir: Path) -> list[dict]:
-    """Audit ExtractionSuccess rows and persist details and stages by PDF hash."""
+    """Audit ExtractOK rows and persist details and stages by PDF hash."""
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     results = []
@@ -142,7 +142,7 @@ def audit_reports(input_dir: Path, output_dir: Path, *, cached: bool = False) ->
         entry = {"file": str(relative_path), "issues": [], "statements": {}}
         try:
             folder = output_dir / path.relative_to(input_dir).with_suffix("")
-                cache = folder / "extraction_report.sjon"
+            cache = folder / "extraction_report.sjon"
             report = load_cached_report(cache) if cached and cache.exists() else extract_report(path)
             entry = audit_report(report, relative_path)
             folder.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,4 @@
-"""Validate income statements after BalanceSheetOK, or any report with --hash.
+"""Validate income statements after BalanceOK, or any report with --hash.
 
 Run: python digest_income_statement.py [--hash PDF_HASH] [--dry-run]
 Required totals must be present; zero profits and losses are valid.

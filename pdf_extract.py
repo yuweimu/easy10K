@@ -385,9 +385,9 @@ def main() -> int:
                 storage.close()
                 if pdf_hash is not None and storage.database_url:
                     try:
-                        storage.update_report_digestion_stage(pdf_hash, "ExtractionError")
+                        storage.update_report_digestion_stage(pdf_hash, "ExtractErr")
                     except Exception as stage_error:
-                        print(f"{path}: unable to save ExtractionError: {stage_error}", file=sys.stderr)
+                        print(f"{path}: unable to save ExtractErr: {stage_error}", file=sys.stderr)
                         storage.close()
     return int(failed)
 

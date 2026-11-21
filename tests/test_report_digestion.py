@@ -24,12 +24,12 @@ class ReportDigestionTests(unittest.TestCase):
         with patch("main.LineItemStorage") as factory:
             storage = factory.return_value.__enter__.return_value
             storage.update_report_digestion_stage.return_value = {
-                "pdf_hash": "hash", "digestion_stage": "ExtractionSuccess", "updated_at": "now",
+                "pdf_hash": "hash", "digestion_stage": "ExtractOK", "updated_at": "now",
             }
             result = update_report_digestion_stage(
-                "hash", ReportStageUpdate(digestion_stage="ExtractionSuccess"))
-            self.assertEqual(result["digestion_stage"], "ExtractionSuccess")
-            storage.update_report_digestion_stage.assert_called_once_with("hash", "ExtractionSuccess")
+                "hash", ReportStageUpdate(digestion_stage="ExtractOK"))
+            self.assertEqual(result["digestion_stage"], "ExtractOK")
+            storage.update_report_digestion_stage.assert_called_once_with("hash", "ExtractOK")
 
     def test_api_stage_update_validates_stage(self):
         for value in ("invalid", "", "HandPass", "AuditPass'; DROP TABLE report_digestion", None):
@@ -191,8 +191,8 @@ class ReportDigestionTests(unittest.TestCase):
                     pdf_hash=None, stock_code=None, digestion_stage=None)
 
     def test_report_tabs_filter_counts_and_rows_consistently(self):
-        for group in ("InProgress", "ExtractionError", "AuditIssues", "BalanceSheetErr",
-                      "IncomeStatementErr", "CashFlowStatementErr", "CashFlowStatementOK",
+        for group in ("InProgress", "ExtractErr", "AuditIssues", "BalanceErr",
+                      "IncomeErr", "CashFlowErr", "CashFlowOK",
                       "AuditPass", "ManualPass"):
             with self.subTest(group=group):
                 connection = MagicMock()
@@ -207,9 +207,9 @@ class ReportDigestionTests(unittest.TestCase):
                 for call in cursor.execute.call_args_list:
                     if group == "InProgress":
                         self.assertIn("WHERE digestion_stage NOT IN (", call.args[0])
-                        for stage in ("ManualPass", "AuditPass", "Deprecated", "ExtractionSuccess",
-                                      "ExtractionError", "AuditIssues", "BalanceSheetErr",
-                                      "IncomeStatementErr", "CashFlowStatementErr", "CashFlowStatementOK"):
+                        for stage in ("ManualPass", "AuditPass", "Deprecated", "ExtractOK",
+                                      "ExtractErr", "AuditIssues", "BalanceErr",
+                                      "IncomeErr", "CashFlowErr", "CashFlowOK"):
                             self.assertIn(f"'{stage}'", call.args[0])
                     else:
                         self.assertIn("WHERE digestion_stage = %s", call.args[0])

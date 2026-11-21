@@ -17,14 +17,14 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 
 ReportDigestionStage = Literal[
-    "FileOK", "FileErr", "ExtractionSuccess", "ExtractionError",
-    "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "BalanceSheetOK", "BalanceSheetErr",
-    "IncomStatementOK", "IncomeStatementErr", "CashFlowStatementOK", "CashFlowStatementErr",
+    "FileOK", "FileErr", "ExtractOK", "ExtractErr",
+    "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "BalanceOK", "BalanceErr",
+    "IncomeOK", "IncomeErr", "CashFlowOK", "CashFlowErr",
 ]
 
 STATEMENT_DIGESTION = {
-    "income_statement": ("BalanceSheetOK", "IncomStatementOK", "IncomeStatementErr", "is_digestion_report", "income_statement_items"),
-    "cash_flow_statement": ("IncomStatementOK", "CashFlowStatementOK", "CashFlowStatementErr", "cfs_digestion_report", "cash_flow_statement_items"),
+    "income_statement": ("BalanceOK", "IncomeOK", "IncomeErr", "is_digestion_report", "income_statement_items"),
+    "cash_flow_statement": ("IncomeOK", "CashFlowOK", "CashFlowErr", "cfs_digestion_report", "cash_flow_statement_items"),
 }
 
 
@@ -131,7 +131,7 @@ class LineItemStorage:
                     pdf_hash, extraction_report, balance_sheet, income_statement,
                     cash_flow_statement, local_path, stock_code, reporting_date,
                     pdf_creation_date, digestion_stage
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'ExtractionSuccess')
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'ExtractOK')
                 ON CONFLICT (pdf_hash) DO UPDATE SET
                     extraction_report = EXCLUDED.extraction_report,
                     balance_sheet = EXCLUDED.balance_sheet,
@@ -141,7 +141,7 @@ class LineItemStorage:
                     stock_code = COALESCE(EXCLUDED.stock_code, report_digestion.stock_code),
                     reporting_date = COALESCE(EXCLUDED.reporting_date, report_digestion.reporting_date),
                     pdf_creation_date = COALESCE(EXCLUDED.pdf_creation_date, report_digestion.pdf_creation_date),
-                    digestion_stage = 'ExtractionSuccess',
+                    digestion_stage = 'ExtractOK',
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (pdf_hash, extraction_report, balance_sheet, income_statement, cash_flow_statement,
@@ -405,7 +405,7 @@ class LineItemStorage:
             cursor.execute(
                 "SELECT pdf_hash, local_path, extraction_report FROM report_digestion "
                 "WHERE digestion_stage = %s ORDER BY pdf_hash",
-                ("ExtractionSuccess",),
+                ("ExtractOK",),
             )
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
@@ -459,7 +459,7 @@ class LineItemStorage:
                 cursor.execute(
                     "UPDATE report_digestion SET bs_digestion_report = %s, digestion_stage = %s, "
                     "updated_at = CURRENT_TIMESTAMP WHERE pdf_hash = %s",
-                    (payload, "BalanceSheetOK" if passed else "BalanceSheetErr", pdf_hash),
+                    (payload, "BalanceOK" if passed else "BalanceErr", pdf_hash),
                 )
             connection.commit()
         except Exception:
@@ -579,8 +579,8 @@ class LineItemStorage:
         """Read a filtered, newest-first page without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("Page must be positive and page_size must be between 1 and 100")
-        if report_group not in (None, "InProgress", "ExtractionSuccess", "ExtractionError", "AuditPass", "AuditIssues",
-                                "BalanceSheetErr", "IncomeStatementErr", "CashFlowStatementErr", "CashFlowStatementOK",
+        if report_group not in (None, "InProgress", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+                                "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                                 "ManualPass", "Deprecated", "Search"):
             raise ValueError("Unknown report group")
         if digestion_stage is not None and digestion_stage not in get_args(ReportDigestionStage):
@@ -596,15 +596,15 @@ class LineItemStorage:
         if only_manual_pass:
             where = "WHERE digestion_stage = 'ManualPass' "
         if report_group == "InProgress":
-            where = ("WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass', 'Deprecated', 'ExtractionSuccess', "
-                     "'ExtractionError', 'AuditIssues', 'BalanceSheetErr', 'IncomeStatementErr', 'CashFlowStatementErr', "
-                     "'CashFlowStatementOK') ")
-        elif report_group in ("ExtractionSuccess", "ExtractionError", "AuditPass", "AuditIssues",
-                              "BalanceSheetErr", "IncomeStatementErr", "CashFlowStatementErr", "CashFlowStatementOK",
+            where = ("WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass', 'Deprecated', 'ExtractOK', "
+                     "'ExtractErr', 'AuditIssues', 'BalanceErr', 'IncomeErr', 'CashFlowErr', "
+                     "'CashFlowOK') ")
+        elif report_group in ("ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+                              "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                               "ManualPass", "Deprecated"):
             where = "WHERE digestion_stage = %s "
-        parameters = (report_group,) if report_group in ("ExtractionSuccess", "ExtractionError", "AuditPass", "AuditIssues",
-                                                        "BalanceSheetErr", "IncomeStatementErr", "CashFlowStatementErr", "CashFlowStatementOK",
+        parameters = (report_group,) if report_group in ("ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+                                                        "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                                                         "ManualPass", "Deprecated") else ()
         if report_group == "Search":
             where = ""

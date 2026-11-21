@@ -12,19 +12,19 @@ CREATE TABLE IF NOT EXISTS report_digestion (
         CHECK (digestion_stage IN (
             'FileOK',
             'FileErr',
-            'ExtractionSuccess',
-            'ExtractionError',
+            'ExtractOK',
+            'ExtractErr',
             'AuditPass',
             'AuditIssues',
             'ManualPass',
             'Deprecated',
             'NoStatements',
-            'BalanceSheetOK',
-            'BalanceSheetErr',
-            'IncomStatementOK',
-            'IncomeStatementErr',
-            'CashFlowStatementOK',
-            'CashFlowStatementErr'
+            'BalanceOK',
+            'BalanceErr',
+            'IncomeOK',
+            'IncomeErr',
+            'CashFlowOK',
+            'CashFlowErr'
         )),
 
     stock_code VARCHAR(12),
@@ -110,19 +110,33 @@ UPDATE report_digestion SET digestion_stage = 'FileErr'
 UPDATE report_digestion SET digestion_stage = 'ManualPass'
     WHERE digestion_stage = 'HandPass';
 UPDATE report_digestion SET digestion_stage = CASE digestion_stage
-        WHEN 'DigestionSuccess' THEN 'BalanceSheetOK'
-        WHEN 'DigestionError' THEN 'BalanceSheetErr'
+        WHEN 'DigestionSuccess' THEN 'BalanceOK'
+        WHEN 'DigestionError' THEN 'BalanceErr'
     END
     WHERE digestion_stage IN ('DigestionSuccess', 'DigestionError');
+UPDATE report_digestion SET digestion_stage = CASE digestion_stage
+        WHEN 'ExtractionSuccess' THEN 'ExtractOK'
+        WHEN 'ExtractionError' THEN 'ExtractErr'
+        WHEN 'BalanceSheetOK' THEN 'BalanceOK'
+        WHEN 'BalanceSheetErr' THEN 'BalanceErr'
+        WHEN 'IncomStatementOK' THEN 'IncomeOK'
+        WHEN 'IncomeStatementErr' THEN 'IncomeErr'
+        WHEN 'CashFlowStatementOK' THEN 'CashFlowOK'
+        WHEN 'CashFlowStatementErr' THEN 'CashFlowErr'
+    END
+    WHERE digestion_stage IN (
+        'ExtractionSuccess', 'ExtractionError', 'BalanceSheetOK', 'BalanceSheetErr',
+        'IncomStatementOK', 'IncomeStatementErr', 'CashFlowStatementOK', 'CashFlowStatementErr'
+    );
 ALTER TABLE report_digestion ADD CONSTRAINT report_digestion_digestion_stage_check
     CHECK (digestion_stage IN (
         'FileOK', 'FileErr',
-        'ExtractionSuccess', 'ExtractionError',
+        'ExtractOK', 'ExtractErr',
         'AuditPass', 'AuditIssues', 'ManualPass',
         'Deprecated', 'NoStatements',
-        'BalanceSheetOK', 'BalanceSheetErr',
-        'IncomStatementOK', 'IncomeStatementErr',
-        'CashFlowStatementOK', 'CashFlowStatementErr'
+        'BalanceOK', 'BalanceErr',
+        'IncomeOK', 'IncomeErr',
+        'CashFlowOK', 'CashFlowErr'
     ));
 
 -- Preserve existing extraction content when upgrading an older installation.

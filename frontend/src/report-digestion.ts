@@ -21,9 +21,9 @@ const summary = document.querySelector<HTMLElement>("#summary")!;
 const label = document.querySelector<HTMLElement>("#page-label")!;
 const error = document.querySelector<HTMLElement>("#error")!;
 let page = 1, totalPages = 1, loading = false;
-const stages = ["FileOK", "FileErr", "ExtractionSuccess", "ExtractionError",
-  "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "BalanceSheetOK", "BalanceSheetErr",
-  "IncomStatementOK", "IncomeStatementErr", "CashFlowStatementOK", "CashFlowStatementErr"];
+const stages = ["FileOK", "FileErr", "ExtractOK", "ExtractErr",
+  "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "BalanceOK", "BalanceErr",
+  "IncomeOK", "IncomeErr", "CashFlowOK", "CashFlowErr"];
 for (const stage of stages) {
   searchStage.add(new Option(stage, stage));
 }
