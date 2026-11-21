@@ -24,12 +24,12 @@ class ReportDigestionTests(unittest.TestCase):
         with patch("main.LineItemStorage") as factory:
             storage = factory.return_value.__enter__.return_value
             storage.update_report_digestion_stage.return_value = {
-                "pdf_hash": "hash", "digestion_stage": "ExtractionSuccess", "updated_at": "now",
+                "pdf_hash": "hash", "digestion_stage": "ExtractOK", "updated_at": "now",
             }
             result = update_report_digestion_stage(
-                "hash", ReportStageUpdate(digestion_stage="ExtractionSuccess"))
-            self.assertEqual(result["digestion_stage"], "ExtractionSuccess")
-            storage.update_report_digestion_stage.assert_called_once_with("hash", "ExtractionSuccess")
+                "hash", ReportStageUpdate(digestion_stage="ExtractOK"))
+            self.assertEqual(result["digestion_stage"], "ExtractOK")
+            storage.update_report_digestion_stage.assert_called_once_with("hash", "ExtractOK")
 
     def test_api_stage_update_validates_stage(self):
         for value in ("invalid", "", "HandPass", "AuditPass'; DROP TABLE report_digestion", None):
@@ -47,7 +47,7 @@ class ReportDigestionTests(unittest.TestCase):
             storage.update_report_digestion_stage.assert_called_once_with("hash", "ManualPass")
 
     def test_api_stage_update_missing_report_and_unavailable_database(self):
-        data = ReportStageUpdate(digestion_stage="Downloaded")
+        data = ReportStageUpdate(digestion_stage="FileOK")
         with patch("main.LineItemStorage") as factory, patch("main.logger.warning"):
             storage = factory.return_value.__enter__.return_value
             storage.update_report_digestion_stage.return_value = None
@@ -100,7 +100,7 @@ class ReportDigestionTests(unittest.TestCase):
         connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = (26,)
-        cursor.fetchall.return_value = [("abc123", "created", "url", "path", "Downloaded",
+        cursor.fetchall.return_value = [("abc123", "created", "url", "path", '{"title":"report"}', "FileOK",
                                        "600519", None, "info", "balance", None,
                                        "income", None, "cash", None, "audit result", '{"passed":true}',
                                        '{"statement":"income"}', '{"statement":"cash_flow"}', None)]
@@ -117,7 +117,8 @@ class ReportDigestionTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["cfs_digestion_report"], '{"statement":"cash_flow"}')
         self.assertNotIn("digestion_report", result["items"][0])
         self.assertNotIn("stock_name", result["items"][0])
-        self.assertEqual(len(result["items"][0]), 19)
+        self.assertEqual(result["items"][0]["download_report"], '{"title":"report"}')
+        self.assertEqual(len(result["items"][0]), 20)
         sql, parameters = cursor.execute.call_args.args
         self.assertIn("ORDER BY updated_at DESC NULLS LAST, pdf_hash", sql)
         self.assertEqual(parameters, (25, 25))
@@ -190,8 +191,8 @@ class ReportDigestionTests(unittest.TestCase):
                     pdf_hash=None, stock_code=None, digestion_stage=None)
 
     def test_report_tabs_filter_counts_and_rows_consistently(self):
-        for group in ("InProgress", "ExtractionError", "AuditIssues", "BalanceSheetErr",
-                      "IncomeStatementErr", "CashFlowStatementErr", "CashFlowStatementOK",
+        for group in ("InProgress", "ExtractErr", "AuditIssues", "BalanceErr",
+                      "IncomeErr", "CashFlowErr", "CashFlowOK",
                       "AuditPass", "ManualPass"):
             with self.subTest(group=group):
                 connection = MagicMock()
@@ -206,9 +207,9 @@ class ReportDigestionTests(unittest.TestCase):
                 for call in cursor.execute.call_args_list:
                     if group == "InProgress":
                         self.assertIn("WHERE digestion_stage NOT IN (", call.args[0])
-                        for stage in ("ManualPass", "AuditPass", "Deprecated", "ExtractionSuccess",
-                                      "ExtractionError", "AuditIssues", "BalanceSheetErr",
-                                      "IncomeStatementErr", "CashFlowStatementErr", "CashFlowStatementOK"):
+                        for stage in ("ManualPass", "AuditPass", "Deprecated", "ExtractOK",
+                                      "ExtractErr", "AuditIssues", "BalanceErr",
+                                      "IncomeErr", "CashFlowErr", "CashFlowOK"):
                             self.assertIn(f"'{stage}'", call.args[0])
                     else:
                         self.assertIn("WHERE digestion_stage = %s", call.args[0])

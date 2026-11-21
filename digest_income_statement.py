@@ -1,4 +1,4 @@
-"""Validate income statements after BalanceSheetOK, or any report with --hash.
+"""Validate income statements after BalanceOK, or any report with --hash.
 
 Run: python digest_income_statement.py [--hash PDF_HASH] [--dry-run]
 Required totals must be present; zero profits and losses are valid.
@@ -15,6 +15,23 @@ REQUIRED_IDS = (51, 54, 56)
 
 def accounting_equations(state, result):
     values, equations = state.amounts, []
+
+    # Legacy statements sometimes included credit impairment losses in the
+    # reported operating-cost subtotal. Keep item 48 unchanged for storage,
+    # but use it as a subtotal child and avoid subtracting it twice when the
+    # reported subtotal proves that it contains the item.
+    legacy_credit_impairment_in_costs = False
+    cost_children = [item_id for item_id in values
+                     if str(item_id).startswith("42") and len(str(item_id)) == 4]
+    if 42 in values and 48 in values:
+        cost_sum = sum((values[item_id] or Decimal(0) for item_id in cost_children), Decimal(0))
+        reported_cost = values[42]
+        difference = abs((reported_cost or Decimal(0)) - cost_sum - (values[48] or Decimal(0)))
+        tolerance = max(
+            Decimal(result["tolerance"]["absolute_statement_units"]),
+            Decimal(result["tolerance"]["relative"]) * max(abs(reported_cost or Decimal(0)), abs(cost_sum)),
+        )
+        legacy_credit_impairment_in_costs = difference <= tolerance
 
     # Some reports omit the amount on OCI attribution rows while providing
     # amounts for their children. Derive only missing/blank parents; an
@@ -33,6 +50,8 @@ def accounting_equations(state, result):
     for parent in (41, 42, 5701, 570101, 570103, 57, 58):
         children = [item_id for item_id in values if str(item_id).startswith(str(parent))
                     and len(str(item_id)) == len(str(parent)) + 2]
+        if parent == 42 and legacy_credit_impairment_in_costs:
+            children.append(48)
         if children:
             add("children_sum", parent, [(item_id, 1) for item_id in children])
     revenue = 41 if 41 in values else 4101
@@ -43,7 +62,8 @@ def accounting_equations(state, result):
     if not costs:
         result["issues"].append("Missing operating cost or expense items")
     adjustments = [(item_id, state.signs.get(item_id, -1 if item_id in (48, 49) else 1))
-                   for item_id in range(43, 51)]
+                   for item_id in range(43, 51)
+                   if not (item_id == 48 and legacy_credit_impairment_in_costs)]
     add("operating_profit", 51, [(revenue, 1), *costs, *adjustments], [revenue])
     add("profit_before_tax", 54, [(51, 1), (52, 1), (53, -1)], [51])
     add("net_profit", 56, [(54, 1), (55, -1)], [54, 55])

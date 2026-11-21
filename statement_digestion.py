@@ -9,7 +9,7 @@ import sys
 
 from digest_balance_sheet import (check_report_metadata, clean_cell, nonnegative_decimal,
                                   parse_amount, pdf_hash_argument, select_amount_column)
-from line_item_chart import LineItemChart
+from line_item_chart import LineItem, LineItemChart
 from line_item_storage import LineItemStorage
 
 
@@ -52,6 +52,20 @@ def parse_statement(markdown, chart, statement):
     amount_column, finance_details, oci_group = 1, False, None
     in_operating_costs = False
     previous_label = previous_full_name = ""
+
+    def dynamic_other_item(parent_id):
+        """Register the non-zero ``其他`` child for a statement parent."""
+        item_id = parent_id * 100 + 99
+        parent = chart._items_by_id[parent_id]
+        name = f"{parent.name}之其他项"
+        item = chart._items_by_id.get(item_id)
+        if item is None:
+            item = LineItem(name, item_id, f"Other item under {parent.english_name}")
+            chart._items_by_id[item_id] = item
+        chart.items[name] = item
+        chart.item_ids[name] = item_id
+        return item_id
+
     lines = markdown.splitlines()
     for index, line in enumerate(lines):
         number = index + 1
@@ -87,8 +101,15 @@ def parse_statement(markdown, chart, statement):
                 item_id = 4227
             if label == "利息收入" and finance_details:
                 item_id = 422503
-            elif label == "其他" and oci_group == 570103:
-                item_id = 57010313
+            elif label == "其他" and oci_group in (570101, 570103):
+                column = select_amount_column(cells, amount_column)
+                amount_text = clean_cell(cells[column]) if len(cells) > column else ""
+                try:
+                    amount = parse_amount(amount_text) if amount_text else None
+                except ValueError:
+                    amount = None
+                if amount is not None and amount != 0:
+                    item_id = dynamic_other_item(oci_group)
             if item_id in (4225, 422501, 422503):
                 finance_details = True
             elif item_id is not None:
@@ -245,19 +266,24 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
 def run_cli(statement, check_report, argv=None):
     parser = argparse.ArgumentParser(description=f"Validate and digest {statement} reports")
     parser.add_argument("--hash", dest="pdf_hash", type=pdf_hash_argument, help="Process this hash regardless of stage")
+    parser.add_argument("--retry", action="store_true",
+                        help=f"Retry reports at the {statement.replace('_', '-')} error stage")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print without writing to the database")
     parser.add_argument("--absolute-tolerance", type=nonnegative_decimal, default=Decimal("0.01"))
     parser.add_argument("--relative-tolerance", type=nonnegative_decimal, default=Decimal("0.0001"))
     args = parser.parse_args(argv)
-    failed = False
+    succeeded = 0
+    failures = 0
     with LineItemStorage() as storage:
         try:
-            rows = storage.get_statement_reports(statement, pdf_hash=args.pdf_hash)
+            rows = storage.get_statement_reports(statement, pdf_hash=args.pdf_hash, retry=args.retry)
         except Exception as error:
             print(f"Unable to load {statement}: {error}", file=sys.stderr)
+            print("Summary: 0 succeeded, 1 failed", flush=True)
             return 1
         if args.pdf_hash and not rows:
             print(f"No report found for PDF hash {args.pdf_hash}", file=sys.stderr)
+            print("Summary: 0 succeeded, 1 failed", flush=True)
             return 1
         chart = LineItemChart()
         for row in rows:
@@ -269,7 +295,8 @@ def run_cli(statement, check_report, argv=None):
                           "issues": [f"Unable to check report: {error}"], "checks": [], "items": [], "unmapped_rows": []}
             if not args.dry_run:
                 try:
-                    storage.store_statement_digestion(statement, row, result, allow_any_stage=bool(args.pdf_hash))
+                    storage.store_statement_digestion(
+                        statement, row, result, allow_any_stage=bool(args.pdf_hash or args.retry))
                 except Exception as error:
                     storage.close()
                     result["passed"] = False
@@ -279,6 +306,10 @@ def run_cli(statement, check_report, argv=None):
                     except Exception as retry_error:
                         print(f"{row['pdf_hash']}: unable to save failure: {retry_error}", file=sys.stderr)
                         storage.close()
-            failed |= not result["passed"]
+            if result["passed"]:
+                succeeded += 1
+            else:
+                failures += 1
             print(json.dumps({key: value for key, value in result.items() if key != "items"}, ensure_ascii=False), flush=True)
-    return int(failed)
+    print(f"Summary: {succeeded} succeeded, {failures} failed", flush=True)
+    return int(failures > 0)

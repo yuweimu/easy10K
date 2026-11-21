@@ -8,18 +8,18 @@
   <body>
     <main class="admin">
       <header class="page-header">
-        <div><a class="back" href="/">← Financial dashboard</a><h1>Report digestion</h1><p>Downloaded reports, processing stages, and extracted financial statements.</p></div>
+        <div><a class="back" href="/">← Financial dashboard</a><h1>Report digestion</h1><p>Downloaded files, processing stages, and extracted financial statements.</p></div>
         <button id="refresh" type="button">↻ Refresh</button>
       </header>
       <section class="registry" aria-label="Report digestion records">
         <div class="report-tabs" role="tablist" aria-label="Report stage">
           <button id="tab-in-progress" type="button" role="tab" aria-selected="true" aria-controls="report-panel" data-group="InProgress">InProgress</button>
-          <button id="tab-extraction-error" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="ExtractionError">ExtractionError</button>
+          <button id="tab-extraction-error" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="ExtractErr">ExtractErr</button>
           <button id="tab-audit-issues" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="AuditIssues">AuditIssues</button>
-          <button id="tab-balance-sheet-error" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="BalanceSheetErr">BalanceSheetErr</button>
-          <button id="tab-income-statement-error" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="IncomeStatementErr">IncomeStatementErr</button>
-          <button id="tab-cash-flow-statement-error" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="CashFlowStatementErr">CashFlowStatementErr</button>
-          <button id="tab-cash-flow-statement-ok" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="CashFlowStatementOK">CashFlowStatementOK</button>
+          <button id="tab-balance-sheet-error" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="BalanceErr">BalanceErr</button>
+          <button id="tab-income-statement-error" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="IncomeErr">IncomeErr</button>
+          <button id="tab-cash-flow-statement-error" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="CashFlowErr">CashFlowErr</button>
+          <button id="tab-cash-flow-statement-ok" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="CashFlowOK">CashFlowOK</button>
           <button id="tab-manual-pass" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="ManualPass">ManualPass</button>
           <button id="tab-deprecated" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="Deprecated">Deprecated</button>
           <button id="tab-search" type="button" role="tab" aria-selected="false" aria-controls="report-panel" tabindex="-1" data-group="Search">Search</button>
@@ -42,7 +42,7 @@
         </div>
         <div id="error" role="alert" hidden></div>
         <div class="table-scroll" tabindex="0" role="region" aria-label="Report digestion table">
-          <table><thead><tr><th scope="col">PDF hash / Stage</th><th scope="col">PDF source / local file</th><th scope="col">Report</th><th scope="col">Extraction report</th><th scope="col">Extraction audit</th><th scope="col">Digestion reports</th><th scope="col">Content</th><th scope="col">Updated</th></tr></thead><tbody id="reports"></tbody></table>
+          <table><thead><tr><th scope="col">PDF hash / Stage</th><th scope="col">PDF source / local file</th><th scope="col">Extraction report</th><th scope="col">Extraction audit</th><th scope="col">Digestion reports</th><th scope="col">Content</th><th scope="col">Updated</th></tr></thead><tbody id="reports"></tbody></table>
         </div>
         </div>
       </section>

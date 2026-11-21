@@ -196,7 +196,7 @@ def fetch_report_links(stock_code: str, timeout: float = 30) -> dict[str, list[d
 
 def excluded_title(title: str) -> bool:
     normalized = re.sub(r"\s+", "", title).upper()
-    return any(label in normalized for label in ("英文", "H股", "港股", "偿付能力"))
+    return any(label in normalized for label in ("英文", "H股", "正文","港股", "偿付能力"))
 
 
 def fetch_report_download_links(stock_code: str, timeout: float = 30) -> dict[str, list[dict[str, str]]]:

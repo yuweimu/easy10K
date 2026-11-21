@@ -104,8 +104,8 @@ at `AuditPass`. To digest one report regardless of its current stage, run
 It reads the first amount column of `balance_sheet` Markdown
 (skipping a notes column), validates required nonzero items and parent totals,
 and converts the displayed currency unit to yuan before saving line items.
-Each report's items, JSON `bs_digestion_report`, and `BalanceSheetOK` stage are
-committed together. Failed checks save their details at `BalanceSheetErr` without
+Each report's items, JSON `bs_digestion_report`, and `BalanceOK` stage are
+committed together. Failed checks save their details at `BalanceErr` without
 inserting items; the batch continues with the next report and exits with code 1.
 
 Totals use the greater of 0.01 displayed units and 0.1% of the compared amounts.
@@ -114,7 +114,7 @@ The equity checks compare item 31 with 3110 plus 3111, and item 3110 with its
 capital/reserve/retained-earnings components (`311001`–`311009`), subtracting
 treasury shares (`311003`). Their IDs and indentation place them under `3110`.
 This avoids counting the parent-company equity subtotal twice. Unknown labels
-are recorded in `unmapped_rows` for review and cause `BalanceSheetErr`; successful
+are recorded in `unmapped_rows` for review and cause `BalanceErr`; successful
 digestion requires an empty `unmapped_rows` list.
 
 ### Digest income statements and cash-flow statements
@@ -126,9 +126,9 @@ python digest_income_statement.py
 python digest_cash_flow_statement.py
 ```
 
-Income digestion reads reports at `BalanceSheetOK` and sets `IncomStatementOK`
-or `IncomeStatementErr`. Cash-flow digestion reads reports at `IncomStatementOK`
-and sets `CashFlowStatementOK` or `CashFlowStatementErr`. Both support
+Income digestion reads reports at `BalanceOK` and sets `IncomeOK`
+or `IncomeErr`. Cash-flow digestion reads reports at `IncomeOK`
+and sets `CashFlowOK` or `CashFlowErr`. Both support
 `--hash PDF_HASH` to process a report regardless of stage and `--dry-run` to
 validate without database writes. Each batch processes all queued reports and
 exits with code 1 if any report fails.
@@ -165,7 +165,7 @@ without inserting items. The storage writer initializes the new tables from
 
 ### Audit direct PDF statement extraction
 
-To extract registered reports at the `Downloaded` stage with
+To extract registered reports at the `FileOK` stage with
 [pdf_extract.py](./pdf_extract.py), configure `DATABASE_URL` and run:
 
 ```bash
@@ -174,7 +174,7 @@ python pdf_extract.py -o extracted/pdf
 ```
 
 Inputs come from `report_digestion.local_path` for rows whose stage is exactly
-`Downloaded`; no PDF path argument is required. Other stages are left unchanged.
+`FileOK`; no PDF path argument is required. Other stages are left unchanged.
 Each file's MD5 hash must match its registered `pdf_hash` before results are saved.
 Output folders preserve paths relative to the PDFs' common parent directory,
 keeping reports with identical names in different folders separate.
@@ -189,27 +189,27 @@ across the current and next page (before another statement heading)
 contains the statement's reporting period/date, a unit or currency label, or
 the preparer (`编制单位`). This rejects headings without nearby statement metadata.
 Without `-o`, the extractor prints progress and statement summaries.
-A failed PDF is reported on stderr and marked `ExtractionError` while the
+ A failed PDF is reported on stderr and marked `ExtractErr` while the
 remaining PDFs continue, with exit code 1 if any report fails. Successful reports
-are saved at `ExtractionSuccess`.
+ are saved at `ExtractOK`.
 
 Use [audit_pdf_extraction.py](./audit_pdf_extraction.py) to screen metadata, table
 structure, page spans, and decimal-value coverage. By default it reads
-`report_digestion` rows where `digestion_stage = 'ExtractionSuccess'` using
+`report_digestion` rows where `digestion_stage = 'ExtractOK'` using
 `DATABASE_URL` from the environment or `.env`. It audits the stored
 `extraction_report` JSON without opening PDFs. For each report it saves the
 `issues` and `statements` fields as JSON in `extraction_audit`, and sets
 `digestion_stage` to `AuditPass` when issues are empty or `AuditIssues` otherwise.
 These updates are committed together per report. Previously audited rows are
-excluded from subsequent runs unless their stage returns to `ExtractionSuccess`.
+excluded from subsequent runs unless their stage returns to `ExtractOK`.
 On the report digestion page, select a stage beneath the current stage badge
-and click **Save** to update it manually. Setting `ExtractionSuccess` makes the
+and click **Save** to update it manually. Setting `ExtractOK` makes the
 report eligible for another audit. Stage changes preserve extraction and audit
 content; the audit is displayed only at `AuditPass` or `AuditIssues`.
 Use `ManualPass` to record a human's manual pass decision; it has a success badge
 and is preserved during extraction reruns.
-The table has six tabs: **InProgress** (all stages except `ExtractionSuccess`,
-`AuditPass`, `ManualPass`, and `Deprecated`), **ExtractionSuccess**, **AuditPass**,
+The table has six tabs: **InProgress** (all stages except `ExtractOK`,
+`AuditPass`, `ManualPass`, and `Deprecated`), **ExtractOK**, **AuditPass**,
 **ManualPass**, **Deprecated**, and **Search**. Search covers all stages and lets
 you filter by full PDF hash, exact stock code, and/or stage. Combined filters must
 all match. Clear resets the filters. It opens on **InProgress**;
@@ -225,12 +225,12 @@ python audit_pdf_extraction.py --input-dir reports --output-dir extracted/pdf
 Pass `--input-dir` to recursively extract and audit local PDFs instead.
 The default output is anchored to the project directory, so the script can be
 launched from another working directory. In directory mode, each PDF gets a mirrored output subdirectory
-containing `report.json` and separate statement Markdown files. Generated files
+containing `extraction_report.sjon` and separate statement Markdown files. Generated files
 are replaced on reruns, and `audit.json` is updated after every report. A failed
 file is recorded without stopping the batch.
 
 In directory mode, use `--cached` to audit saved extractions without reconverting PDFs that already
-have `report.json`. Cached mode does not check source freshness; omit it after
+have `extraction_report.sjon`. Cached mode does not check source freshness; omit it after
 changing PDFs or extraction logic. Use `--fail-on-issues` to return exit code 1
 when any report is flagged (for automation). By default, audit findings do not
 cause a nonzero exit code. An empty input directory produces an empty audit.
