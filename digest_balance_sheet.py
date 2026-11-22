@@ -327,15 +327,14 @@ def pdf_hash_argument(value: str) -> str:
         raise argparse.ArgumentTypeError("Expected a 32-character hexadecimal PDF hash")
     return value.strip().lower()
 
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hash", dest="pdf_hash", type=pdf_hash_argument,
                         help="Digest only this PDF hash, regardless of its current stage")
     parser.add_argument("--retry", action="store_true",
                         help="Retry reports at the BalanceErr stage")
-    parser.add_argument("--absolute-tolerance", type=nonnegative_decimal, default=Decimal("0.01"))
-    parser.add_argument("--relative-tolerance", type=nonnegative_decimal, default=Decimal("0.001"))
+    parser.add_argument("--absolute-tolerance", type=nonnegative_decimal, default=Decimal("0.00001"))
+    parser.add_argument("--relative-tolerance", type=nonnegative_decimal, default=Decimal("0.00001"))
     args = parser.parse_args(argv)
     save_options = {"allow_any_stage": True} if args.pdf_hash or args.retry else {}
     chart = LineItemChart()
