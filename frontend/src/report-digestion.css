@@ -17,6 +17,7 @@
 .pdf-download-report pre { white-space: pre; overflow-x: auto; overflow-y: auto; }
 .pdf-local-line { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: calc(12px + 1pt); }
 .pdf-creation-date { margin-top: 5px; font-size: 11px; color: #738095; }
+.pdf-creation-date-warning { color: #dc2626; font-weight: 700; }
 .report-identity { line-height: 1.6; }
 .report-identity div:first-child { font-weight: 600; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .report-identity div:last-child { font-size: 12px; color: #738095; }

@@ -93,6 +93,11 @@ function formatJson(value: string): string {
   }
 }
 
+function datePart(value: string | null | undefined): string {
+  const match = value?.match(/(?:^|\D)(\d{4})[-/]?(\d{2})[-/]?(\d{2})(?:\D|$)/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : "";
+}
+
 function textDetails(value: string | null | undefined, title: string, prettyJson = false): HTMLTableCellElement {
   const td = cell(null);
   td.className = "digestion-content";
@@ -248,6 +253,10 @@ function render(items: Report[]): void {
     creationLine.className = "pdf-creation-date";
     creationLine.textContent = `Created: ${report.pdf_creation_date || "—"}`;
     creationLine.title = "PDF creation date";
+    if (datePart(report.pdf_creation_date) &&
+        datePart(report.pdf_creation_date) === datePart(report.reporting_date)) {
+      creationLine.classList.add("pdf-creation-date-warning");
+    }
     const metadataLine = document.createElement("div");
     metadataLine.className = "pdf-metadata";
     metadataLine.textContent = `${report.stock_code || "—"} · ${report.reporting_date || "—"}`;

@@ -269,6 +269,7 @@
 		820109|收到其他与投资活动有关的现金|Other Cash Received Relating to Investing Activities
 	8202|投资活动现金流出小计|Total Cash Outflows from Investing Activities
 		820201|购建固定资产、无形资产和其他长期资产支付的现金|Cash Paid to Acquire and Construct Fixed Assets, Intangible Assets and Other Long-term Assets
+		820201|购建固定资产、无形资产和其他长期资产所支付的现金|Cash Paid to Acquire and Construct Fixed Assets, Intangible Assets and Other Long-term Assets
 		820203|投资支付的现金|Cash Paid for Investments
 		820205|质押贷款净增加额|Net Increase in Pledged Loans
 		820207|取得子公司及其他营业单位支付的现金净额|Net Cash Paid to Acquire Subsidiaries and Other Business Units

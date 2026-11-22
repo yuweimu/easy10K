@@ -30,9 +30,16 @@ def accounting_equations(state, result):
         if target in values:
             equations.append(Equation(name, target, tuple(terms), tuple(required)))
 
+    credit_impairment_is_cost_child = False
     for parent in (41, 42, 5701, 570101, 570103, 57, 58):
         children = [item_id for item_id in values if str(item_id).startswith(str(parent))
                     and len(str(item_id)) == len(str(parent)) + 2]
+        if parent == 42 and 42 in values and 48 in values and values[42] is not None and values[48] is not None:
+            without_credit_impairment = sum((values[item_id] or Decimal(0) for item_id in children), Decimal(0))
+            with_credit_impairment = without_credit_impairment + values[48]
+            if values[42] == with_credit_impairment and values[42] != without_credit_impairment:
+                children.append(48)
+                credit_impairment_is_cost_child = True
         if children:
             add("children_sum", parent, [(item_id, 1) for item_id in children])
     revenue = 41 if 41 in values else 4101
@@ -42,8 +49,16 @@ def accounting_equations(state, result):
         result["issues"].append("Missing revenue: expected 营业总收入 or 营业收入")
     if not costs:
         result["issues"].append("Missing operating cost or expense items")
+    adjustment_ids = range(43, 51)
+    if credit_impairment_is_cost_child:
+        adjustment_ids = tuple(item_id for item_id in adjustment_ids if item_id != 48)
+    elif (48 in state.labels and 51 in state.labels
+          and list(state.labels).index(48) > list(state.labels).index(51)):
+        # A post-subtotal disclosure is not an input to the operating-profit
+        # subtotal when its placement makes the top-level interpretation clear.
+        adjustment_ids = tuple(item_id for item_id in adjustment_ids if item_id != 48)
     adjustments = [(item_id, state.signs.get(item_id, -1 if item_id in (48, 49) else 1))
-                   for item_id in range(43, 51)]
+                   for item_id in adjustment_ids]
     add("operating_profit", 51, [(revenue, 1), *costs, *adjustments], [revenue])
     add("profit_before_tax", 54, [(51, 1), (52, 1), (53, -1)], [51])
     add("net_profit", 56, [(54, 1), (55, -1)], [54, 55])
