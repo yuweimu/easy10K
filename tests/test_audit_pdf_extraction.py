@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from audit_pdf_extraction import audit_extracted_reports, audit_report, audit_reports, load_cached_report, main
+from audit_extraction import audit_extracted_reports, audit_report, audit_reports, load_cached_report, main
 from extract import STATEMENTS, ReportExtraction, Statement
 
 
@@ -49,8 +49,8 @@ class AuditPDFExtractionTests(unittest.TestCase):
 
     def test_database_audit_uses_saved_json_and_continues_after_invalid_rows(self):
         with tempfile.TemporaryDirectory() as directory, \
-                patch("audit_pdf_extraction.LineItemStorage") as storage_class, \
-                patch("audit_pdf_extraction.extract_report") as extract, \
+                patch("audit_extraction.LineItemStorage") as storage_class, \
+                patch("audit_extraction.extract_report") as extract, \
                 redirect_stdout(io.StringIO()):
             storage = storage_class.return_value.__enter__.return_value
             storage.get_extracted_reports.return_value = [
@@ -76,7 +76,7 @@ class AuditPDFExtractionTests(unittest.TestCase):
 
     def test_database_audit_does_not_hide_persistence_errors(self):
         with tempfile.TemporaryDirectory() as directory, \
-                patch("audit_pdf_extraction.LineItemStorage") as storage_class, \
+                patch("audit_extraction.LineItemStorage") as storage_class, \
                 redirect_stdout(io.StringIO()):
             storage = storage_class.return_value.__enter__.return_value
             storage.get_extracted_reports.return_value = [
@@ -89,7 +89,7 @@ class AuditPDFExtractionTests(unittest.TestCase):
             self.assertEqual(len(json.loads((Path(directory) / "audit.json").read_text())), 1)
 
     def test_cli_defaults_to_database_and_supports_fail_on_issues(self):
-        with patch("audit_pdf_extraction.audit_extracted_reports",
+        with patch("audit_extraction.audit_extracted_reports",
                    return_value=[{"issues": ["missing stock_code"]}]) as audit:
             self.assertEqual(main([]), 0)
             self.assertEqual(main(["--fail-on-issues"]), 1)
@@ -97,7 +97,7 @@ class AuditPDFExtractionTests(unittest.TestCase):
 
     def test_empty_database_writes_empty_audit(self):
         with tempfile.TemporaryDirectory() as directory, \
-                patch("audit_pdf_extraction.LineItemStorage") as storage_class, \
+                patch("audit_extraction.LineItemStorage") as storage_class, \
                 redirect_stdout(io.StringIO()):
             storage_class.return_value.__enter__.return_value.get_extracted_reports.return_value = []
             self.assertEqual(audit_extracted_reports(Path(directory)), [])
@@ -150,7 +150,7 @@ class AuditPDFExtractionTests(unittest.TestCase):
             (source / "a.pdf").touch()
             (source / "nested/b.PDF").touch()
             (source / "ignore.md").touch()
-            with patch("audit_pdf_extraction.extract_report", side_effect=[ValueError("bad PDF"), sample_report()]), redirect_stdout(io.StringIO()):
+            with patch("audit_extraction.extract_report", side_effect=[ValueError("bad PDF"), sample_report()]), redirect_stdout(io.StringIO()):
                 results = audit_reports(source, root / "output")
             self.assertEqual(len(results), 2)
             self.assertIn("error", results[0])
@@ -170,7 +170,7 @@ class AuditPDFExtractionTests(unittest.TestCase):
             del data["pdf_hash"]
             (folder / "extraction_report.json").write_text(json.dumps(data))
             self.assertEqual(load_cached_report(folder / "extraction_report.json").pdf_hash, "")
-            with patch("audit_pdf_extraction.extract_report") as extract, redirect_stdout(io.StringIO()):
+            with patch("audit_extraction.extract_report") as extract, redirect_stdout(io.StringIO()):
                 results = audit_reports(source, root / "output", cached=True)
             extract.assert_not_called()
             self.assertEqual(results[0]["issues"], [])
@@ -181,7 +181,7 @@ class AuditPDFExtractionTests(unittest.TestCase):
             results = audit_reports(root, root / "output")
             self.assertEqual(results, [])
             self.assertEqual(json.loads((root / "output/audit.json").read_text()), [])
-            with patch("audit_pdf_extraction.audit_reports", return_value=[{"issues": ["missing stock_code"]}]):
+            with patch("audit_extraction.audit_reports", return_value=[{"issues": ["missing stock_code"]}]):
                 args = ["--input-dir", str(root), "--output-dir", str(root / "output")]
                 self.assertEqual(main(args), 0)
                 self.assertEqual(main(args + ["--fail-on-issues"]), 1)

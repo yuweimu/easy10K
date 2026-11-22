@@ -36,6 +36,11 @@
 		110136|持有待售的资产|Assets Held for Sale
 		110136|划分为持有待售的资产|Assets Held for Sale
 		110138|一年内到期的非流动资产|Non-current Assets Due within One Year
+		110139|发放贷款和垫款（一年内）|Non-current Assets Due within One Year
+		110139|发放贷款及垫款（一年内）|Non-current Assets Due within One Year
+		110139|发放垫款和垫款（一年内）|Non-current Assets Due within One Year
+		110139|发放贷款及垫款（1年内）|Non-current Assets Due within One Year
+		110139|发放贷款和垫款（1年内）|Non-current Assets Due within One Year
 		110150|其他流动资产|Other Current Assets
 	1101|流动资产合计|Total Current Assets
 
@@ -145,8 +150,11 @@
 31|所有者权益合计|Total Owners’ Equity
 
 0|负债和股东权益总计|Total Liabilities and Shareholders’ Equity
+0|负债及股东权益总计|Total Liabilities and Shareholders’ Equity
 0|负债和所有者权益（或股东权益）总计|Total Liabilities and Owners’ Equity (or Shareholders’ Equity)
+0|负债及所有者权益（或股东权益）总计|Total Liabilities and Owners’ Equity (or Shareholders’ Equity)
 0|负债和所有者权益总计|Total Liabilities and Owners’ Equity
+0|负债及所有者权益总计|Total Liabilities and Owners’ Equity
 
 41|营业总收入|Total Operating Revenue
 	4101|营业收入|Operating Revenue

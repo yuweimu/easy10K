@@ -93,13 +93,13 @@ def write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def audit_extracted_reports(output_dir: Path) -> list[dict]:
+def audit_extracted_reports(output_dir: Path, pdf_hash: str | None = None) -> list[dict]:
     """Audit ExtractOK rows and persist details and stages by PDF hash."""
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     results = []
     with LineItemStorage() as storage:
-        rows = storage.get_extracted_reports()
+        rows = storage.get_extracted_reports(pdf_hash=pdf_hash)
         write_json(output_dir / "audit.json", results)
         for index, row in enumerate(rows, 1):
             entry = {"pdf_hash": row["pdf_hash"], "file": row["local_path"],
@@ -169,19 +169,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input-dir", type=Path,
                         help="Extract PDFs from this directory instead of auditing database rows")
     parser.add_argument("--output-dir", type=Path, default=PROJECT_DIR / "extracted/pdf")
+    parser.add_argument("--hash", dest="pdf_hash",
+                        help="Audit one registered PDF by its hash, regardless of stage")
     parser.add_argument("--cached", action="store_true",
                         help="Trust saved extraction_report.json results; extract only uncached PDFs")
     parser.add_argument("--fail-on-issues", action="store_true",
                         help="Return exit code 1 if any report has audit issues")
     args = parser.parse_args(argv)
     if args.input_dir is not None:
+        if args.pdf_hash:
+            parser.error("--hash cannot be combined with --input-dir")
         if not args.input_dir.is_dir():
             parser.error(f"Input directory does not exist: {args.input_dir}")
         results = audit_reports(args.input_dir, args.output_dir, cached=args.cached)
     else:
         if args.cached:
             parser.error("--cached requires --input-dir; database mode always uses stored extractions")
-        results = audit_extracted_reports(args.output_dir)
+        results = audit_extracted_reports(args.output_dir, pdf_hash=args.pdf_hash)
+        if args.pdf_hash and not results:
+            print(f"No report found for PDF hash {args.pdf_hash}")
+            return 1
     return int(args.fail_on_issues and any(entry["issues"] for entry in results))
 
 

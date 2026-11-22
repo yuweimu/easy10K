@@ -19,8 +19,10 @@ import sys
 import pymupdf
 
 from report_metadata import match_dates, match_stock_code, match_title_reporting_date
+from line_item_chart import LineItemChart
 from line_item_storage import LineItemStorage
 from report_sources import normalized_bbox, warm_statement_previews
+from statement_digestion import normalize_label
 
 
 STATEMENTS = {
@@ -45,6 +47,7 @@ STATEMENTS = {
     "中期合并现金流量表": "cash_flow_statement",
 }
 STATEMENT_FIELDS = tuple(dict.fromkeys(STATEMENTS.values()))
+STATEMENT_LOOKAHEAD_LINES = 28
 PERIOD_END = r"截至20\d{2}年\d{1,2}月\d{1,2}日止(?:\d{1,2}|[一二三四五六七八九十两]{1,3})个月期间"
 QUARTER_PERIOD = r"20\d{2}年第?[一二三四1-4]季度"
 DATE_RANGE_PERIOD = r"20\d{2}年\d{1,2}月\d{1,2}日[至到](?:20\d{2}年)?\d{1,2}月\d{1,2}日止期间"
@@ -70,21 +73,84 @@ def is_metadata_context_line(line: str) -> bool:
     return len(text) >= 4 and bool(text.strip("."))
 
 
+def _statement_item_names(title: str) -> list[str]:
+    if "资产负债表" in title:
+        prefixes = range(11, 32)
+    elif "利润表" in title:
+        prefixes = range(41, 60)
+    elif "现金流量表" in title:
+        prefixes = range(81, 88)
+    else:
+        return []
+    return [name for name, item in LineItemChart().items.items()
+            if int(str(item.item_id)[:2]) in prefixes]
+
+
+def normalize_item_name(label):
+    label = re.sub(r"^(?:其中|加|减)[：:]", "", label)
+    label = re.sub(r"（减少）", "", label)
+    label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*）$", "", label)
+    return label.rstrip("：:")
+
+def _has_ordered_statement_rows(blocks: list[str] | tuple[str, ...], title: str) -> bool:
+    names = _statement_item_names(title)
+    if not names:
+        return False
+    name_order = {name: index for index, name in enumerate(names)}
+    numeric = r"[-+−]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)"
+    other_block = re.compile(r"^[一二三四五六七八九十\d、()（）\[\]【】\s]+$")
+    item_count = 0
+    non_item_count = 0
+    previous_order = -1
+    for raw_block in blocks:
+        block = normalize_label(raw_block.strip())
+        matching_names = [name for name in names if block.startswith(name)]
+        if matching_names:
+            row_order = max(name_order[name] for name in matching_names)
+            if row_order < previous_order:
+                continue
+            item_count += 1
+            non_item_count = 0
+            previous_order = row_order
+            if item_count >= 5:
+                return True
+            continue
+
+        if not block or re.fullmatch(numeric, block) or other_block.fullmatch(block):
+            if item_count:
+                non_item_count += 1
+                if non_item_count <= 6:
+                    continue
+
+        item_count = 0
+        non_item_count = 0
+        previous_order = -1
+    return False
+
+
 def statement_title(text: str, following_lines: list[str] | tuple[str, ...] = ()) -> str | None:
-    """Require a standalone heading with statement metadata in the next five lines."""
+    """Require a standalone heading with metadata and ordered statement rows."""
     lines = text.strip().splitlines()
     if len(lines) == 0:
         return None;
     if len(lines) > 1:
         return None
 
+    if "合并利润表" in text:
+        print("found 合并现金流量表")
+
     heading = re.sub(r"[\s*#]", "", text)
     match = HEADING.fullmatch(heading)
     if not match:
         return None
     title = match.group(1)
+    if not any(marker in title for marker in ("资产负债表", "利润表", "现金流量表")):
+        return None
+    if not _has_ordered_statement_rows(following_lines, title):
+        return None
+    context_lines = [line for line in following_lines if is_metadata_context_line(line)][:5]
     metadata_lines = []
-    for line in [line for line in following_lines if is_metadata_context_line(line)][:5]:
+    for line in context_lines:
         # Metadata after another heading belongs to that statement.
         if HEADING.fullmatch(re.sub(r"[\s*#]", "", line)):
             break
@@ -103,7 +169,7 @@ def statement_title(text: str, following_lines: list[str] | tuple[str, ...] = ()
         return title
     if re.search("审计", context):
         return title
-    if re.search(r"\d{1,2}月\d{1,2}日", context):
+    if re.search(r"\d{1,2}月\d{1,2}日", context) and len(context) < 16:
         return title
     if "资产负债表" in title:
         period = r"(?<!\d)20\d{2}(?:年\d{1,2}月\d{1,2}日|-\d{1,2}-\d{1,2})(?!\d)"
@@ -174,6 +240,7 @@ class ReportExtraction:
     title_reporting_date: str = ""
     balance_sheet_reporting_date: str = ""
     reporting_dates_match: bool | None = None
+    warnings: list[str] = field(default_factory=list)
 
 
 def page_text_lines(page: pymupdf.Page) -> list[tuple[tuple[float, float, float, float], str]]:
@@ -191,20 +258,51 @@ def _read_pdf_hash(path: Path) -> str:
         return hashlib.file_digest(source, "md5").hexdigest()
 
 
-def _find_page_boundaries(document, page_number: int, lines, result: ReportExtraction, next_page_lines):
+def _find_page_boundaries(document, page_number: int, lines, result: ReportExtraction,
+                          next_page_lines):
     boundaries = []
+    statement_end_patterns = {
+        "balance_sheet": re.compile(r"负债.{0,6}权益.{0,8}总计"),
+        "income_statement": re.compile(r"(?:基本|稀释)?每股收益"),
+        "cash_flow_statement": re.compile(r"期末现金及现金等价物余额"),
+    }
+    current_statement = next(
+        (name for name in ("cash_flow_statement", "income_statement", "balance_sheet")
+         if getattr(result, name) is not None),
+        None,
+    )
+    previous_statement_text = (
+        getattr(result, current_statement).text if current_statement else ""
+    )
+    statement_end_seen = bool(
+        current_statement
+        and statement_end_patterns[current_statement].search(
+            re.sub(r"\s+", "", previous_statement_text)
+        )
+    )
     for index, (bbox, text) in enumerate(lines):
-        following_lines = [line for _, line in lines[index + 1:] if is_metadata_context_line(line)][:5]
-        if len(following_lines) < 5 and page_number < len(document):
+        following_lines = [line for _, line in lines[index + 1:]
+                           if is_metadata_context_line(line)][:STATEMENT_LOOKAHEAD_LINES]
+        if len(following_lines) < STATEMENT_LOOKAHEAD_LINES and page_number < len(document):
             if next_page_lines is None:
                 next_page_lines = page_text_lines(document[page_number])
             following_lines.extend(
-                [line for _, line in next_page_lines if is_metadata_context_line(line)][:5 - len(following_lines)])
+                [line for _, line in next_page_lines if is_metadata_context_line(line)
+                 ][:STATEMENT_LOOKAHEAD_LINES - len(following_lines)])
         compact = re.sub(r"\s+", "", text)
-        if any(marker in compact for marker in ("法定代表人", "公司负责人", "会计工作负责人", "会计机构负责人")):
+        title = None
+        if current_statement and statement_end_patterns[current_statement].search(compact):
+            statement_end_seen = True
+        markers_found = any(marker in compact for marker in (
+            "法定代表人", "公司负责人", "会计工作负责人", "会计机构负责人"))
+        if markers_found and current_statement and statement_end_seen:
             boundaries.append((bbox, None))
-        elif (title := statement_title(text, following_lines)) is not None:
+        else:
+            title = statement_title(text, following_lines)
+        if title is not None:
             boundaries.append((bbox, title))
+            current_statement = STATEMENTS.get(title)
+            statement_end_seen = False
             if STATEMENTS.get(title) == "balance_sheet" and not result.balance_sheet_reporting_date:
                 dates = match_dates(text)
                 if dates:
@@ -316,7 +414,7 @@ def extract_report(pdf_path: str | Path) -> ReportExtraction:
 
 
 def compare_metadata(registered: dict, extracted: ReportExtraction) -> list[str]:
-    """Return download-step metadata fields that disagree with PDF content."""
+    """Return metadata conflicts, using a registered date if the PDF omits it."""
     mismatches = []
     for field in ("stock_code", "reporting_date"):
         registered_value = registered.get(field)
@@ -324,6 +422,11 @@ def compare_metadata(registered: dict, extracted: ReportExtraction) -> list[str]
             continue
         registered_text = registered_value.isoformat() if hasattr(registered_value, "isoformat") else str(registered_value)
         extracted_text = getattr(extracted, field)
+        if field == "reporting_date" and not extracted_text:
+            setattr(extracted, field, registered_text)
+            warning = f"reporting_date unavailable in PDF; using database value {registered_text}"
+            extracted.warnings.append(warning)
+            continue
         if registered_text != extracted_text:
             mismatches.append(f"{field}: database={registered_text!r}, PDF={extracted_text!r}")
     return mismatches
@@ -381,6 +484,8 @@ def _extract_one_report(storage: LineItemStorage, report: dict, output_dir: Path
     if result.pdf_hash != pdf_hash:
         raise ValueError(f"PDF hash mismatch: expected {pdf_hash}, got {result.pdf_hash}")
     mismatches = compare_metadata(report, result)
+    for warning in result.warnings:
+        print(f"Warning: {path}: {warning}", flush=True)
     if mismatches:
         raise ValueError(f"PDF metadata mismatch: {'; '.join(mismatches)}")
     payload = json.dumps(asdict(result), ensure_ascii=False, indent=2)
@@ -400,8 +505,7 @@ def _extract_one_report(storage: LineItemStorage, report: dict, output_dir: Path
         raise ValueError(f"Empty extracted statements: {', '.join(missing)}")
     if destination:
         print(destination)
-    else:
-        _print_extraction_summary(result)
+    _print_extraction_summary(result)
 
 
 def _mark_extraction_error(storage: LineItemStorage, pdf_hash: str, path: object) -> None:
@@ -419,6 +523,8 @@ def _mark_extraction_error(storage: LineItemStorage, pdf_hash: str, path: object
 def main() -> int:
     args = _parse_args()
     failed = False
+    succeeded = 0
+    failures = 0
     with LineItemStorage() as storage:
         if not storage.database_url:
             print("DATABASE_URL is not configured", file=sys.stderr)
@@ -440,10 +546,13 @@ def main() -> int:
             path = report["local_path"]
             try:
                 _extract_one_report(storage, report, args.output_dir, root)
+                succeeded += 1
             except Exception as error:
                 failed = True
+                failures += 1
                 print(f"{path}: {error}", file=sys.stderr)
                 _mark_extraction_error(storage, pdf_hash, path)
+    print(f"Summary: {succeeded} succeeded, {failures} failed", flush=True)
     return int(failed)
 
 

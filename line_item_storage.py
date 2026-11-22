@@ -410,15 +410,18 @@ class LineItemStorage:
             )
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
-    def get_extracted_reports(self) -> list[dict]:
-        """Read completed extraction inputs without modifying the database."""
+    def get_extracted_reports(self, pdf_hash: str | None = None) -> list[dict]:
+        """Read extraction inputs, optionally selecting one PDF by hash."""
         fields = ("pdf_hash", "local_path", "extraction_report")
         with self._connect().cursor() as cursor:
-            cursor.execute(
-                "SELECT pdf_hash, local_path, extraction_report FROM report_digestion "
-                "WHERE digestion_stage = %s ORDER BY pdf_hash",
-                ("ExtractOK",),
-            )
+            if pdf_hash:
+                cursor.execute(
+                    "SELECT pdf_hash, local_path, extraction_report FROM report_digestion "
+                    "WHERE pdf_hash = %s", (pdf_hash,))
+            else:
+                cursor.execute(
+                    "SELECT pdf_hash, local_path, extraction_report FROM report_digestion "
+                    "WHERE digestion_stage = %s ORDER BY pdf_hash", ("ExtractOK",))
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
     def get_audit_pass_reports(self, pdf_hash: str | None = None, *, retry: bool = False) -> list[dict]:
