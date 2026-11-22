@@ -272,6 +272,7 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
 def run_cli(statement, check_report, argv=None):
     parser = argparse.ArgumentParser(description=f"Validate and digest {statement} reports")
     parser.add_argument("--hash", dest="pdf_hash", type=pdf_hash_argument, help="Process this hash regardless of stage")
+    parser.add_argument("--stock_code", help="Process only reports for this stock code")
     parser.add_argument("--retry", action="store_true",
                         help=f"Retry reports at the {statement.replace('_', '-')} error stage")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print without writing to the database")
@@ -282,7 +283,10 @@ def run_cli(statement, check_report, argv=None):
     failures = 0
     with LineItemStorage() as storage:
         try:
-            rows = storage.get_statement_reports(statement, pdf_hash=args.pdf_hash, retry=args.retry)
+            query_options = {"pdf_hash": args.pdf_hash, "retry": args.retry}
+            if args.stock_code:
+                query_options["stock_code"] = args.stock_code
+            rows = storage.get_statement_reports(statement, **query_options)
         except Exception as error:
             print(f"Unable to load {statement}: {error}", file=sys.stderr)
             print("Summary: 0 succeeded, 1 failed", flush=True)

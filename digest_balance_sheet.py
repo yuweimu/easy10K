@@ -70,7 +70,10 @@ def check_report_metadata(row: dict, result: dict) -> tuple[str, int | None]:
         except ValueError:
             issues.append("Invalid reporting_date")
     compact = clean_cell(markdown)
-    units = set(re.findall(r"单位[：:（(]?(?:均为|为)?(?:人民币)?(百万元|亿元|万元|千元|元)", compact))
+    units = set(re.findall(
+        r"(?:金额)?单位[：:（(]?(?:均为|为)?(?:人民币)?(百万元|亿元|万元|千元|元)",
+        compact,
+    ))
     multiplier = UNITS[next(iter(units))] if len(units) == 1 else None
     result["amount_unit"] = next(iter(units)) if len(units) == 1 else None
     if multiplier is None:
@@ -110,7 +113,12 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
         if len(cells) < 2:
             continue
         label = clean_cell(re.sub(r"【[^】]*(?:】|$)", "", cells[0])).replace("(", "（").replace(")", "）")
-        if label in ("项目", "科目"):
+        notes_header = (
+            len(cells) >= 4
+            and re.search(r"附注|注释|行次|^注$", clean_cell(cells[1]))
+            and re.search(r"期末|期初|上年年末", clean_cell(cells[2]))
+        )
+        if label in ("项目", "科目") or notes_header:
             amount_column = 2 if re.search(r"附注|注释|行次|^注$", clean_cell(cells[1])) else 1
             continue
         if not label or re.fullmatch(r"[:\-]+", label):
@@ -331,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hash", dest="pdf_hash", type=pdf_hash_argument,
                         help="Digest only this PDF hash, regardless of its current stage")
+    parser.add_argument("--stock_code", help="Digest only reports for this stock code")
     parser.add_argument("--retry", action="store_true",
                         help="Retry reports at the BalanceErr stage")
     parser.add_argument("--absolute-tolerance", type=nonnegative_decimal, default=Decimal("0.00001"))
@@ -343,7 +352,10 @@ def main(argv: list[str] | None = None) -> int:
     failures = 0
     with LineItemStorage() as storage:
         try:
-            rows = storage.get_audit_pass_reports(pdf_hash=args.pdf_hash, retry=args.retry)
+            query_options = {"pdf_hash": args.pdf_hash, "retry": args.retry}
+            if args.stock_code:
+                query_options["stock_code"] = args.stock_code
+            rows = storage.get_audit_pass_reports(**query_options)
         except Exception as error:
             print(f"Unable to load reports for digestion: {error}", file=sys.stderr)
             print("Summary: 0 succeeded, 1 failed", flush=True)

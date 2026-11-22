@@ -107,7 +107,7 @@ def locate_source(record, item_id, path, cache_dir):
     verify_pdf(path, record["pdf_hash"])
     extraction = json.loads(record.get("extraction_report") or "{}")
     statement = extraction.get("balance_sheet") or {}
-    units = set(re.findall(r"单位[：:（(]?(?:均为|为)?(?:人民币)?(百万元|亿元|万元|千元|元)",
+    units = set(re.findall(r"(?:金额)?单位[：:（(]?(?:均为|为)?(?:人民币)?(百万元|亿元|万元|千元|元)",
                            clean_cell(record.get("balance_sheet") or "")))
     if len(units) != 1:
         raise ValueError("The source statement's currency unit cannot be verified")

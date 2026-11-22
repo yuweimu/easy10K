@@ -105,6 +105,9 @@ def _has_ordered_statement_rows(blocks: list[str] | tuple[str, ...], title: str)
     for raw_block in blocks:
         block = normalize_label(raw_block.strip())
         matching_names = [name for name in names if block.startswith(name)]
+        if not matching_names and len(block) > 6:
+            matching_names = [name for name in names if name.startswith(block)]
+
         if matching_names:
             row_order = max(name_order[name] for name in matching_names)
             if row_order < previous_order:
@@ -136,7 +139,7 @@ def statement_title(text: str, following_lines: list[str] | tuple[str, ...] = ()
     if len(lines) > 1:
         return None
 
-    if "合并利润表" in text:
+    if "合并现金流量表" in text:
         print("found 合并现金流量表")
 
     heading = re.sub(r"[\s*#]", "", text)
@@ -213,7 +216,8 @@ class Statement:
         # into one line. Keep only caption values, never that complete line.
         captions = match_dates(self.text)
         captions.extend(re.findall(
-            r"(?<!编制)单位\s*[:：]\s*(?:人民币\s*)?(?:亿元|万元|千元|元)",
+            r"(?<!编制)(?:金额)?单位\s*[:：]?\s*(?:均为|为)?\s*"
+            r"(?:人民币\s*)?(?:百万元|亿元|万元|千元|元)",
             self.text,
         ))
         caption = "\n".join(dict.fromkeys(captions))
@@ -438,14 +442,17 @@ def _parse_args() -> argparse.Namespace:
                         help="Write JSON and Markdown; preserve relative folders for multiple PDFs")
     parser.add_argument("--hash", dest="pdf_hash",
                         help="Extract one registered PDF by its hash, regardless of current stage")
+    parser.add_argument("--stock_code", help="Extract only reports for this stock code")
     return parser.parse_args()
 
 
-def _load_reports(storage: LineItemStorage, pdf_hash: str | None) -> list[dict]:
+def _load_reports(storage: LineItemStorage, pdf_hash: str | None,
+                  stock_code: str | None) -> list[dict]:
     if pdf_hash:
         report = storage.get_report_by_hash(pdf_hash)
-        return [report] if report else []
-    return storage.get_reports_at_FileOK()
+        return [report] if report and (not stock_code or report.get("stock_code") == stock_code) else []
+    return (storage.get_reports_at_FileOK(stock_code=stock_code)
+            if stock_code else storage.get_reports_at_FileOK())
 
 
 def _reports_root(reports: list[dict]) -> Path:
@@ -530,7 +537,7 @@ def main() -> int:
             print("DATABASE_URL is not configured", file=sys.stderr)
             return 1
         try:
-            reports = _load_reports(storage, args.pdf_hash)
+            reports = _load_reports(storage, args.pdf_hash, args.stock_code)
         except Exception as error:
             print(f"Unable to load reports: {error}", file=sys.stderr)
             return 1
