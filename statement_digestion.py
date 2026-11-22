@@ -36,7 +36,7 @@ def normalize_label(text):
     label = clean_cell(re.sub(r"【[^】]*(?:】|$)", "", text)).replace("(", "（").replace(")", "）")
     label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", label)
     label = re.sub(r"^(?:其中|加|减)[：:]", "", label)
-    label = re.sub(r"（(?:净亏损|亏损总额|亏损|损失)[^）]*(?:）|$)", "", label)
+    label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*）$", "", label)
     label = re.sub(r"（(?:人民币)?元(?:/股)?）", "", label)
     return label.rstrip("：:")
 

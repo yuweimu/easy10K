@@ -86,6 +86,9 @@ class StatementDigestionTests(unittest.TestCase):
         values = {41: "100", 4101: "100", 42: "50", 4201: "50", 48: "3", 51: "47", 54: "47", 55: "-2", 56: "49"}
         result = self.check(income, "income_statement", values, labels={48: "减：信用减值损失"})
         self.assertTrue(result["passed"], result["issues"])
+        result = self.check(income, "income_statement", values,
+                            labels={48: "信用减值损失（损失以“-”号填列）"})
+        self.assertTrue(result["passed"], result["issues"])
         values.update({48: "-3"})
         result = self.check(income, "income_statement", values)
         self.assertTrue(result["passed"], result["issues"])

@@ -449,7 +449,7 @@ class DigestLineItemsTests(unittest.TestCase):
             row = {**self.row(), "pdf_hash": pdf_hash}
             storage.get_audit_pass_reports.return_value = [row]
             self.assertEqual(main(["--hash", pdf_hash.upper()]), 0)
-            storage.get_audit_pass_reports.assert_called_once_with(pdf_hash=pdf_hash)
+            storage.get_audit_pass_reports.assert_called_once_with(pdf_hash=pdf_hash, retry=False)
             storage.store_line_item_digestion.assert_called_once()
             self.assertEqual(storage.store_line_item_digestion.call_args.kwargs, {"allow_any_stage": True})
             self.assertEqual(storage.store_line_item_digestion.call_args.args[0]["pdf_hash"], pdf_hash)
@@ -489,7 +489,7 @@ class DigestLineItemsTests(unittest.TestCase):
             invalid["pdf_hash"] = "bad"
             storage.get_audit_pass_reports.return_value = [self.row(), invalid]
             self.assertEqual(main([]), 1)
-            storage.get_audit_pass_reports.assert_called_once_with()
+            storage.get_audit_pass_reports.assert_called_once_with(pdf_hash=None, retry=False)
             saved = storage.store_line_item_digestion.call_args_list
             self.assertEqual(len(saved), 2)
             self.assertTrue(saved[0].args[1]["passed"])

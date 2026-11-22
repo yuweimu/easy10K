@@ -1,6 +1,6 @@
 """Validate and digest the first amount column of AuditPass balance sheets.
 
-Run: python digest_balance_sheet.py [--hash PDF_HASH]
+Run: python digest_balance_sheet.py [--hash PDF_HASH] [--retry]
 Amounts are checked in statement units, then converted to yuan for storage.
 The default tolerance is the greater of 0.01 statement units and 0.1 percent.
 """
@@ -332,21 +332,26 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hash", dest="pdf_hash", type=pdf_hash_argument,
                         help="Digest only this PDF hash, regardless of its current stage")
+    parser.add_argument("--retry", action="store_true",
+                        help="Retry reports at the BalanceErr stage")
     parser.add_argument("--absolute-tolerance", type=nonnegative_decimal, default=Decimal("0.01"))
     parser.add_argument("--relative-tolerance", type=nonnegative_decimal, default=Decimal("0.001"))
     args = parser.parse_args(argv)
-    save_options = {"allow_any_stage": True} if args.pdf_hash else {}
+    save_options = {"allow_any_stage": True} if args.pdf_hash or args.retry else {}
     chart = LineItemChart()
     failed = False
+    succeeded = 0
+    failures = 0
     with LineItemStorage() as storage:
         try:
-            rows = (storage.get_audit_pass_reports(pdf_hash=args.pdf_hash) if args.pdf_hash
-                    else storage.get_audit_pass_reports())
+            rows = storage.get_audit_pass_reports(pdf_hash=args.pdf_hash, retry=args.retry)
         except Exception as error:
             print(f"Unable to load reports for digestion: {error}", file=sys.stderr)
+            print("Summary: 0 succeeded, 1 failed", flush=True)
             return 1
         if args.pdf_hash and not rows:
             print(f"No report found for PDF hash {args.pdf_hash}", file=sys.stderr)
+            print(f"Summary: 0 succeeded, 1 failed (no report found for PDF hash {args.pdf_hash})", flush=True)
             return 1
         for row in rows:
             try:
@@ -369,11 +374,13 @@ def main(argv: list[str] | None = None) -> int:
                     storage.close()
 
             failed |= not result["passed"]
+            if result["passed"]:
+                succeeded += 1
+            else:
+                failures += 1
             print(json.dumps({key: value for key, value in result.items() if key != "items"},
                              ensure_ascii=False), flush=True)
-
-            print(f"quit loop now. PASSED={not failed}")
-            # return int(failed) # temp
+    print(f"Summary: {succeeded} succeeded, {failures} failed", flush=True)
     return int(failed)
 
 

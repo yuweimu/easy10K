@@ -82,6 +82,7 @@ class LineItemStorage:
                    for value in (pdf_hash, download_url, local_path)):
             raise ValueError("Download hash, URL, and local path must be nonblank strings")
         if not self.database_url:
+            print("database_url unspecified")
             return
         connection = self._connect()
         with connection.cursor() as cursor:
@@ -100,6 +101,7 @@ class LineItemStorage:
                     stock_code = COALESCE(EXCLUDED.stock_code, report_digestion.stock_code),
                     reporting_date = COALESCE(EXCLUDED.reporting_date, report_digestion.reporting_date),
                     pdf_creation_date = COALESCE(EXCLUDED.pdf_creation_date, report_digestion.pdf_creation_date),
+                    digestion_stage = 'FileOK',
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (pdf_hash, download_url, _registry_path(local_path), download_report,
@@ -419,11 +421,11 @@ class LineItemStorage:
             )
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
-    def get_audit_pass_reports(self, pdf_hash: str | None = None) -> list[dict]:
-        """Read AuditPass balance sheets, or one explicit hash at any stage."""
+    def get_audit_pass_reports(self, pdf_hash: str | None = None, *, retry: bool = False) -> list[dict]:
+        """Read queued balance sheets, retrying BalanceErr reports when requested."""
         fields = ("pdf_hash", "balance_sheet", "stock_code", "reporting_date", "pdf_creation_date")
         condition = "WHERE digestion_stage = %s "
-        parameters = ("AuditPass",)
+        parameters = ("BalanceErr" if retry else "AuditPass",)
         if pdf_hash is not None:
             condition = "WHERE pdf_hash = %s "
             parameters = (pdf_hash,)

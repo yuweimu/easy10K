@@ -209,6 +209,7 @@
 		570103|将重分类进损益的其他综合收益|Other Comprehensive Income That May Be Reclassified to Profit or Loss
 		570103|以后将重分类进损益的其他综合收益|Other Comprehensive Income That May Be Reclassified to Profit or Loss
 			57010301|权益法下可转损益的其他综合收益|Share of Other Comprehensive Income of Equity-accounted Investees That May Be Reclassified to Profit or Loss
+			57010301|权益法下在被投资单位以后将重分类进损益的其他综合收益中享有的份额|Share of Other Comprehensive Income of Equity-accounted Investees That May Be Reclassified to Profit or Loss
 			57010303|其他债权投资公允价值变动|Changes in Fair Value of Other Debt Investments
 			57010303|可供出售金融资产公允价值变动损益|Changes in Fair Value Gains/Losses of Available-for-sale Financial Assets
 			57010305|金融资产重分类计入其他综合收益的金额|Amounts Recognized in Other Comprehensive Income on Reclassification of Financial Assets
@@ -279,6 +280,7 @@
 			83010101|子公司吸收少数股东投资收到的现金|Cash Received by Subsidiaries from Capital Contributions by Non-controlling Shareholders
 			83010101|其中：子公司吸收少数股东投资收到的现金|Cash Received by Subsidiaries from Capital Contributions by Non-controlling Shareholders
 		830103|取得借款收到的现金|Cash Received from Borrowings
+		830104|发行债券收到的现金|Cash Received from Issuance of Bonds
 		830105|收到其他与筹资活动有关的现金|Other Cash Received Relating to Financing Activities
 	8302|筹资活动现金流出小计|Total Cash Outflows from Financing Activities
 		830201|偿还债务支付的现金|Cash Paid for Repayment of Debt

@@ -214,6 +214,15 @@ class LineItemStorageTests(unittest.TestCase):
         self.assertEqual(parameters, (pdf_hash,))
         self.connection.commit.assert_not_called()
 
+    def test_get_audit_pass_reports_can_retry_balance_errors(self):
+        self.cursor.fetchall.return_value = []
+        with LineItemStorage("postgresql://test") as storage:
+            self.assertEqual(storage.get_audit_pass_reports(retry=True), [])
+        query, parameters = self.cursor.execute.call_args.args
+        self.assertIn("WHERE digestion_stage = %s ORDER BY pdf_hash", query)
+        self.assertEqual(parameters, ("BalanceErr",))
+        self.connection.commit.assert_not_called()
+
     def test_line_item_digestion_commits_items_report_and_stage_together(self):
         row = {"pdf_hash": "hash", "stock_code": "600519", "reporting_date": "2025-12-31",
                "pdf_creation_date": "created"}
@@ -501,6 +510,7 @@ class LineItemStorageTests(unittest.TestCase):
             self.assertIn("ON CONFLICT (pdf_hash) DO UPDATE SET", query)
             self.assertIn("download_report = COALESCE(EXCLUDED.download_report, report_digestion.download_report)", query)
             self.assertIn("stock_code = COALESCE(EXCLUDED.stock_code, report_digestion.stock_code)", query)
+            self.assertIn("digestion_stage = 'FileOK'", query)
             self.assertEqual(parameters, ("hash", url, "reports/report.pdf", None, "300750", "2025-12-31", None))
         self.assertEqual(self.connection.commit.call_count, 2)
         self.assertFalse(storage._report_digestion_ready)
