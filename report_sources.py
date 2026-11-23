@@ -13,7 +13,7 @@ import tempfile
 
 import pymupdf
 
-from digest_balance_sheet import clean_cell, parse_amount, UNITS
+from digest_bs import clean_cell, parse_amount, UNITS
 from line_item_chart import LineItemChart
 
 

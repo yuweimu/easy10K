@@ -7,7 +7,7 @@ import json
 import re
 import sys
 
-from digest_balance_sheet import (check_report_metadata, clean_cell, nonnegative_decimal,
+from digest_bs import (check_report_metadata, clean_cell, nonnegative_decimal,
                                   parse_amount, pdf_hash_argument, select_amount_column)
 from line_item_chart import LineItem, LineItemChart
 from line_item_storage import LineItemStorage
@@ -62,6 +62,11 @@ def parse_statement(markdown, chart, statement):
     in_operating_costs = False
     previous_label = previous_full_name = ""
 
+    def statement_amount_column(cells):
+        if statement == "income_statement" and len(cells) == 5:
+            return 3
+        return select_amount_column(cells, amount_column)
+
     def dynamic_other_item(parent_id):
         """Register the non-zero ``其他`` child for a statement parent."""
         item_id = parent_id * 100 + 99
@@ -108,7 +113,7 @@ def parse_statement(markdown, chart, statement):
             if label == "利息收入" and finance_details:
                 item_id = 422503
             elif label == "其他" and oci_group in (570101, 570103):
-                column = select_amount_column(cells, amount_column)
+                column = statement_amount_column(cells)
                 amount_text = clean_cell(cells[column]) if len(cells) > column else ""
                 try:
                     amount = parse_amount(amount_text) if amount_text else None
@@ -130,7 +135,7 @@ def parse_statement(markdown, chart, statement):
                             and not any(clean_cell(cell) for cell in cells[1:]))
             suffix = len(label) >= 3 and any(len(name) >= 16 and len(name) > len(label) and name.endswith(label) for name in names)
             if not continuation and not suffix:
-                column = select_amount_column(cells, amount_column)
+                column = statement_amount_column(cells)
                 amount_text = clean_cell(cells[column]) if len(cells) > column else ""
                 if not amount_text:
                     continue
@@ -146,7 +151,7 @@ def parse_statement(markdown, chart, statement):
                 state.unmapped_rows.append({"line": number, "label": label})
             continue
         previous_label, previous_full_name = label, normalize_label(chart._items_by_id[item_id].name)
-        column = select_amount_column(cells, amount_column)
+        column = statement_amount_column(cells)
         if len(cells) <= column:
             state.issues.append(f"Line {number}: missing current amount for {label}")
             continue

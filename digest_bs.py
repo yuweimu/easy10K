@@ -1,6 +1,6 @@
 """Validate and digest the first amount column of AuditPass balance sheets.
 
-Run: python digest_balance_sheet.py [--hash PDF_HASH] [--retry]
+Run: python digest_bs.py [--hash PDF_HASH] [--retry]
 Amounts are checked in statement units, then converted to yuan for storage.
 The default tolerance is the greater of 0.01 statement units and 0.1 percent.
 """

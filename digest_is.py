@@ -1,6 +1,6 @@
 """Validate income statements after BalanceOK, or any report with --hash.
 
-Run: python digest_income_statement.py [--hash PDF_HASH] [--dry-run]
+Run: python digest_is.py [--hash PDF_HASH] [--dry-run]
 Required totals must be present; zero profits and losses are valid.
 EPS is stored in yuan per share and is never scaled by the statement unit.
 """

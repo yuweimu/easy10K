@@ -5,8 +5,8 @@ import json
 import unittest
 from unittest.mock import patch
 
-import digest_income_statement as income
-import digest_cash_flow_statement as cash
+import digest_is as income
+import digest_cf as cash
 from line_item_chart import LineItemChart
 
 

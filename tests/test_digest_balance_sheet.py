@@ -6,7 +6,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from digest_balance_sheet import REQUIRED_IDS, check_report, main, parse_amount
+from digest_bs import REQUIRED_IDS, check_report, main, parse_amount
 from line_item_chart import LineItemChart
 
 
@@ -315,7 +315,7 @@ class DigestLineItemsTests(unittest.TestCase):
                 self.assertTrue(all(check["passed"] for check in result["checks"]))
 
     def test_cli_unmapped_rows_are_saved_as_failed_digestion(self):
-        with patch("digest_balance_sheet.LineItemStorage") as factory, patch("builtins.print"):
+        with patch("digest_bs.LineItemStorage") as factory, patch("builtins.print"):
             storage = factory.return_value.__enter__.return_value
             row = self.row()
             row["balance_sheet"] += "\n| 未知科目 | 100 | 0 |"
@@ -444,7 +444,7 @@ class DigestLineItemsTests(unittest.TestCase):
 
     def test_cli_hash_selects_one_report_and_allows_any_stage(self):
         pdf_hash = "007b7f4055bbfeedac1e0742338e0f00"
-        with patch("digest_balance_sheet.LineItemStorage") as factory, patch("builtins.print"):
+        with patch("digest_bs.LineItemStorage") as factory, patch("builtins.print"):
             storage = factory.return_value.__enter__.return_value
             row = {**self.row(), "pdf_hash": pdf_hash}
             storage.get_audit_pass_reports.return_value = [row]
@@ -456,7 +456,7 @@ class DigestLineItemsTests(unittest.TestCase):
 
     def test_cli_hash_without_report_does_not_write(self):
         pdf_hash = "007b7f4055bbfeedac1e0742338e0f00"
-        with patch("digest_balance_sheet.LineItemStorage") as factory, patch("builtins.print") as output:
+        with patch("digest_bs.LineItemStorage") as factory, patch("builtins.print") as output:
             storage = factory.return_value.__enter__.return_value
             storage.get_audit_pass_reports.return_value = []
             self.assertEqual(main(["--hash", pdf_hash]), 1)
@@ -465,14 +465,14 @@ class DigestLineItemsTests(unittest.TestCase):
 
     def test_cli_rejects_invalid_hash_before_database_access(self):
         for value in ("", "xyz", "a" * 31, "g" * 32):
-            with self.subTest(value=value), patch("digest_balance_sheet.LineItemStorage") as factory, patch("sys.stderr"):
+            with self.subTest(value=value), patch("digest_bs.LineItemStorage") as factory, patch("sys.stderr"):
                 with self.assertRaises(SystemExit) as error:
                     main(["--hash", value])
                 self.assertEqual(error.exception.code, 2)
                 factory.assert_not_called()
 
     def test_cli_json_output_omits_items(self):
-        with patch("digest_balance_sheet.LineItemStorage") as factory, patch("builtins.print") as output:
+        with patch("digest_bs.LineItemStorage") as factory, patch("builtins.print") as output:
             storage = factory.return_value.__enter__.return_value
             storage.get_audit_pass_reports.return_value = [self.row()]
             self.assertEqual(main([]), 0)
@@ -483,7 +483,7 @@ class DigestLineItemsTests(unittest.TestCase):
         self.assertIn("checks", reports[0])
 
     def test_cli_processes_audit_pass_queue_and_saves_failure_details(self):
-        with patch("digest_balance_sheet.LineItemStorage") as factory, patch("builtins.print") as output:
+        with patch("digest_bs.LineItemStorage") as factory, patch("builtins.print") as output:
             storage = factory.return_value.__enter__.return_value
             invalid = self.row(values={**self.values, 110101: "0"})
             invalid["pdf_hash"] = "bad"
@@ -500,7 +500,7 @@ class DigestLineItemsTests(unittest.TestCase):
             self.assertEqual(len(json_reports), 2)
 
     def test_cli_handles_empty_queue_and_database_failure(self):
-        with patch("digest_balance_sheet.LineItemStorage") as factory, patch("builtins.print"):
+        with patch("digest_bs.LineItemStorage") as factory, patch("builtins.print"):
             storage = factory.return_value.__enter__.return_value
             storage.get_audit_pass_reports.return_value = []
             self.assertEqual(main([]), 0)
@@ -509,7 +509,7 @@ class DigestLineItemsTests(unittest.TestCase):
             self.assertEqual(main([]), 1)
 
     def test_cli_records_storage_failure_and_continues(self):
-        with patch("digest_balance_sheet.LineItemStorage") as factory, patch("builtins.print"):
+        with patch("digest_bs.LineItemStorage") as factory, patch("builtins.print"):
             storage = factory.return_value.__enter__.return_value
             storage.get_audit_pass_reports.return_value = [self.row(), {**self.row(), "pdf_hash": "next"}]
             saved = []

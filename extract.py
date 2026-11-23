@@ -232,8 +232,6 @@ def clean_rows(rows: list[list[str | None]], *, statement: str | None = None,
     ]
     columns = [i for i in range(width) if any(row[i] for row in cleaned)]
     result = [[row[i] for i in columns] for row in cleaned if any(row)]
-    if statement == "income_statement" and reporting_date and reporting_date.endswith("-09-30"):
-        result = [([row[0], row[3], row[4]] if len(row) >= 5 else row) for row in result]
     return result
 
 
