@@ -98,9 +98,9 @@ The runner exits nonzero if any stock fails or a stock-code field is invalid.
 
 ### Digest audited balance-sheet line items
 
-Run `python digest_balance_sheet.py` with `DATABASE_URL` configured to process reports
+Run `python digest_bs.py` with `DATABASE_URL` configured to process reports
 at `AuditPass`. To digest one report regardless of its current stage, run
-`python digest_balance_sheet.py --hash 007b7f4055bbfeedac1e0742338e0f00`.
+`python digest_bs.py --hash 007b7f4055bbfeedac1e0742338e0f00`.
 It reads the first amount column of `balance_sheet` Markdown
 (skipping a notes column), validates required nonzero items and parent totals,
 and converts the displayed currency unit to yuan before saving line items.
@@ -122,8 +122,8 @@ digestion requires an empty `unmapped_rows` list.
 Run these from the project root with `DATABASE_URL` configured:
 
 ```bash
-python digest_income_statement.py
-python digest_cash_flow_statement.py
+python digest_is.py
+python digest_cf.py
 ```
 
 Income digestion reads reports at `BalanceOK` and sets `IncomeOK`

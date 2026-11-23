@@ -28,10 +28,51 @@ from report_metadata import match_filename_reporting_date
 
 DEFAULT_REPORTS_DIR = Path(__file__).resolve().parent / "reports" / "cninfo"
 SKIPPED_TITLE_MARKERS = ("已取消", "正文", "摘要")
+YEARLESS_FULL_REPORT_TITLES = {
+    "年报全文": "annual",
+    "年度报告全文": "annual",
+    "半年度报告全文": "semiannual",
+    "季报全文": "quarterly",
+}
 
 
 def should_skip_title(title):
     return any(marker in title for marker in SKIPPED_TITLE_MARKERS)
+
+
+def yearless_report_info(title, published_at):
+    """Return a year-qualified title for CNInfo's yearless full attachment."""
+    compact_title = re.sub(r"\s+", "", title)
+    report_kind = YEARLESS_FULL_REPORT_TITLES.get(compact_title)
+    if report_kind is None or not published_at:
+        return None
+    try:
+        published = datetime.fromtimestamp(int(published_at) / 1000, tz=timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+    if report_kind == "annual":
+        year = published.year - 1
+        period = "年度报告"
+    elif report_kind == "semiannual":
+        year = published.year
+        period = "半年度报告"
+    else:
+        year = published.year
+        # CNInfo uses the generic ``季报全文`` title for the Q3 full report
+        # in the October announcement listing. Keep a conservative fallback
+        # for unusual publication months.
+        period = ("第一季度报告" if published.month <= 5 else
+                  "第三季度报告" if published.month >= 9 else "季报全文")
+    return year, f"{year}年{period}"
+
+
+def local_report_filename(title, *, yearless=False):
+    """Build a safe local filename, marking yearless CNInfo attachments."""
+    filename = report_filename(title)
+    if not yearless:
+        return filename
+    return report_filename(f"{Path(filename).stem}-yearless")
 
 
 def extract_local_report_metadata(local_path):
@@ -52,6 +93,51 @@ def extract_pdf_creation_time(local_path):
             return (document.metadata or {}).get("creationDate") or None
     except (OSError, RuntimeError, ValueError):
         return None
+
+
+def is_non_statement_report(local_path):
+    """Recognize short report正文/摘要 PDFs containing only analysis tables."""
+    try:
+        with pymupdf.open(local_path) as document:
+            text = "\n".join(page.get_text("text") for page in document)
+    except (OSError, RuntimeError, ValueError):
+        return False
+    compact_lines = [re.sub(r"\s+", "", line) for line in text.splitlines()]
+    has_non_statement_marker = any(
+        "报告正文" in line or "报告摘要" in line for line in compact_lines
+    )
+    if not has_non_statement_marker:
+        return False
+    statement_heading = re.compile(
+        r"^(?:\d+[、.]*)?(?:合并(?:及(?:母公司|公司))?|中期合并|"
+        r"合并年初(?:到|至)报告期末)?(?:资产负债表|利润表|现金流量表)"
+        r"(?:（未经审计）)?$"
+    )
+    has_statement_heading = any(statement_heading.fullmatch(line) for line in compact_lines)
+    return not has_statement_heading
+
+
+def deprecate_non_statement_report(storage, entry, destination, download_url,
+                                   stock_code, reporting_date, pdf_creation_time):
+    """Persist and permanently exclude an analysis-only PDF from extraction."""
+    pdf_hash = entry["pdf_hash"]
+    if is_deprecated_report(storage, pdf_hash):
+        return True
+    if not is_non_statement_report(destination):
+        return False
+    storage.store_downloaded_report(
+        pdf_hash, download_url, entry["local_path"],
+        stock_code=stock_code, reporting_date=reporting_date,
+        pdf_creation_date=pdf_creation_time,
+        download_report=json.dumps(entry, ensure_ascii=False, sort_keys=True),
+    )
+    storage.update_report_digestion_stage(pdf_hash, "Deprecated")
+    return True
+
+
+def is_deprecated_report(storage, pdf_hash):
+    """Return whether a report has already been permanently excluded."""
+    return storage.get_report_digestion_stage(pdf_hash) == "Deprecated"
 
 
 def metadata_warnings(stock_code, reporting_date, pdf_creation_time):
@@ -134,14 +220,26 @@ def cninfo_pdf_urls(stock_code, org_id=None, *, column=None):
                 continue
             year_match = re.search(r"(?:19|20)\d{2}", compact_title)
             if not year_match:
-                continue
-            year = int(year_match.group())
+                info = yearless_report_info(compact_title, item.get("announcementTime"))
+                if info is None:
+                    continue
+                year, qualified_title = info
+                source_title = title
+                title = f"{stock_code}-{qualified_title}"
+                yearless = True
+            else:
+                year = int(year_match.group())
+                source_title = None
+                yearless = False
             if year < 2016 or (year == 2016 and not re.search(r"(?<!半)年度报告|(?<!半)年报", compact_title)):
                 continue
             url = urljoin("https://static.cninfo.com.cn/", path)
             if url not in seen:
                 seen.add(url)
-                yield {"title": title, "download_url": url}
+                report = {"title": title, "download_url": url}
+                if yearless:
+                    report.update(source_title=source_title, yearless=True)
+                yield report
 
         if not announcements or page * 30 >= int(result["totalAnnouncement"]):
             break
@@ -204,6 +302,9 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
     save_download_log(log_path, log)
     seen = set()
     failed = False
+    downloaded_count = 0
+    skipped_count = 0
+    failed_count = 0
     for report in chain(retry_reports, reports):
         title, url = report["title"], report["download_url"]
         if should_skip_title(title):
@@ -214,17 +315,22 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
         print(f"{title}\t{url}", flush=True)
         entry = entries.get(url)
         if entry is None:
-            filename = report_filename(title)
+            filename = local_report_filename(title, yearless=report.get("yearless", False))
             if filename.casefold() in owners and owners[filename.casefold()] != url:
                 filename = f"{filename[:-4]}-{sha256(url.encode()).hexdigest()[:12]}.pdf"
             owners[filename.casefold()] = url
             entry = entries[url] = {"title": title, "download_url": url, "file": filename, "attempts": 0}
+            if report.get("source_title"):
+                entry["source_title"] = report["source_title"]
+            if report.get("yearless"):
+                entry["yearless"] = True
         destination = directory / entry["file"]
         local_stock_code, reporting_date = extract_local_report_metadata(destination)
         entry.update(stock_code=local_stock_code, reporting_date=reporting_date)
         needs_fetch = (not destination.is_file() or entry.get("status") == "DOWNLOADING"
                        or (entry.get("status") == "ERROR" and entry.get("error_stage") != "enrollment"))
         if not needs_fetch:
+            skipped_count += 1
             print(f"Network download request: NO\t{url}", flush=True)
             print(f"Skipping existing file: {destination}", file=sys.stderr, flush=True)
         else:
@@ -241,6 +347,7 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
                 entry.update(info or {})
             except (OSError, ValueError, IncompleteRead) as error:
                 failed = True
+                failed_count += 1
                 entry.update(status="ERROR", error_stage="download", error=str(error),
                              updated_at=datetime.now(timezone.utc).isoformat())
                 save_download_log(log_path, log)
@@ -266,6 +373,23 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
             with LineItemStorage() as storage:
                 if not storage.database_url:
                     raise RuntimeError("DATABASE_URL is not configured")
+                if is_deprecated_report(storage, entry["pdf_hash"]):
+                    entry.update(status="DEPRECATED", skip_reason="Already Deprecated")
+                    skipped_count += 1
+                    print(f"Skipping Deprecated PDF: {destination}", flush=True)
+                    entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    save_download_log(log_path, log)
+                    continue
+                if deprecate_non_statement_report(
+                    storage, entry, destination, url, local_stock_code,
+                    reporting_date, effective_pdf_creation_time,
+                ):
+                    entry.update(status="DEPRECATED", skip_reason="No extractable financial statements")
+                    skipped_count += 1
+                    print(f"Deprecated non-statement PDF: {destination}", flush=True)
+                    entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    save_download_log(log_path, log)
+                    continue
                 storage.store_downloaded_report(
                     entry["pdf_hash"], url, entry["local_path"],
                     stock_code=local_stock_code, reporting_date=reporting_date,
@@ -277,8 +401,11 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
             entry["status"] = "DONE"
             entry.pop("error", None)
             entry.pop("error_stage", None)
+            if needs_fetch:
+                downloaded_count += 1
         except Exception as error:
             failed = True
+            failed_count += 1
             entry.update(status="ERROR", error_stage="enrollment", error=str(error))
             print(f"Unable to enroll {destination}: {error}", file=sys.stderr, flush=True)
         entry["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -286,6 +413,11 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
     log["listing_complete"] = True
     log["listing_since"] = "2016-12-31"
     save_download_log(log_path, log)
+    print(
+        f"Summary: {downloaded_count} downloaded, "
+        f"{skipped_count} skipped, {failed_count} failed",
+        flush=True,
+    )
     return int(failed)
 
 
@@ -301,12 +433,15 @@ def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
         raise ValueError(f"Invalid download report log: {log_path}")
 
     failed = False
+    enrolled_count = 0
+    failed_count = 0
     with LineItemStorage() as storage:
         if not storage.database_url:
             raise RuntimeError("DATABASE_URL is not configured")
         for url, entry in log["downloads"].items():
             if not isinstance(entry, dict):
                 failed = True
+                failed_count += 1
                 print(f"Unable to enroll {url}: invalid download report entry", file=sys.stderr, flush=True)
                 continue
             filename = entry.get("file")
@@ -314,11 +449,13 @@ def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
                     or any(char in filename for char in ("/", "\\", "\x00"))
                     or not filename.endswith(".pdf")):
                 failed = True
+                failed_count += 1
                 print(f"Unable to enroll {url}: invalid PDF filename", file=sys.stderr, flush=True)
                 continue
             destination = directory / filename
             if not destination.is_file():
                 failed = True
+                failed_count += 1
                 print(f"Unable to enroll {destination}: file not found", file=sys.stderr, flush=True)
                 continue
             local_stock_code, reporting_date = extract_local_report_metadata(destination)
@@ -338,6 +475,22 @@ def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
             try:
                 with destination.open("rb") as pdf:
                     entry["pdf_hash"] = file_digest(pdf, lambda: md5(usedforsecurity=False)).hexdigest()
+                if is_deprecated_report(storage, entry["pdf_hash"]):
+                    entry.update(status="DEPRECATED", skip_reason="Already Deprecated")
+                    print(f"Skipping Deprecated PDF: {destination}", flush=True)
+                    entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    save_download_log(log_path, log)
+                    continue
+                if deprecate_non_statement_report(
+                    storage, entry, destination, entry.get("download_url", url),
+                    local_stock_code, reporting_date, effective_pdf_creation_time,
+                ):
+                    entry.update(status="DEPRECATED", skip_reason="No extractable financial statements")
+                    enrolled_count += 0
+                    print(f"Deprecated non-statement PDF: {destination}", flush=True)
+                    entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    save_download_log(log_path, log)
+                    continue
                 storage.store_downloaded_report(
                     entry["pdf_hash"], entry.get("download_url", url), entry["local_path"],
                     stock_code=local_stock_code, reporting_date=reporting_date,
@@ -349,13 +502,16 @@ def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
                 entry["status"] = "DONE"
                 entry.pop("error", None)
                 entry.pop("error_stage", None)
+                enrolled_count += 1
                 print(f"Enrolled local PDF: {destination}", flush=True)
             except Exception as error:
                 failed = True
+                failed_count += 1
                 entry.update(status="ERROR", error_stage="enrollment", error=str(error))
                 print(f"Unable to enroll {destination}: {error}", file=sys.stderr, flush=True)
             entry["updated_at"] = datetime.now(timezone.utc).isoformat()
             save_download_log(log_path, log)
+    print(f"Summary: {enrolled_count} enrolled, {failed_count} failed", flush=True)
     return int(failed)
 
 
@@ -383,13 +539,18 @@ def main(argv=None):
             if args.urls_only:
                 for report in cached:
                     print(f"{report['title']}\t{report['download_url']}", flush=True)
+                print(f"Summary: 0 downloaded, {len(cached)} skipped, 0 failed", flush=True)
             else:
                 print(f"All logged reports are downloaded for {args.stock_code}; skipping CNInfo requests.", file=sys.stderr)
+                print(f"Summary: 0 downloaded, {len(cached)} skipped, 0 failed", flush=True)
             return 0
         reports = cninfo_pdf_urls(args.stock_code, args.org_id, column=args.column)
         if args.urls_only:
+            count = 0
             for report in reports:
                 print(f"{report['title']}\t{report['download_url']}", flush=True)
+                count += 1
+            print(f"Summary: {count} URLs, 0 failed", flush=True)
         else:
             return download_reports(args.stock_code, reports, args.output_dir, delay=args.delay)
     except (OSError, ValueError, RuntimeError) as error:

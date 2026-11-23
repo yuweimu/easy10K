@@ -28,6 +28,8 @@
 			11012802|应收股利|Dividends Receivable
 			11012802|其中：应收股利|Dividends Receivable
 
+		110129|应收资金集中管理款|Funds Concentration Management Receivable
+
 
 		110130|买入返售金融资产|Financial Assets Purchased under Resale Agreements
 		110132|存货|Inventories
@@ -206,12 +208,15 @@
 	5602|按所有权归属分类|Classification by Ownership Attribution
 		560201|归属于母公司股东的净利润|Net Profit Attributable to Shareholders of the Parent
 		560203|少数股东损益|Net Profit Attributable to Non-controlling Interests
+		560203|少数股东损益（净亏损以“-”号填列）|Net Profit Attributable to Non-controlling Interests
 
 57|其他综合收益的税后净额|Other Comprehensive Income, Net of Tax
 	5701|归属母公司所有者的其他综合收益的税后净额|Other Comprehensive Income Attributable to Owners of the Parent, Net of Tax
 		570101|不能重分类进损益的其他综合收益|Other Comprehensive Income That Will Not Be Reclassified to Profit or Loss
+		570101|以后不能重分类进损益的其他综合收益|Other Comprehensive Income That Will Not Be Reclassified to Profit or Loss
 			57010101|重新计量设定受益计划变动额|Remeasurements of Defined Benefit Plans
 			57010103|权益法下不能转损益的其他综合收益|Share of Other Comprehensive Income of Equity-accounted Investees That Will Not Be Reclassified to Profit or Loss
+			57010103|权益法下在被投资单位不能重分类进损益的其他综合收益中享有的份额|Share of Other Comprehensive Income of Equity-accounted Investees That Will Not Be Reclassified to Profit or Loss
 			57010105|其他权益工具投资公允价值变动|Changes in Fair Value of Investments in Other Equity Instruments
 			57010107|企业自身信用风险公允价值变动|Changes in Fair Value Attributable to the Entity's Own Credit Risk
 		570103|将重分类进损益的其他综合收益|Other Comprehensive Income That May Be Reclassified to Profit or Loss
@@ -255,6 +260,9 @@
 		810121|代理买卖证券收到的现金净额|Net Cash Received from Securities Brokerage Transactions
 		810123|收到的税费返还|Tax Refunds Received
 		810125|收到其他与经营活动有关的现金|Other Cash Received Relating to Operating Activities
+		810127|客户贷款及垫款净减少额|Net Decrease in Loans and Advances to Customers
+		810129|存放中央银行和同业款项净减少额|Net Decrease in Deposits with the Central Bank and Other Banks
+		810131|拆出资金净减少额|Net Decrease in Funds Lent
 	8102|经营活动现金流出小计|Total Cash Outflows from Operating Activities
 		810201|购买商品、接受劳务支付的现金|Cash Paid for Goods and Services
 		810203|客户贷款及垫款净增加额|Net Increase in Loans and Advances to Customers
@@ -267,6 +275,7 @@
 		810215|支付给职工以及为职工支付的现金|Cash Paid to and on Behalf of Employees
 		810217|支付的各项税费|Cash Paid for Taxes and Levies
 		810219|支付其他与经营活动有关的现金|Other Cash Paid Relating to Operating Activities
+		810221|客户存款和同业存放款项净减少额|Net Decrease in Customer Deposits and Interbank Deposits
 
 82|投资活动产生的现金流量净额|Net Cash from Investing Activities
 	8201|投资活动现金流入小计|Total Cash Inflows from Investing Activities
@@ -303,3 +312,68 @@
 86|期初现金及现金等价物余额|Cash and Cash Equivalents at the Beginning of the Period
 86|加：期初现金及现金等价物余额|Cash and Cash Equivalents at the Beginning of the Period
 87|期末现金及现金等价物余额|Cash and Cash Equivalents at the End of the Period
+
+
+# 合并利润表
+
+单位:元
+
+| 项目 | 附注七 | 本期发生额 | 上期发生额 |
+| --- | --- | --- | --- |
+| 一、营业总收入 |  | 50,146,848,575.09 | 48,939,388,714.62 |
+| 其中：营业收入 | 61 | 50,146,848,575.09 | 48,939,388,714.62 |
+| 利息收入 |  |  |  |
+| 已赚保费 |  |  |  |
+| 手续费及佣金收入 |  |  |  |
+| 二、营业总成本 |  | 27,470,583,726.11 | 27,930,753,521.54 |
+| 其中：营业成本 | 61 | 19,453,733,721.49 | 19,237,995,018.65 |
+| 利息支出 |  |  |  |
+| 手续费及佣金支出 |  |  |  |
+| 退保金 |  |  |  |
+| 赔付支出净额 |  |  |  |
+| 提取保险合同准备金净额 |  |  |  |
+| 保单红利支出 |  |  |  |
+| 分保费用 |  |  |  |
+| 税金及附加 | 62 | 1,056,013,345.97 | 1,073,661,566.84 |
+| 销售费用 | 63 | 19,125,791.60 | 8,087,389.77 |
+| 管理费用 | 64 | 840,437,293.46 | 825,185,989.22 |
+| 财务费用 | 65 | 5,896,659,769.17 | 6,679,348,670.32 |
+| 资产减值损失 | 66 | 204,613,804.42 | 106,474,886.74 |
+| 加：公允价值变动收益（损失以 “－”号填列） | 67 | -164,323,157.23 | -66,123,492.00 |
+| 投资收益（损失以“－”号填 列） | 68 | 2,311,700,052.64 | 1,334,188,678.05 |
+| 其中：对联营企业和合营企业 的投资收益 | 68 | 1,142,841,155.81 | 970,291,705.05 |
+| 资产处置收益（损失以“－” 号填列） | 69 | -37,373,018.98 | 20,469,273.82 |
+| 汇兑收益（损失以“－”号填 列） |  |  |  |
+| 其他收益 | 70 | 2,290,638,487.36 |  |
+| 三、营业利润（亏损以“－”号填列） |  | 27,076,907,212.77 | 22,297,169,652.95 |
+| 加：营业外收入 | 71 | 536,342.41 | 2,873,475,385.01 |
+| 减：营业外支出 | 72 | 423,054,664.46 | 16,707,655.91 |
+| 四、利润总额（亏损总额以“－”号填 列） |  | 26,654,388,890.72 | 25,153,937,382.05 |
+| 减：所得税费用 | 73 | 4,379,775,749.06 | 4,216,161,673.07 |
+| 五、净利润（净亏损以“－”号填列） |  | 22,274,613,141.66 | 20,937,775,708.98 |
+| (一)按经营持续性分类 |  |  |  |
+| 1.持续经营净利润（净亏损以 “－”号填列） |  | 22,222,563,683.80 | 20,872,455,038.33 |
+| 2.终止经营净利润（净亏损以 “－”号填列） |  | 52,049,457.86 | 65,320,670.65 |
+| (二)按所有权归属分类 |  |  |  |
+| 1.少数股东损益 |  | 13,701,816.76 | 156,593,111.65 |
+| 2.归属于母公司股东的净利润 |  | 22,260,911,324.90 | 20,781,182,597.33 |
+| 六、其他综合收益的税后净额 |  | 258,541,029.20 | 737,666,921.50 |
+| 归属母公司所有者的其他综合收 益的税后净额 |  | 258,541,029.20 | 737,666,921.50 |
+| （一）以后不能重分类进损益的 其他综合收益 |  | 1,298,298.37 |  |
+| 1.重新计量设定受益计划净 |  |  |  |
+| 负债或净资产的变动 |  |  |  |
+| 2.权益法下在被投资单位不 能重分类进损益的其他综合收益中 享有的份额 |  | 1,298,298.37 |  |
+| （二）以后将重分类进损益的其 他综合收益 |  | 257,242,730.83 | 737,666,921.50 |
+| 1.权益法下在被投资单位以 后将重分类进损益的其他综合收益 中享有的份额 |  | -25,521,863.73 | 100,635,013.42 |
+| 2.可供出售金融资产公允价 值变动损益 |  | 533,584,901.93 | 512,222,044.37 |
+| 3.持有至到期投资重分类为 可供出售金融资产损益 |  |  |  |
+| 4.现金流量套期损益的有效 部分 |  |  |  |
+| 5.外币财务报表折算差额 |  | -250,820,307.37 | 124,809,863.71 |
+| 6.其他 |  |  |  |
+| 归属于少数股东的其他综合收益 的税后净额 |  |  |  |
+| 七、综合收益总额 |  | 22,533,154,170.86 | 21,675,442,630.48 |
+| 归属于母公司所有者的综合收益 总额 |  | 22,519,452,354.10 | 21,518,849,518.83 |
+| 归属于少数股东的综合收益总额 |  | 13,701,816.76 | 156,593,111.65 |
+| 八、每股收益： |  |  |  |
+| （一）基本每股收益(元/股) |  | 1.0119 | 0.9446 |
+| （二）稀释每股收益(元/股) |  | 1.0119 | 0.9446 |

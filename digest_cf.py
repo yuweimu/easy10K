@@ -1,38 +1,50 @@
 """Validate cash-flow statements after IncomeOK, or any report with --hash.
 
-Run: python digest_cash_flow_statement.py [--hash PDF_HASH] [--dry-run]
+Run: python digest_cf.py [--hash PDF_HASH] [--dry-run]
 Net cash flows may be zero or negative. Minority-interest '其中' rows are
 included disclosures, not additional cash receipts or payments.
 """
 
 from decimal import Decimal
 
+from item_ids import (
+    CASH_FLOW_DETAIL_PARENTS, CASH_FLOW_NET_PARENTS, CLOSING_CASH_ID,
+    MINORITY_INTEREST_FINANCING_ID,
+    MINORITY_INTEREST_FINANCING_PARENT_ID, MINORITY_INTEREST_OPERATING_ID,
+    MINORITY_INTEREST_OPERATING_PARENT_ID, NET_CASH_INCREASE_ID, OPENING_CASH_ID,
+    OTHER_CASH_FLOW_ID,
+)
 from statement_digestion import Equation, check_statement, run_cli
 
 
-REQUIRED_IDS = (81, 82, 83, 85, 86, 87)
+REQUIRED_IDS = (*CASH_FLOW_NET_PARENTS, NET_CASH_INCREASE_ID, OPENING_CASH_ID, CLOSING_CASH_ID)
 
 
 def accounting_equations(state, result):
     values, equations = state.amounts, []
-    for parent in (8101, 8102, 8201, 8202, 8301, 8302):
+    for parent in CASH_FLOW_DETAIL_PARENTS:
         if parent not in values:
             continue
         children = [(item_id, 1) for item_id in values if str(item_id).startswith(str(parent))
                     and len(str(item_id)) == len(str(parent)) + 2]
         equations.append(Equation("children_sum", parent, tuple(children)))
-    for parent in (81, 82, 83):
+    for parent in CASH_FLOW_NET_PARENTS:
         if parent in values:
             inflow, outflow = parent * 100 + 1, parent * 100 + 2
             equations.append(Equation("net_cash_flow", parent, ((inflow, 1), (outflow, -1)), (inflow, outflow)))
-    if 85 in values:
-        equations.append(Equation("net_increase_in_cash", 85, ((81, 1), (82, 1), (83, 1), (84, 1)), (81, 82, 83)))
-    if 87 in values:
-        equations.append(Equation("closing_cash", 87, ((86, 1), (85, 1)), (86, 85)))
-    for item_id in (86, 87):
+    if NET_CASH_INCREASE_ID in values:
+        cash_flow_terms = tuple((item_id, 1) for item_id in (*CASH_FLOW_NET_PARENTS, OTHER_CASH_FLOW_ID))
+        equations.append(Equation("net_increase_in_cash", NET_CASH_INCREASE_ID,
+                                  cash_flow_terms, CASH_FLOW_NET_PARENTS))
+    if CLOSING_CASH_ID in values:
+        equations.append(Equation("closing_cash", CLOSING_CASH_ID,
+                                  ((OPENING_CASH_ID, 1), (NET_CASH_INCREASE_ID, 1)),
+                                  (OPENING_CASH_ID, NET_CASH_INCREASE_ID)))
+    for item_id in (OPENING_CASH_ID, CLOSING_CASH_ID):
         if values.get(item_id) is not None and values[item_id] < 0:
             result["issues"].append(f"Item {item_id}: cash and cash equivalents balance cannot be negative")
-    for child, parent in ((83010101, 830101), (83020301, 830203)):
+    for child, parent in ((MINORITY_INTEREST_OPERATING_ID, MINORITY_INTEREST_OPERATING_PARENT_ID),
+                          (MINORITY_INTEREST_FINANCING_ID, MINORITY_INTEREST_FINANCING_PARENT_ID)):
         amount, total = values.get(child), values.get(parent)
         if amount is None or total is None or amount < 0 or total < 0:
             continue
@@ -48,10 +60,11 @@ def accounting_equations(state, result):
     return equations
 
 
-def check_report(row, chart, *, absolute_tolerance=Decimal("0.00001"), relative_tolerance=Decimal("0.00001")):
+def check_report(row, chart, *, absolute_tolerance=Decimal("0.00001"),
+                 relative_tolerance=Decimal("0.00001")):
     return check_statement(row, chart, "cash_flow_statement", REQUIRED_IDS, accounting_equations,
                            absolute_tolerance=absolute_tolerance, relative_tolerance=relative_tolerance,
-                           required_numeric_ids=(86, 87))
+                           required_numeric_ids=(OPENING_CASH_ID, CLOSING_CASH_ID))
 
 
 def main(argv=None):

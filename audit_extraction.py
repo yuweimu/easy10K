@@ -11,6 +11,8 @@ import re
 
 from extract import STATEMENTS, ReportExtraction, Statement, extract_report
 from line_item_storage import LineItemStorage
+from report_metadata import match_filename_reporting_date
+from statement_parsing import table_width_issues
 
 PROJECT_DIR = Path(__file__).resolve().parent
 NUMBER = re.compile(r"(?<![\d.])[-−]?\d[\d,]*\.\d{2,}(?!\d)")
@@ -32,19 +34,11 @@ def audit_report(report: ReportExtraction, pdf_path: Path) -> dict:
             f"reporting_date sources disagree: title {report.title_reporting_date}, "
             f"balance sheet {report.balance_sheet_reporting_date}"
         )
-    year = re.search(r"(?<!\d)(20\d{2})(?!\d)", pdf_path.stem)
-    if year:
-        quarter = re.search(r"q([1234])", pdf_path.stem, re.I)
-        if quarter:
-            suffix = {"1": "03-31", "2": "06-30", "3": "09-30", "4": "12-31"}[quarter.group(1)]
-        else:
-            suffix = next((date for label, date in (
-                ("年年度", "12-31"), ("三季度", "09-30"),
-                ("一季度", "03-31"), ("半年度", "06-30"),
-            ) if label in pdf_path.stem), "12-31")
-        expected = year.group(1) + "-" + suffix
-        if report.reporting_date and report.reporting_date != expected:
-            entry["issues"].append(f"reporting_date {report.reporting_date} differs from filename expected {expected}")
+    expected = match_filename_reporting_date(pdf_path.stem)
+    if expected and report.reporting_date and report.reporting_date != expected:
+        entry["issues"].append(
+            f"reporting_date {report.reporting_date} differs from filename expected {expected}"
+        )
     for key in dict.fromkeys(STATEMENTS.values()):
         statement = getattr(report, key)
         if statement is None:
@@ -67,8 +61,11 @@ def audit_report(report: ReportExtraction, pdf_path: Path) -> dict:
             entry["issues"].append(f"{key}{statement.pages}: unusually long")
         if missing_sum >= max(3, total_sum * .05):
             entry["issues"].append(f"{key}{statement.pages}: decimals missing from rows ({missing_sum}/{total_sum}) {missing_numbers}")
-        if any(len(row) < 3 for row in statement.rows):
-            entry["issues"].append(f"{key}{statement.pages}: row fewer than 3 columns")
+        for row_number, expected_width, actual_width in table_width_issues(statement.rows):
+            entry["issues"].append(
+                f"{key}{statement.pages}: row {row_number} has {actual_width} columns; "
+                f"expected {expected_width}"
+            )
     return entry
 
 
@@ -94,14 +91,18 @@ def write_json(path: Path, data: object) -> None:
 
 
 def audit_extracted_reports(output_dir: Path, pdf_hash: str | None = None,
-                            stock_code: str | None = None) -> list[dict]:
-    """Audit ExtractOK rows and persist details and stages by PDF hash."""
+                            stock_code: str | None = None,
+                            *, retry: bool = False) -> list[dict]:
+    """Audit queued extraction rows and persist details and stages by hash."""
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     results = []
     with LineItemStorage() as storage:
-        rows = (storage.get_extracted_reports(pdf_hash=pdf_hash, stock_code=stock_code)
-                if stock_code else storage.get_extracted_reports(pdf_hash=pdf_hash))
+        rows = storage.get_extracted_reports(
+            pdf_hash=pdf_hash,
+            stock_code=stock_code,
+            retry=retry,
+        )
         write_json(output_dir / "audit.json", results)
         for index, row in enumerate(rows, 1):
             entry = {"pdf_hash": row["pdf_hash"], "file": row["local_path"],
@@ -177,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hash", dest="pdf_hash",
                         help="Audit one registered PDF by its hash, regardless of stage")
     parser.add_argument("--stock_code", help="Audit only reports for this stock code")
+    parser.add_argument("--retry", action="store_true",
+                        help="Retry reports currently at the AuditIssues stage")
     parser.add_argument("--cached", action="store_true",
                         help="Trust saved extraction_report.json results; extract only uncached PDFs")
     parser.add_argument("--fail-on-issues", action="store_true",
@@ -192,8 +195,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         if args.cached:
             parser.error("--cached requires --input-dir; database mode always uses stored extractions")
+        if args.retry and args.pdf_hash:
+            parser.error("--retry cannot be combined with --hash")
         results = audit_extracted_reports(args.output_dir, pdf_hash=args.pdf_hash,
-                                          stock_code=args.stock_code)
+                                          stock_code=args.stock_code, retry=args.retry)
         if args.pdf_hash and not results:
             print(f"No report found for PDF hash {args.pdf_hash}")
             return 1

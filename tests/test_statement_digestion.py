@@ -5,9 +5,10 @@ import json
 import unittest
 from unittest.mock import patch
 
-import digest_income_statement as income
-import digest_cash_flow_statement as cash
+import digest_is as income
+import digest_cf as cash
 from line_item_chart import LineItemChart
+from statement_digestion import normalize_label, parse_statement
 
 
 class StatementDigestionTests(unittest.TestCase):
@@ -54,6 +55,23 @@ class StatementDigestionTests(unittest.TestCase):
             self.assertEqual(items[422503]["statement_amount"], "3")
             self.assertFalse(any(check.get("item_id") in (4225, 44, 59) for check in result["checks"]))
             self.assertTrue(all(check["passed"] for check in result["checks"]))
+
+    def test_leading_financial_asset_marker_is_ignored(self):
+        for label in ("☆交易性金融资产", "☆其他债权投资", "☆债权投资", "☆其他非流动金融资产"):
+            with self.subTest(label=label):
+                self.assertEqual(normalize_label(label), label[1:])
+
+    def test_other_comprehensive_income_legacy_labels_are_mapped(self):
+        markdown = "\n".join((
+            "| 项目 | 本期 | 上期 |",
+            "| --- | --- | --- |",
+            "| （一）以后不能重分类进损益的 其他综合收益 | 1 |  |",
+            "| 2.权益法下在被投资单位不 能重分类进损益的其他综合收益中 享有的份额 | 2 |  |",
+        ))
+        state = parse_statement(markdown, self.chart, "income_statement")
+        self.assertEqual(state.amounts[570101], Decimal("1"))
+        self.assertEqual(state.amounts[57010103], Decimal("2"))
+        self.assertEqual(state.unmapped_rows, [])
 
     def test_income_each_required_total_and_tax_dependency(self):
         for item_id in (*income.REQUIRED_IDS, 55):
@@ -115,12 +133,42 @@ class StatementDigestionTests(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertTrue(any("minority-interest" in issue for issue in result["issues"]))
 
+    def test_rows_with_wrong_table_width_are_reported(self):
+        markdown = "\n".join((
+            "| 项目 | 本期 | 上期 |",
+            "| 营业总收入 | 100 | 100 |",
+            "| 营业收入 | 100 |",
+        ))
+        state = parse_statement(markdown, self.chart, "income_statement")
+        self.assertTrue(any("expected 3 table columns, got 2" in issue
+                            for issue in state.issues))
+
     def test_comprehensive_income_ownership_must_reconcile_even_when_total_matches(self):
         values = {**self.income, 5801: "285", 5803: "22"}
         result = self.check(income, "income_statement", values)
         self.assertFalse(result["passed"])
         self.assertTrue(any(check["check"] == "comprehensive_income_by_ownership" and not check["passed"]
                             for check in result["checks"]))
+
+    def test_blank_minority_comprehensive_total_is_derived_from_minority_profit(self):
+        values = {key: value for key, value in self.income.items()
+                  if not str(key).startswith(("56", "57", "58"))}
+        values.update({51: "369611314.60", 54: "369611314.60", 55: "0",
+                       56: "369611314.60", 560201: "370592915.28",
+                       560203: "-981600.68", 57: "0", 5801: "370592915.28",
+                       58: "369611314.60"})
+        result = self.check(income, "income_statement", values)
+        check = next(check for check in result["checks"]
+                     if check.get("item_id") == 5803)
+        self.assertTrue(check["passed"])
+        self.assertEqual(check["amount"], "-981600.68")
+        self.assertEqual(check["children_sum"], "-981600.68")
+
+    def test_blank_ownership_profit_does_not_crash_comprehensive_repair(self):
+        values = {**self.income, 560203: "", 5803: ""}
+        result = self.check(income, "income_statement", values)
+        self.assertFalse(result["passed"])
+        self.assertFalse(any("Unable to check report" in issue for issue in result["issues"]))
 
     def test_negative_financial_sector_cash_components_are_valid(self):
         result = self.check(cash, "cash_flow_statement", {**self.cash, 810103: "-5", 810125: "55"})
@@ -255,5 +303,6 @@ class StatementDigestionTests(unittest.TestCase):
         self.assertTrue(storage.store_statement_digestion.call_args.kwargs["allow_any_stage"])
         reports = [json.loads(line) for line in output.getvalue().splitlines() if line.startswith("{")]
         self.assertFalse(reports[0]["passed"])
-        self.assertTrue(reports[1]["passed"])
+        self.assertEqual(len(reports), 1)
+        self.assertIn(":" + " PASS", output.getvalue())
         self.assertTrue(all("items" not in report for report in reports))

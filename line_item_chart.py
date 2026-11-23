@@ -36,6 +36,11 @@ class LineItemChart:
                     continue
 
                 content = raw_line.rstrip("\r\n")
+                # The chart file may include a Markdown statement sample after
+                # the definitions. Only the pipe-delimited chart records before
+                # that sample belong to the line-item chart.
+                if content.startswith("# ") and "|" not in content:
+                    break
                 fields = content.split("|")
                 if len(fields) != 3:
                     raise ValueError(

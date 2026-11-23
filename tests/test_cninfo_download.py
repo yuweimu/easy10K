@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import ANY, patch
 
 from cninfo_download import (cninfo_pdf_urls, download_reports, extract_local_report_metadata,
-                             find_org_id, main)
+                             find_org_id, local_report_filename, main)
 
 
 class CNInfoDownloadTests(unittest.TestCase):
@@ -25,6 +25,12 @@ class CNInfoDownloadTests(unittest.TestCase):
         self.assertEqual(
             extract_local_report_metadata("reports/cninfo/no-code/report.pdf"),
             (None, None),
+        )
+
+    def test_yearless_filename_is_distinct(self):
+        self.assertEqual(
+            local_report_filename("601225-2024年年度报告", yearless=True),
+            "601225-2024年年度报告-yearless.pdf",
         )
 
     @patch("cninfo_download.download_pdf")
@@ -92,6 +98,27 @@ class CNInfoDownloadTests(unittest.TestCase):
         self.storage.store_downloaded_report.assert_called_once()
         self.assertIn("Enrolled local PDF", output.getvalue())
 
+    def test_enroll_only_skips_pdf_already_marked_deprecated(self):
+        self.storage.get_report_digestion_stage.return_value = "Deprecated"
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as root, redirect_stdout(output), redirect_stderr(io.StringIO()):
+            directory = Path(root) / "300750"
+            directory.mkdir()
+            (directory / "2024年一季报.pdf").write_bytes(b"PDF")
+            url = "https://example.com/report.pdf"
+            (directory / "download_reports.json").write_text(json.dumps({
+                "stock_code": "300750", "downloads": {url: {
+                    "title": "2024年一季报", "download_url": url,
+                    "file": "2024年一季报.pdf", "status": "DOWNLOADED",
+                }}}, ensure_ascii=False))
+            self.assertEqual(main(["300750", "--output-dir", root, "--enroll-only"]), 0)
+            entry = json.loads((directory / "download_reports.json").read_text(encoding="utf-8"))["downloads"][url]
+        self.storage.store_downloaded_report.assert_not_called()
+        self.storage.update_report_digestion_stage.assert_not_called()
+        self.assertEqual(entry["status"], "DEPRECATED")
+        self.assertEqual(entry["skip_reason"], "Already Deprecated")
+        self.assertIn("Skipping Deprecated PDF", output.getvalue())
+
     @patch("cninfo_download.cninfo_pdf_urls", return_value=[])
     def test_missing_file_and_incomplete_listing_do_not_skip_query(self, reports):
         output = io.StringIO()
@@ -147,6 +174,29 @@ class CNInfoDownloadTests(unittest.TestCase):
         rows = list(cninfo_pdf_urls("300750", "GD165627"))
         self.assertEqual([row["download_url"] for row in rows],
                          ["https://static.cninfo.com.cn/report.pdf"])
+
+    @patch("cninfo_download.post_json")
+    def test_yearless_full_reports_are_year_qualified(self, post):
+        post.return_value = {"totalAnnouncement": 3, "announcements": [
+            {"announcementTitle": "年报全文", "adjunctUrl": "annual.pdf",
+             "announcementTime": 1745596800000},  # 2025-04-26 -> 2024 fiscal year
+            {"announcementTitle": "半年度报告全文", "adjunctUrl": "semiannual.pdf",
+             "announcementTime": 1724947200000},  # 2024-08-30
+            {"announcementTitle": "季报全文", "adjunctUrl": "quarterly.pdf",
+             "announcementTime": 1604073600000},  # 2020-10-31 -> Q3
+        ]}
+
+        rows = list(cninfo_pdf_urls("601225", "9900023204"))
+
+        self.assertEqual([row["title"] for row in rows], [
+            "601225-2024年年度报告",
+            "601225-2024年半年度报告",
+            "601225-2020年第三季度报告",
+        ])
+        self.assertTrue(all(row["yearless"] for row in rows))
+        self.assertEqual([row["source_title"] for row in rows], [
+            "年报全文", "半年度报告全文", "季报全文",
+        ])
 
     @patch("cninfo_download.post_json")
     def test_english_version_titles_are_excluded(self, post):

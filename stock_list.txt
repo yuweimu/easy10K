@@ -1,7 +1,6 @@
 605499 东鹏饮料 # enrolled
 600549 厦门钨业 # DOWNLOADED
 000568 泸州老窖 # enrolled
-603338 浙江鼎力 # DOWNLOADED
 688262 国芯科技 # DOWNLOADED
 000702 正虹科技 # DOWNLOADED
 301119 正强股份 # DOWNLOADED
@@ -17,7 +16,6 @@
 002577 雷柏科技 # DOWNLOADED
 002453 华软科技 # DOWNLOADED
 688239 航宇科技 # ERROR
-300308 中际旭创 # DOWNLOADED
 600519 贵州茅台 # enrolled
 688825 长鑫科技 # ERROR
 603439 三力制药 # ERROR
@@ -105,4 +103,26 @@
 002867 周大生 # enrolled 
 601899 紫金矿业 # enrolled-error 
 300124 汇川技术 # enrolled
-600900 长江电力 # enrolled-working
+600900 长江电力 # enrolled
+
+000895 双汇发展 # enrolled
+603338 浙江鼎力 # enrolled
+301061 匠心家居 # enrolled
+600750 华润江中 # enrolled
+
+603444 吉比特 # enrolled
+300770 新媒股份 # enrolled
+002884 凌霄泵业 # enrolled
+601225 陕西煤业 # enrolled
+
+300308 中际旭创 # enrolled-error
+688581 安杰思 # enrolled
+688578 艾力斯 # enrolled
+002028 思源电气 # enrolled-working
+
+605599 菜百股份 # enrolled
+688334 西高院 # enrolled
+603565 中谷物流 # enrolled
+002262 恩华药业 # enrolled
+
+688188 柏楚电子 # enrolled

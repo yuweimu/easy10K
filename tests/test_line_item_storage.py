@@ -140,6 +140,14 @@ class LineItemStorageTests(unittest.TestCase):
         self.connection.commit.assert_not_called()
         self.connection.close.assert_called_once()
 
+    def test_get_reports_at_FileOK_can_retry_extraction_errors(self):
+        self.cursor.fetchall.return_value = []
+        with LineItemStorage("postgresql://test") as storage:
+            storage.get_reports_at_FileOK(retry=True)
+        self.cursor.execute.assert_called_once_with(
+            "SELECT pdf_hash, local_path, stock_code, reporting_date FROM report_digestion "
+            "WHERE digestion_stage = %s ORDER BY pdf_hash", ("ExtractErr",))
+
     def test_get_report_by_hash_reads_registered_report(self):
         self.cursor.fetchone.return_value = ("hash", "reports/report.pdf", "600519", date(2025, 12, 31))
         with LineItemStorage("postgresql://test") as storage:

@@ -2,16 +2,30 @@ import tempfile
 import hashlib
 from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 import json
 from unittest.mock import call, patch
 
 import pymupdf
 
-from extract import STATEMENTS, Statement, ReportExtraction, clean_rows, extract_report, statement_title, main
+from extract import (STATEMENTS, Statement, ReportExtraction, _recover_blank_table_rows, clean_rows,
+                     detect_statement_title as statement_title, extract_report, main)
 
 
 class PDFExtractTests(unittest.TestCase):
+    def test_recover_blank_strict_table_row_from_relaxed_extraction(self):
+        strict_row = SimpleNamespace(bbox=(0, 10, 100, 20))
+        relaxed_row = SimpleNamespace(bbox=(0, 10, 100, 20))
+        strict_table = SimpleNamespace(bbox=(0, 0, 100, 30), rows=[strict_row])
+        relaxed_table = SimpleNamespace(bbox=(0, 0, 100, 30), rows=[relaxed_row])
+        result = _recover_blank_table_rows(
+            "balance_sheet",
+            [(strict_table, [["资本公积", "", ""]])],
+            [(relaxed_table, [["资本公积", "1,752,043,671.89", "1,720,618,162.56"]])],
+        )
+        self.assertEqual(result[0][1][0][1:], ["1,752,043,671.89", "1,720,618,162.56"])
+
     def test_cli_queries_downloaded_reports_without_path_arguments(self):
         with patch("extract.extract_report", return_value=ReportExtraction(
                 "reports/report.pdf", pdf_hash="registered",
@@ -30,6 +44,15 @@ class PDFExtractTests(unittest.TestCase):
             extract.assert_called_once_with(Path("reports/report.pdf").resolve())
             storage.get_report_digestion_stage.assert_not_called()
             self.assertEqual(storage.store_extracted_report.call_args.args[0], "registered")
+
+    def test_cli_retry_queries_extract_errors(self):
+        with patch("extract.LineItemStorage") as factory, patch("builtins.print") as output, \
+                patch("sys.argv", ["extract.py", "--retry"]):
+            storage = factory.return_value.__enter__.return_value
+            storage.get_reports_at_FileOK.return_value = []
+            self.assertEqual(main(), 0)
+            storage.get_reports_at_FileOK.assert_called_once_with(stock_code=None, retry=True)
+            output.assert_called_once_with("No reports at ExtractErr stage.")
 
     def test_cli_marks_metadata_mismatch_as_extraction_error(self):
         with patch("extract.extract_report", return_value=ReportExtraction(
@@ -751,7 +774,23 @@ class PDFExtractTests(unittest.TestCase):
         self.assertEqual(clean_rows([["", "项目", "", "金额"],
                                      [None, "现金", None, None]]),
                          [["项目", "金额"], ["现金", ""]])
+        self.assertEqual(clean_rows([["项目", "", "本期", "上期"],
+                                     ["现金", "", "1", "2"]],
+                                    table_width=4),
+                         [["项目", "", "本期", "上期"], ["现金", "", "1", "2"]])
         self.assertEqual(clean_rows([]), [])
+
+    def test_continuation_rows_merge_before_digestion(self):
+        cases = (
+            ("balance_sheet", "负债和所有者权益（或股东权", "益）总计", ["1", "2"]),
+            ("income_statement", "手续费及佣", "金收入", ["1", "2", "3", "4"]),
+            ("cash_flow_statement", "销售商品、提供劳", "务收到的现金", ["1", "2"]),
+        )
+        for statement, first, second, amounts in cases:
+            with self.subTest(statement=statement):
+                rows = clean_rows([[first, *amounts], [second, *([""] * len(amounts))]],
+                                  statement=statement)
+                self.assertEqual(rows, [[first + second, *amounts]])
 
     def test_accounting_signoffs_end_statement_before_parent_content(self):
         for signoff in ("主管会计工作负责人：张三", " 会计机构负责人：李四"):
