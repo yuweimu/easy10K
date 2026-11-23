@@ -91,14 +91,18 @@ def write_json(path: Path, data: object) -> None:
 
 
 def audit_extracted_reports(output_dir: Path, pdf_hash: str | None = None,
-                            stock_code: str | None = None) -> list[dict]:
-    """Audit ExtractOK rows and persist details and stages by PDF hash."""
+                            stock_code: str | None = None,
+                            *, retry: bool = False) -> list[dict]:
+    """Audit queued extraction rows and persist details and stages by hash."""
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     results = []
     with LineItemStorage() as storage:
-        rows = (storage.get_extracted_reports(pdf_hash=pdf_hash, stock_code=stock_code)
-                if stock_code else storage.get_extracted_reports(pdf_hash=pdf_hash))
+        rows = storage.get_extracted_reports(
+            pdf_hash=pdf_hash,
+            stock_code=stock_code,
+            retry=retry,
+        )
         write_json(output_dir / "audit.json", results)
         for index, row in enumerate(rows, 1):
             entry = {"pdf_hash": row["pdf_hash"], "file": row["local_path"],
@@ -174,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hash", dest="pdf_hash",
                         help="Audit one registered PDF by its hash, regardless of stage")
     parser.add_argument("--stock_code", help="Audit only reports for this stock code")
+    parser.add_argument("--retry", action="store_true",
+                        help="Retry reports currently at the AuditIssues stage")
     parser.add_argument("--cached", action="store_true",
                         help="Trust saved extraction_report.json results; extract only uncached PDFs")
     parser.add_argument("--fail-on-issues", action="store_true",
@@ -189,8 +195,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         if args.cached:
             parser.error("--cached requires --input-dir; database mode always uses stored extractions")
+        if args.retry and args.pdf_hash:
+            parser.error("--retry cannot be combined with --hash")
         results = audit_extracted_reports(args.output_dir, pdf_hash=args.pdf_hash,
-                                          stock_code=args.stock_code)
+                                          stock_code=args.stock_code, retry=args.retry)
         if args.pdf_hash and not results:
             print(f"No report found for PDF hash {args.pdf_hash}")
             return 1

@@ -414,8 +414,9 @@ class LineItemStorage:
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
     def get_extracted_reports(self, pdf_hash: str | None = None,
-                              stock_code: str | None = None) -> list[dict]:
-        """Read extraction inputs, optionally selecting one PDF by hash."""
+                              stock_code: str | None = None,
+                              *, retry: bool = False) -> list[dict]:
+        """Read extraction inputs, optionally retrying AuditIssues reports."""
         fields = ("pdf_hash", "local_path", "extraction_report")
         with self._connect().cursor() as cursor:
             conditions = []
@@ -425,7 +426,7 @@ class LineItemStorage:
                 parameters.append(pdf_hash)
             else:
                 conditions.append("digestion_stage = %s")
-                parameters.append("ExtractOK")
+                parameters.append("AuditIssues" if retry else "ExtractOK")
             if stock_code:
                 conditions.append("stock_code = %s")
                 parameters.append(stock_code)

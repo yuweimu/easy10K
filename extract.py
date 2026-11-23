@@ -9,6 +9,7 @@ Amounts remain strings so their original precision and units are preserved.
 import argparse
 from contextlib import redirect_stdout
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import os
@@ -397,6 +398,49 @@ class ReportExtraction:
     warnings: list[str] = field(default_factory=list)
 
 
+def _reconcile_income_tax_benefit(statement: Statement | None) -> None:
+    """Make a printed tax benefit negative when statement totals prove it."""
+    if statement is None or "利润表" not in statement.title:
+        return
+
+    def compact_label(row: list[str]) -> str:
+        return normalize_label(re.sub(r"\s+", "", row[0])) if row else ""
+
+    def find_row(prefix: str) -> list[str] | None:
+        return next((row for row in statement.rows
+                     if compact_label(row).startswith(prefix)), None)
+
+    pretax = find_row("利润总额")
+    tax = find_row("所得税费用")
+    net = find_row("净利润")
+    if not pretax or not tax or not net:
+        return
+
+    def parse(value: str) -> Decimal | None:
+        value = re.sub(r"\s+", "", value).replace(",", "")
+        if not value:
+            return None
+        parenthesized = value.startswith(("(", "（")) and value.endswith((")", "）"))
+        if parenthesized:
+            value = value[1:-1]
+        value = value.replace("−", "-").replace("－", "-")
+        try:
+            amount = Decimal(value)
+        except InvalidOperation:
+            return None
+        return -amount if parenthesized else amount
+
+    for column in range(1, min(len(pretax), len(tax), len(net))):
+        pretax_value = parse(pretax[column])
+        tax_value = parse(tax[column])
+        net_value = parse(net[column])
+        if (pretax_value is None or tax_value is None or net_value is None
+                or tax_value <= 0):
+            continue
+        if net_value == pretax_value + tax_value:
+            tax[column] = "-" + tax[column].strip()
+
+
 def page_text_lines(page: pymupdf.Page) -> list[tuple[tuple[float, float, float, float], str]]:
     """Read text lines in the same visual order on each page."""
     lines = []
@@ -562,6 +606,7 @@ def extract_report(pdf_path: str | Path) -> ReportExtraction:
                 active = _start_statement(result, active, title)
                 top = bbox[3]
             active = _collect_statement_region(page, page_number, lines, active, result, top, page.rect.height)
+    _reconcile_income_tax_benefit(result.income_statement)
     result.reporting_date = result.balance_sheet_reporting_date or result.title_reporting_date
     if result.balance_sheet_reporting_date and result.title_reporting_date:
         result.reporting_dates_match = result.balance_sheet_reporting_date == result.title_reporting_date
