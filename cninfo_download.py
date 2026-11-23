@@ -515,6 +515,79 @@ def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
     return int(failed)
 
 
+def enroll_unlogged_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
+    """Enroll PDF files present locally but absent from the download log."""
+    directory = Path(output_dir) / stock_code
+    if not directory.is_dir():
+        return 0
+    log_path = directory / "download_reports.json"
+    if log_path.is_file():
+        log = json.loads(log_path.read_text(encoding="utf-8"))
+    else:
+        log = {"stock_code": stock_code, "downloads": {}}
+    if (not isinstance(log, dict) or log.get("stock_code") != stock_code
+            or not isinstance(log.get("downloads"), dict)):
+        raise ValueError(f"Invalid download report log: {log_path}")
+    entries = log["downloads"]
+    logged_files = {
+        entry.get("file") for entry in entries.values()
+        if isinstance(entry, dict) and isinstance(entry.get("file"), str)
+    }
+    candidates = sorted(
+        (path for path in directory.glob("*.pdf") if path.name not in logged_files),
+        key=lambda path: path.name.casefold(),
+    )
+    if not candidates:
+        return 0
+
+    failed_count = 0
+    enrolled_count = 0
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise RuntimeError("DATABASE_URL is not configured")
+        for destination in candidates:
+            local_url = f"local://{stock_code}/{destination.name}"
+            entry = {
+                "title": destination.stem,
+                "download_url": local_url,
+                "file": destination.name,
+                "attempts": 0,
+                "local_only": True,
+            }
+            entries[local_url] = entry
+            local_stock_code, reporting_date = extract_local_report_metadata(destination)
+            pdf_creation_time = extract_pdf_creation_time(destination)
+            entry.update(
+                stock_code=local_stock_code, reporting_date=reporting_date,
+                pdf_creation_time=pdf_creation_time or reporting_date,
+                local_path=str(destination.resolve()), status="DOWNLOADED",
+            )
+            try:
+                with destination.open("rb") as pdf:
+                    entry["pdf_hash"] = file_digest(pdf, lambda: md5(usedforsecurity=False)).hexdigest()
+                if is_deprecated_report(storage, entry["pdf_hash"]):
+                    entry.update(status="DEPRECATED", skip_reason="Already Deprecated")
+                    print(f"Skipping Deprecated local PDF: {destination}", flush=True)
+                else:
+                    storage.store_downloaded_report(
+                        entry["pdf_hash"], local_url, entry["local_path"],
+                        stock_code=local_stock_code, reporting_date=reporting_date,
+                        pdf_creation_date=pdf_creation_time or reporting_date,
+                        download_report=json.dumps(entry, ensure_ascii=False, sort_keys=True),
+                    )
+                    entry["status"] = "DONE"
+                    enrolled_count += 1
+                    print(f"Enrolling local PDF: {destination}", flush=True)
+            except Exception as error:
+                failed_count += 1
+                entry.update(status="ERROR", error_stage="enrollment", error=str(error))
+                print(f"Unable to enroll local PDF {destination}: {error}", file=sys.stderr, flush=True)
+            entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+            save_download_log(log_path, log)
+    print(f"Local enrollment: {enrolled_count} enrolled, {failed_count} failed", flush=True)
+    return int(failed_count)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stock_code", help="Six-digit stock code, e.g. 300750")
@@ -534,6 +607,8 @@ def main(argv=None):
             raise ValueError("Stock code must contain exactly six digits")
         if args.enroll_only:
             return enroll_local_reports(args.stock_code, args.output_dir)
+        if not args.urls_only and enroll_unlogged_local_reports(args.stock_code, args.output_dir):
+            return 1
         cached = None if args.refresh else completed_downloads(args.stock_code, args.output_dir)
         if cached is not None:
             if args.urls_only:

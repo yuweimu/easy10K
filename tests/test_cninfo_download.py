@@ -120,6 +120,26 @@ class CNInfoDownloadTests(unittest.TestCase):
         self.assertIn("Skipping Deprecated PDF", output.getvalue())
 
     @patch("cninfo_download.cninfo_pdf_urls", return_value=[])
+    def test_main_enrolls_unlogged_local_pdf(self, reports):
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as root, redirect_stdout(output), redirect_stderr(io.StringIO()):
+            directory = Path(root) / "603444"
+            directory.mkdir()
+            filename = "吉比特2025年第三季度报告.pdf"
+            (directory / filename).write_bytes(b"PDF")
+            (directory / "download_reports.json").write_text(json.dumps({
+                "stock_code": "603444", "downloads": {},
+            }, ensure_ascii=False))
+            self.assertEqual(main(["603444", "--output-dir", root]), 0)
+            log = json.loads((directory / "download_reports.json").read_text(encoding="utf-8"))
+        reports.assert_not_called()
+        self.storage.store_downloaded_report.assert_called_once()
+        self.assertIn("Enrolling local PDF", output.getvalue())
+        entry = log["downloads"]["local://603444/" + filename]
+        self.assertEqual(entry["status"], "DONE")
+        self.assertEqual(entry["reporting_date"], "2025-09-30")
+
+    @patch("cninfo_download.cninfo_pdf_urls", return_value=[])
     def test_missing_file_and_incomplete_listing_do_not_skip_query(self, reports):
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as root, redirect_stdout(output), redirect_stderr(io.StringIO()):
