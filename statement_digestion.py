@@ -6,6 +6,19 @@ import re
 
 from digest_bs import check_report_metadata, clean_cell, parse_amount, select_amount_column
 from digest_cli import print_equation, run_digest_cli
+from item_ids import (
+    ASSET_DISPOSAL_INCOME_ID, ASSET_IMPAIRMENT_LOSS_ID, CREDIT_IMPAIRMENT_ID,
+    FAIR_VALUE_CHANGE_ID, INVESTMENT_INCOME_ID, OTHER_COMPREHENSIVE_GROUP_CURRENT_ID,
+    OTHER_COMPREHENSIVE_GROUP_NONCONTROLLING_ID, OTHER_COMPREHENSIVE_INCOME_ID,
+    NET_PROFIT_OWNERSHIP_CURRENT_ID, OPERATING_COST_ID,
+    COMPREHENSIVE_INCOME_OWNERS_ID, INTEREST_INCOME_ID, FINANCE_INCOME_ID,
+    FINANCE_INCOME_DETAIL_ID, ASSET_DISPOSAL_LOSS_ID,
+    OTHER_OPERATING_INCOME_ID,
+    EPS_ID, EPS_DILUTED_ID, PER_SHARE_ITEMS_ID,
+    OPERATING_REVENUE_ID, COMPREHENSIVE_INCOME_ID, OPERATING_PROFIT_ID,
+    OPERATING_REVENUE_DETAIL_ID, CASH_FLOW_NET_PARENTS, CLOSING_CASH_ID,
+    NET_PROFIT_OPERATIONS_ID, NET_PROFIT_OWNERSHIP_ID,
+)
 from line_item_chart import LineItem, LineItemChart
 from line_item_storage import LineItemStorage
 from statement_parsing import split_cells
@@ -37,13 +50,18 @@ def normalize_label(text):
     label = re.sub(r"^(?:其中|加|减)[：:]", "", label)
     label = re.sub(r"（减少）", "", label)
     label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*）$", "", label)
+    label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*$", "", label)
     label = re.sub(r"（(?:人民币)?元(?:/股)?）", "", label)
     return label.rstrip("：:")
 
 
 def parse_statement(markdown, chart, statement):
     state = ParsedStatement()
-    allowed = lambda item_id: 41 <= int(str(item_id)[:2]) <= 59 if statement == "income_statement" else 81 <= int(str(item_id)[:2]) <= 87
+    allowed = lambda item_id: (int(str(OPERATING_REVENUE_ID)[:2])
+                               <= int(str(item_id)[:2]) <= int(str(PER_SHARE_ITEMS_ID)[:2])
+                               if statement == "income_statement" else
+                               int(str(CASH_FLOW_NET_PARENTS[0])[:2])
+                               <= int(str(item_id)[:2]) <= int(str(CLOSING_CASH_ID)[:2]))
     names = {name: item for name, item in chart.items.items() if allowed(item.item_id)}
 
     def find_item(label):
@@ -53,10 +71,12 @@ def parse_statement(markdown, chart, statement):
                          if normalize_label(name).startswith(normalize_label(label))), None)
         return item
 
-    aliases = {"归属于母公司所有者的净利润": 560201, "归属于母公司所有者的其他综合收益的税后净额": 5701,
-               "归属于母公司股东的其他综合收益的税后净额": 5701,
-               "归属于母公司股东的综合收益总额": 5801,
-               "投资损失": 44, "公允价值变动损失": 47, "资产处置损失": 50}
+    aliases = {"归属于母公司所有者的净利润": NET_PROFIT_OWNERSHIP_CURRENT_ID,
+               "归属于母公司所有者的其他综合收益的税后净额": OTHER_COMPREHENSIVE_INCOME_ID,
+               "归属于母公司股东的其他综合收益的税后净额": OTHER_COMPREHENSIVE_INCOME_ID,
+               "归属于母公司股东的综合收益总额": COMPREHENSIVE_INCOME_OWNERS_ID,
+               "投资损失": INVESTMENT_INCOME_ID, "公允价值变动损失": FAIR_VALUE_CHANGE_ID,
+               "资产处置损失": ASSET_DISPOSAL_INCOME_ID}
     amount_column, finance_details, oci_group = 1, False, None
     in_operating_costs = False
     previous_label = previous_full_name = ""
@@ -103,14 +123,18 @@ def parse_statement(markdown, chart, statement):
             continue
         if not label or re.fullmatch(r"[:\-]+", label):
             continue
-        item = find_item(label)
+        # Section headings such as "投资活动产生的现金流量：" are prefixes
+        # of the corresponding "...现金流量净额" item, but are not rows with
+        # an amount. Do not let prefix matching turn their placeholder into 0.
+        item = None if label.endswith("产生的现金流量") else find_item(label)
         item_id = item.item_id if item else aliases.get(label) if statement == "income_statement" else None
         if statement == "income_statement":
             if label == "资产减值损失" and in_operating_costs:
-                item_id = 4227
+                item_id = ASSET_IMPAIRMENT_LOSS_ID
             if label == "利息收入" and finance_details:
-                item_id = 422503
-            elif label == "其他" and oci_group in (570101, 570103):
+                item_id = INTEREST_INCOME_ID
+            elif label == "其他" and oci_group in (OTHER_COMPREHENSIVE_GROUP_CURRENT_ID,
+                                                    OTHER_COMPREHENSIVE_GROUP_NONCONTROLLING_ID):
                 column = statement_amount_column(cells)
                 amount_text = clean_cell(cells[column]) if len(cells) > column else ""
                 try:
@@ -119,14 +143,15 @@ def parse_statement(markdown, chart, statement):
                     amount = None
                 if amount is not None and amount != 0:
                     item_id = dynamic_other_item(oci_group)
-            if item_id in (4225, 422501, 422503):
+            if item_id in (FINANCE_INCOME_ID, FINANCE_INCOME_DETAIL_ID, INTEREST_INCOME_ID):
                 finance_details = True
             elif item_id is not None:
                 finance_details = False
-            if item_id in (570101, 570103):
+            if item_id in (OTHER_COMPREHENSIVE_GROUP_CURRENT_ID,
+                           OTHER_COMPREHENSIVE_GROUP_NONCONTROLLING_ID):
                 oci_group = item_id
             in_operating_costs = item_id is not None and (
-                item_id == 42 or str(item_id).startswith("42")
+                item_id == OPERATING_COST_ID or str(item_id).startswith(str(OPERATING_COST_ID))
             )
         if item_id is None:
             continuation = (previous_full_name.startswith(previous_label + label)
@@ -156,14 +181,17 @@ def parse_statement(markdown, chart, statement):
         try:
             amount = parse_amount(cells[column])
         except ValueError as error:
-            state.issues.append(f"Line {number}: {label}: {error}")
-            continue
+            if item_id in (EPS_ID, EPS_DILUTED_ID) and clean_cell(cells[column]) in {"不适用", "不适用。"}:
+                amount = None
+            else:
+                state.issues.append(f"Line {number}: {label}: {error}")
+                continue
         if item_id in state.amounts and state.amounts[item_id] is not None:
             if amount is not None and amount != state.amounts[item_id]:
                 state.issues.append(f"Conflicting amounts for item {item_id}: {state.amounts[item_id]} and {amount}")
             continue
         state.amounts[item_id], state.labels[item_id] = amount, label
-        if item_id in (43, 44, 45, 46, 47, 48, 49, 50):
+        if item_id in range(OTHER_OPERATING_INCOME_ID, ASSET_DISPOSAL_INCOME_ID + 1):
             state.signs[item_id] = (1 if raw.startswith(("加：", "加:")) else
                                     -1 if raw.startswith(("减：", "减:")) or "损失" in label
                                     and "损失以" not in raw else 1)
@@ -226,7 +254,7 @@ def resolve_shifted_amounts(state, equations, required_ids, absolute_tolerance, 
 
 def check_statement(row, chart, statement, required_ids, equation_builder, *,
                     absolute_tolerance=Decimal("0.01"), relative_tolerance=Decimal("0.0001"),
-                    required_numeric_ids=(), emit_equations=True):
+                    required_numeric_ids=()):
     result = {"pdf_hash": row["pdf_hash"], "statement": statement, "passed": False, "issues": [],
               "checks": [], "unmapped_rows": [], "items": [],
               "tolerance": {"absolute_statement_units": str(absolute_tolerance), "relative": str(relative_tolerance)}}
@@ -254,7 +282,7 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
     for equation in equations:
         check = evaluate_equation(equation, state, absolute_tolerance, relative_tolerance)
         result["checks"].append(check)
-        if emit_equations or not check["passed"]:
+        if not check["passed"]:
             expression = " + ".join(f"{sign} × {state.amounts.get(item_id) or 0}({chart._items_by_id[item_id].name}, {item_id})"
                                     for item_id, sign in equation.terms)
             print_equation(
@@ -266,9 +294,11 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
         if not check["passed"]:
             result["issues"].append(f"Item {equation.target} ({equation.name}): {check['amount']} differs from {check['children_sum']}"
                                      + (f"; missing {check['missing_item_ids']}" if check["missing_item_ids"] else ""))
-    per_share_ids = {5901, 5903} if statement == "income_statement" else set()
+    per_share_ids = {EPS_ID, EPS_DILUTED_ID} if statement == "income_statement" else set()
     for item_id, amount in state.amounts.items():
-        if amount is not None and item_id not in {5601, 5602, 59}:
+        if amount is not None and item_id not in {NET_PROFIT_OPERATIONS_ID,
+                                                   NET_PROFIT_OWNERSHIP_ID,
+                                                   PER_SHARE_ITEMS_ID}:
             result["items"].append({"item_id": item_id, "english_name": chart._items_by_id[item_id].english_name,
                                     "statement_amount": str(amount), "amount_unit": "元/股" if item_id in per_share_ids else "元",
                                     "amount": str(amount if item_id in per_share_ids else amount * multiplier) if multiplier else None})

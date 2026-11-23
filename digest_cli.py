@@ -34,6 +34,8 @@ def _print_result(row: dict, result: dict) -> None:
 def print_equation(pdf_hash: str, item_id: int, item_name: str,
                    amount, expression: str, total, difference, tolerance,
                    passed: bool) -> None:
+    if passed:
+        return None
     """Print one consistently formatted accounting equation."""
     status = "PASS" if passed else "FAIL"
     color = "32" if passed else "31"
@@ -87,7 +89,6 @@ def run_digest_cli(statement: str, check_report, load_rows, save_row, argv=None,
                     row, chart,
                     absolute_tolerance=args.absolute_tolerance,
                     relative_tolerance=args.relative_tolerance,
-                    emit_equations=True,
                 )
             except Exception as error:
                 result = {"pdf_hash": row["pdf_hash"], "statement": statement,

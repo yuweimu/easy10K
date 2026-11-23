@@ -8,7 +8,8 @@ from unittest.mock import call, patch
 
 import pymupdf
 
-from extract import STATEMENTS, Statement, ReportExtraction, clean_rows, extract_report, statement_title, main
+from extract import (STATEMENTS, Statement, ReportExtraction, clean_rows,
+                     detect_statement_title as statement_title, extract_report, main)
 
 
 class PDFExtractTests(unittest.TestCase):
@@ -30,6 +31,15 @@ class PDFExtractTests(unittest.TestCase):
             extract.assert_called_once_with(Path("reports/report.pdf").resolve())
             storage.get_report_digestion_stage.assert_not_called()
             self.assertEqual(storage.store_extracted_report.call_args.args[0], "registered")
+
+    def test_cli_retry_queries_extract_errors(self):
+        with patch("extract.LineItemStorage") as factory, patch("builtins.print") as output, \
+                patch("sys.argv", ["extract.py", "--retry"]):
+            storage = factory.return_value.__enter__.return_value
+            storage.get_reports_at_FileOK.return_value = []
+            self.assertEqual(main(), 0)
+            storage.get_reports_at_FileOK.assert_called_once_with(stock_code=None, retry=True)
+            output.assert_called_once_with("No reports at ExtractErr stage.")
 
     def test_cli_marks_metadata_mismatch_as_extraction_error(self):
         with patch("extract.extract_report", return_value=ReportExtraction(

@@ -61,6 +61,18 @@ class StatementDigestionTests(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertEqual(normalize_label(label), label[1:])
 
+    def test_other_comprehensive_income_legacy_labels_are_mapped(self):
+        markdown = "\n".join((
+            "| 项目 | 本期 | 上期 |",
+            "| --- | --- | --- |",
+            "| （一）以后不能重分类进损益的 其他综合收益 | 1 |  |",
+            "| 2.权益法下在被投资单位不 能重分类进损益的其他综合收益中 享有的份额 | 2 |  |",
+        ))
+        state = parse_statement(markdown, self.chart, "income_statement")
+        self.assertEqual(state.amounts[570101], Decimal("1"))
+        self.assertEqual(state.amounts[57010103], Decimal("2"))
+        self.assertEqual(state.unmapped_rows, [])
+
     def test_income_each_required_total_and_tax_dependency(self):
         for item_id in (*income.REQUIRED_IDS, 55):
             with self.subTest(item_id=item_id):

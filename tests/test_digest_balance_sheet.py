@@ -106,7 +106,7 @@ class DigestLineItemsTests(unittest.TestCase):
             ({110110: "0", 110111: "0", 110113: "0"}, "100", True),
             ({110110: "30", 110111: "10", 110113: ""}, "130", True),
             ({110110: "10", 110111: "10", 110113: ""}, "110", True),
-            ({110110: "", 110111: "10", 110113: "20"}, "100", True),
+            ({110110: "", 110111: "10", 110113: "20"}, "100", False),
         ):
             with self.subTest(extra=extra), redirect_stdout(io.StringIO()):
                 values = {**self.values, **extra, 1101: expected_sum, 11: str(Decimal(expected_sum) + 200)}

@@ -11,6 +11,7 @@ from types import TracebackType
 from typing import Literal, Self, get_args
 
 from dotenv import load_dotenv
+from item_ids import UNMAPPED_ITEM_ID
 
 
 # Resolve beside the program, independently of the working directory.
@@ -320,7 +321,7 @@ class LineItemStorage:
         amount: str | float | Decimal,
     ) -> None:
         """Upsert an item, excluding ignored IDs and unconfigured persistence."""
-        if item_id <= 0 or item_id == 99000001 or not self.database_url:
+        if item_id <= 0 or item_id == UNMAPPED_ITEM_ID or not self.database_url:
             return
         self._ensure_table()
         connection = self._connect()
@@ -399,13 +400,13 @@ class LineItemStorage:
             row = cursor.fetchone()
         return dict(zip(fields, row)) if row else None
 
-    def get_reports_at_FileOK(self, stock_code: str | None = None) -> list[dict]:
-        """Read registered PDFs awaiting extraction without modifying the database."""
+    def get_reports_at_FileOK(self, stock_code: str | None = None, *, retry: bool = False) -> list[dict]:
+        """Read PDFs awaiting extraction, optionally retrying ExtractErr reports."""
         fields = ("pdf_hash", "local_path", "stock_code", "reporting_date")
         with self._connect().cursor() as cursor:
             query = ("SELECT pdf_hash, local_path, stock_code, reporting_date FROM report_digestion "
                      "WHERE digestion_stage = %s")
-            parameters: tuple[object, ...] = ("FileOK",)
+            parameters: tuple[object, ...] = ("ExtractErr" if retry else "FileOK",)
             if stock_code:
                 query += " AND stock_code = %s"
                 parameters += (stock_code,)

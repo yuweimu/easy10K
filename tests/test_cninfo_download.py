@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import ANY, patch
 
 from cninfo_download import (cninfo_pdf_urls, download_reports, extract_local_report_metadata,
-                             find_org_id, main)
+                             find_org_id, local_report_filename, main)
 
 
 class CNInfoDownloadTests(unittest.TestCase):
@@ -25,6 +25,12 @@ class CNInfoDownloadTests(unittest.TestCase):
         self.assertEqual(
             extract_local_report_metadata("reports/cninfo/no-code/report.pdf"),
             (None, None),
+        )
+
+    def test_yearless_filename_is_distinct(self):
+        self.assertEqual(
+            local_report_filename("601225-2024年年度报告", yearless=True),
+            "601225-2024年年度报告-yearless.pdf",
         )
 
     @patch("cninfo_download.download_pdf")
@@ -147,6 +153,29 @@ class CNInfoDownloadTests(unittest.TestCase):
         rows = list(cninfo_pdf_urls("300750", "GD165627"))
         self.assertEqual([row["download_url"] for row in rows],
                          ["https://static.cninfo.com.cn/report.pdf"])
+
+    @patch("cninfo_download.post_json")
+    def test_yearless_full_reports_are_year_qualified(self, post):
+        post.return_value = {"totalAnnouncement": 3, "announcements": [
+            {"announcementTitle": "年报全文", "adjunctUrl": "annual.pdf",
+             "announcementTime": 1745596800000},  # 2025-04-26 -> 2024 fiscal year
+            {"announcementTitle": "半年度报告全文", "adjunctUrl": "semiannual.pdf",
+             "announcementTime": 1724947200000},  # 2024-08-30
+            {"announcementTitle": "季报全文", "adjunctUrl": "quarterly.pdf",
+             "announcementTime": 1604073600000},  # 2020-10-31 -> Q3
+        ]}
+
+        rows = list(cninfo_pdf_urls("601225", "9900023204"))
+
+        self.assertEqual([row["title"] for row in rows], [
+            "601225-2024年年度报告",
+            "601225-2024年半年度报告",
+            "601225-2020年第三季度报告",
+        ])
+        self.assertTrue(all(row["yearless"] for row in rows))
+        self.assertEqual([row["source_title"] for row in rows], [
+            "年报全文", "半年度报告全文", "季报全文",
+        ])
 
     @patch("cninfo_download.post_json")
     def test_english_version_titles_are_excluded(self, post):

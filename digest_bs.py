@@ -12,20 +12,27 @@ import re
 
 from line_item_chart import LineItem, LineItemChart
 from digest_cli import print_equation, run_digest_cli
+from item_ids import (
+    ASSETS_ID, CAPITAL_RESERVE_ID, CASH_ID, CURRENT_ASSETS_ID,
+    CURRENT_ASSETS_OTHER_DETAIL_ID, CURRENT_ASSETS_TOTAL_DETAIL_ID,
+    CURRENT_ASSETS_TOTAL_ID, CURRENT_ASSETS_AMBIGUOUS_IDS,
+    CURRENT_ASSETS_LOANS_ID, NONCURRENT_ASSETS_LOANS_ID,
+    CURRENT_LIABILITIES_AMBIGUOUS_IDS, EQUITY_ID, EQUITY_TOTAL_ID,
+    CURRENT_LIABILITIES_ID, LIABILITIES_ID, OTHER_EQUITY_DETAIL_ID,
+    OTHER_RECEIVABLES_ID, OTHER_EQUITY_TOTAL_ID,
+    RECEIVABLE_COMPONENT_IDS, RECEIVABLES_TOTAL_ID, RECEIVABLE_ACCOUNTS_ID,
+    RECEIVABLE_NOTES_ID, RETAINED_EARNINGS_ID, ROOT_ITEM_ID, SHARE_CAPITAL_ID,
+    TREASURY_STOCK_ID, UNMAPPED_ITEM_ID,
+)
 from line_item_storage import LineItemStorage
 from statement_parsing import split_cells
 
 
-REQUIRED_IDS = (11, 
-                1101, 110101, 110128, 
-                1102, 110231, 110242,
-                21, 2101, 
-                31, 3110, 311001, 311004, 311008)
-CURRENT_ASSETS_ID = 1101
-RECEIVABLES_TOTAL_ID = 110110
-RECEIVABLE_NOTES_ID = 110111
-RECEIVABLE_ACCOUNTS_ID = 110113
-RECEIVABLE_COMPONENT_IDS = (RECEIVABLE_NOTES_ID, RECEIVABLE_ACCOUNTS_ID)
+REQUIRED_IDS = (ASSETS_ID, CURRENT_ASSETS_ID, CASH_ID, OTHER_RECEIVABLES_ID,
+                CURRENT_ASSETS_TOTAL_ID, CURRENT_ASSETS_TOTAL_DETAIL_ID,
+                CURRENT_ASSETS_OTHER_DETAIL_ID, LIABILITIES_ID,
+                CURRENT_LIABILITIES_ID, EQUITY_ID, EQUITY_TOTAL_ID,
+                SHARE_CAPITAL_ID, CAPITAL_RESERVE_ID, OTHER_EQUITY_DETAIL_ID)
 UNITS = {"元": 1, "千元": 1000, "万元": 10000, "百万元": 1000000, "亿元": 100000000}
 NUMBER = re.compile(r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
 
@@ -116,6 +123,7 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
 
     lines = markdown.splitlines()
     table_width = None
+    asset_section = None
     for index, line in enumerate(lines):
         line_number = index + 1
         if not line.strip().startswith("|"):
@@ -140,9 +148,23 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
         if not label or re.fullmatch(r"[:\-]+", label):
             continue
         label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", label)
+        section_heading = label.rstrip().endswith(("：", ":"))
         label = label.rstrip("：:")
+        if label.startswith("流动资产") and "合计" not in label:
+            asset_section = "current"
+        elif label.startswith("非流动资产") and "合计" not in label:
+            asset_section = "noncurrent"
+        if section_heading and "合计" not in label and label.startswith((
+                "流动资产", "非流动资产", "流动负债", "非流动负债", "所有者权益",
+        )):
+            continue
         item = chart.get(label)
-        if item is None or item.item_id in (0, 99000001):
+        if label in ("发放贷款和垫款", "发放贷款及垫款"):
+            item = chart._items_by_id.get(
+                CURRENT_ASSETS_LOANS_ID if asset_section == "current"
+                else NONCURRENT_ASSETS_LOANS_ID
+            )
+        if item is None or item.item_id in (ROOT_ITEM_ID, UNMAPPED_ITEM_ID):
             continue_if_total = re.search(r"负债[和及].*权益.*总计", label)
             truncated_suffix = len(label) >= 3 and any(
                 len(name) > len(label) and name.endswith(label) for name in long_names)
@@ -201,7 +223,8 @@ def subtotal_child_options(parent_id: int, amounts: dict[int, Decimal],
     """Try both placements of interest/dividends receivable or payable."""
     children = subtotal_children(parent_id, amounts, reporting_date, present_items=present_items)
     options = [children]
-    ambiguous_items = {1101: (11012801, 11012802), 2101: (21013501, 21013502)}
+    ambiguous_items = {CURRENT_ASSETS_ID: CURRENT_ASSETS_AMBIGUOUS_IDS,
+                       CURRENT_LIABILITIES_ID: CURRENT_LIABILITIES_AMBIGUOUS_IDS}
     additional_children = [item_id for item_id in ambiguous_items.get(parent_id, ()) if item_id in amounts]
     if additional_children:
         options.append(children + additional_children)
@@ -222,7 +245,7 @@ def resolve_shifted_amounts(state: ParsedBalanceSheet, absolute_tolerance: Decim
             continue
         amounts = {item_id: amount for item_id, (_, amount) in parsed.items() if amount is not None}
         options = subtotal_child_options(parent_id, amounts, reporting_date, set(parsed))
-        totals = [sum((-abs(amounts[item_id]) if item_id == 311003 else amounts[item_id]
+        totals = [sum((-abs(amounts[item_id]) if item_id == TREASURY_STOCK_ID else amounts[item_id]
                        for item_id in children), Decimal(0)) for children in options]
         if any(abs(parent_amount - total) <= max(absolute_tolerance,
                relative_tolerance * max(abs(parent_amount), abs(total))) for total in totals):
@@ -232,7 +255,7 @@ def resolve_shifted_amounts(state: ParsedBalanceSheet, absolute_tolerance: Decim
             if not (shifted_items & (set(children) | {parent_id})):
                 continue
             for item_id in children:
-                contribution = -abs(amounts[item_id]) if item_id == 311003 else amounts[item_id]
+                contribution = -abs(amounts[item_id]) if item_id == TREASURY_STOCK_ID else amounts[item_id]
                 if item_id not in ambiguous_rows or contribution == 0:
                     continue
                 alternative = total - contribution
@@ -265,8 +288,7 @@ def check_required_items(parsed: dict[int, tuple[LineItem, Decimal | None]], res
 
 
 def check_parent_totals(row: dict, parsed: dict[int, tuple[LineItem, Decimal | None]],
-                        result: dict, absolute_tolerance: Decimal, relative_tolerance: Decimal,
-                        emit_equations: bool = True) -> None:
+                        result: dict, absolute_tolerance: Decimal, relative_tolerance: Decimal) -> None:
     """Validate subtotals and print their arithmetic equations."""
     issues, checks = result["issues"], result["checks"]
     amounts = {item_id: amount for item_id, (_, amount) in parsed.items() if amount is not None}
@@ -277,28 +299,27 @@ def check_parent_totals(row: dict, parsed: dict[int, tuple[LineItem, Decimal | N
             continue
         options = subtotal_child_options(parent_id, amounts, row.get("reporting_date"), set(parsed))
         def option_difference(children):
-            total = sum((-abs(amounts[item_id]) if item_id == 311003 else amounts[item_id]
+            total = sum((-abs(amounts[item_id]) if item_id == TREASURY_STOCK_ID else amounts[item_id]
                          for item_id in children), Decimal(0))
             tolerance = max(absolute_tolerance, relative_tolerance * max(abs(parent_amount), abs(total)))
             difference = abs(parent_amount - total)
             return (difference > tolerance, difference)
         children = min(options, key=option_difference)
-        if not children and parent_id != 110110:
+        if not children and parent_id != RECEIVABLES_TOTAL_ID:
             continue
-        child_amounts = [-abs(amounts[item_id]) if item_id == 311003 else amounts[item_id]
+        child_amounts = [-abs(amounts[item_id]) if item_id == TREASURY_STOCK_ID else amounts[item_id]
                          for item_id in children]
         total = sum(child_amounts, Decimal(0))
         difference = abs(parent_amount - total)
         tolerance = max(absolute_tolerance, relative_tolerance * max(abs(parent_amount), abs(total)))
         passed = difference <= tolerance
-        if emit_equations or not passed:
-            expression = " + ".join(
-                (f"({amount})" if amount < 0 else str(amount)) + f"({parsed[item_id][0].name}, {item_id})"
-                for item_id, amount in zip(children, child_amounts))
-            print_equation(
-                row["pdf_hash"], parent_id, parsed[parent_id][0].name,
-                parent_amount, expression, total, difference, tolerance, passed,
-            )
+        expression = " + ".join(
+            (f"({amount})" if amount < 0 else str(amount)) + f"({parsed[item_id][0].name}, {item_id})"
+            for item_id, amount in zip(children, child_amounts))
+        print_equation(
+            row["pdf_hash"], parent_id, parsed[parent_id][0].name,
+            parent_amount, expression, total, difference, tolerance, passed,
+        )
         checks.append({"check": "parent_sum", "item_id": parent_id, "children": sorted(children),
                        "amount": str(parent_amount), "children_sum": str(total),
                        "difference": str(difference), "tolerance": str(tolerance), "passed": passed})
@@ -319,7 +340,7 @@ def build_line_items(parsed: dict[int, tuple[LineItem, Decimal | None]], multipl
 
 def check_report(row: dict, chart: LineItemChart, *, absolute_tolerance: Decimal = Decimal("0.001"),
                  relative_tolerance: Decimal = Decimal("0.0001"),
-                 emit_equations: bool = True) -> dict:
+                 emit_equations: bool = False) -> dict:
     """Return JSON-serializable parsing details, checks, and proposed line items."""
     result = {"pdf_hash": row["pdf_hash"], "passed": False, "issues": [], "checks": [],
               "items": [], "unmapped_rows": [],
@@ -336,8 +357,7 @@ def check_report(row: dict, chart: LineItemChart, *, absolute_tolerance: Decimal
     if state.unmapped_rows:
         result["issues"].append(f"Unmapped balance-sheet rows: {len(state.unmapped_rows)}")
     check_required_items(state.items, result)
-    check_parent_totals(row, state.items, result, absolute_tolerance, relative_tolerance,
-                        emit_equations=emit_equations)
+    check_parent_totals(row, state.items, result, absolute_tolerance, relative_tolerance)
     result["items"] = build_line_items(state.items, multiplier)
     result["passed"] = not result["issues"]
     return result

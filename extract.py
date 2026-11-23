@@ -73,6 +73,12 @@ def is_metadata_context_line(line: str) -> bool:
     return len(text) >= 4 and bool(text.strip("."))
 
 
+def is_statement_lookahead_line(line: str) -> bool:
+    """Keep short wrapped label fragments for statement-title detection."""
+    text = line.strip()
+    return bool(text) and bool(text.strip("."))
+
+
 def _statement_item_names(title: str) -> list[str]:
     if title == "balance_sheet" or "资产负债表" in title:
         prefixes = range(11, 32)
@@ -98,20 +104,44 @@ def normalize_item_name(label):
 def _combine_split_item_names(
     blocks: list[str] | tuple[str, ...], title: str,
 ) -> list[str]:
-    """Join adjacent PDF text lines when they form one chart item name."""
+    """Join PDF text fragments when they form one chart item name.
+
+    Some PDF tables place the numeric cells between two text fragments of the
+    same label. Those numeric separators must not prevent us from recognizing
+    the label as one chart item.
+    """
     names = _statement_item_names(title)
+    numeric_block = re.compile(r"[-+−]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)(?:\s+[-+−]?(?:\d[\d,]*(?:\.\d+)?|\.\d+))*")
+    empty_amount = re.compile(r"^[-—–]+$")
+    other_block = re.compile(r"^[一二三四五六七八九十\d、()（）\[\]【】\s]+$")
+    repeated_page_header = re.compile(r"(?:报告(?:全文)?|股份有限公司|集团有限公司)$")
+
+    def is_separator(block: str) -> bool:
+        compact = re.sub(r"\s+", "", block)
+        return (not block or numeric_block.fullmatch(block)
+                or empty_amount.fullmatch(block) or other_block.fullmatch(block)
+                or repeated_page_header.search(compact) is not None)
+
     combined = []
     index = 0
     while index < len(blocks):
         current = blocks[index].strip()
-        if current:
-            candidate = current
-            for end in range(index + 1, min(index + 4, len(blocks))):
-                candidate += blocks[end].strip()
-                if normalize_item_name(candidate) in names:
-                    current = candidate
-                    index = end
+        candidate = normalize_item_name(current)
+        if candidate and any(name.startswith(candidate) for name in names):
+            last_consumed = index
+            for end in range(index + 1, min(index + 9, len(blocks))):
+                fragment = blocks[end].strip()
+                if is_separator(fragment):
+                    continue
+                joined = current + fragment
+                normalized = normalize_item_name(joined)
+                if not any(name.startswith(normalized) for name in names):
                     break
+                current = joined
+                last_consumed = end
+                if normalized in names:
+                    break
+            index = last_consumed
         combined.append(current)
         index += 1
     return combined
@@ -155,12 +185,34 @@ def _has_ordered_statement_rows(blocks: list[str] | tuple[str, ...], title: str)
     name_order = {name: index for index, name in enumerate(names)}
     numeric = r"[-+−]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)"
     numeric_block = re.compile(rf"{numeric}(?:\s+{numeric})*")
+    empty_amount = re.compile(r"^[-—–]+$")
+    page_marker = re.compile(r"^\d+/\d+$")
     other_block = re.compile(r"^[一二三四五六七八九十\d、()（）\[\]【】\s]+$")
     item_count = 0
     non_item_count = 0
     previous_order = -1
+    income_statement_multi_period = (
+        "利润表" in title
+        and any("本期金额" in block for block in blocks)
+        and any("上期金额" in block for block in blocks)
+        and any("7-9" in block or "7—9" in block for block in blocks)
+        and any("1-9" in block or "1—9" in block for block in blocks)
+    )
+    minimum_item_count = 3 if income_statement_multi_period else 5
     for raw_block in blocks:
         block = raw_block.strip()
+        compact_block = re.sub(r"\s+", "", block)
+        layout_line = (
+            compact_block == "项目"
+            or "编制单位" in compact_block
+            or compact_block.startswith("单位")
+            or "报告期末" in compact_block
+            or re.fullmatch(r"20\d{2}年.*(?:季度|月)", compact_block) is not None
+            or re.fullmatch(r"[（(]1[-—]9月[）)]", compact_block) is not None
+        )
+        if ("报告" in compact_block or page_marker.fullmatch(compact_block)
+                or layout_line):
+            continue
         item_block = normalize_item_name(block)
         matching_names = [name for name in names if item_block.startswith(name)]
         if not matching_names:
@@ -173,15 +225,21 @@ def _has_ordered_statement_rows(blocks: list[str] | tuple[str, ...], title: str)
         if matching_names:
             row_order = max(name_order[name] for name in matching_names)
             if row_order < previous_order:
+                # Some financial institutions present an optional chart item
+                # earlier than its usual position. Keep the matches already
+                # found, but resume ordering from the current item so the
+                # following standard rows can still validate the title.
+                previous_order = row_order
                 continue
             item_count += 1
             non_item_count = 0
             previous_order = row_order
-            if item_count >= 5:
+            if item_count >= minimum_item_count:
                 return True
             continue
 
-        if not block or numeric_block.fullmatch(block) or other_block.fullmatch(block):
+        if (not block or numeric_block.fullmatch(block)
+                or empty_amount.fullmatch(block) or other_block.fullmatch(block)):
             if item_count:
                 non_item_count += 1
                 if non_item_count <= 6:
@@ -193,7 +251,7 @@ def _has_ordered_statement_rows(blocks: list[str] | tuple[str, ...], title: str)
     return False
 
 
-def statement_title(text: str, following_lines: list[str] | tuple[str, ...] = ()) -> str | None:
+def detect_statement_title(text: str, following_lines: list[str] | tuple[str, ...] = ()) -> str | None:
     """Require a standalone heading with metadata and ordered statement rows."""
     lines = text.strip().splitlines()
     if len(lines) == 0:
@@ -263,8 +321,19 @@ def clean_rows(rows: list[list[str | None]], *, statement: str | None = None,
     width = max(map(len, rows))
     for row in rows:
         assert len(row) == width, f"warning: possible column misalignment {len(row)}/{width}(row={row})"
+    def clean_cell(cell: str | None) -> str:
+        text = re.sub(r"\s+", " ", cell or "").strip()
+        # Some PDFs glue a footnote marker such as ``1-001`` to the end of
+        # the preceding two-decimal amount (for example ``719.811-001``).
+        # Keep the amount and discard only that trailing marker.
+        return re.sub(
+            r"(?P<amount>[+-]?(?:\d[\d,]*)?\.\d{2})\d-\d{3}$",
+            r"\g<amount>",
+            text,
+        )
+
     cleaned = [
-        [re.sub(r"\s+", " ", cell or "").strip() for cell in row]
+        [clean_cell(cell) for cell in row]
         + [""] * (width - len(row))
         for row in rows
     ]
@@ -367,12 +436,12 @@ def _find_page_boundaries(document, page_number: int, lines, result: ReportExtra
     )
     for index, (bbox, text) in enumerate(lines):
         following_lines = [line for _, line in lines[index + 1:]
-                           if is_metadata_context_line(line)][:STATEMENT_LOOKAHEAD_LINES]
+                           if is_statement_lookahead_line(line)][:STATEMENT_LOOKAHEAD_LINES]
         if len(following_lines) < STATEMENT_LOOKAHEAD_LINES and page_number < len(document):
             if next_page_lines is None:
                 next_page_lines = page_text_lines(document[page_number])
             following_lines.extend(
-                [line for _, line in next_page_lines if is_metadata_context_line(line)
+                [line for _, line in next_page_lines if is_statement_lookahead_line(line)
                  ][:STATEMENT_LOOKAHEAD_LINES - len(following_lines)])
         compact = re.sub(r"\s+", "", text)
         title = None
@@ -383,7 +452,7 @@ def _find_page_boundaries(document, page_number: int, lines, result: ReportExtra
         if markers_found and current_statement and statement_end_seen:
             boundaries.append((bbox, None))
         else:
-            title = statement_title(text, following_lines)
+            title = detect_statement_title(text, following_lines)
         if title is not None:
             boundaries.append((bbox, title))
             current_statement = STATEMENTS.get(title)
@@ -531,14 +600,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--hash", dest="pdf_hash",
                         help="Extract one registered PDF by its hash, regardless of current stage")
     parser.add_argument("--stock_code", help="Extract only reports for this stock code")
+    parser.add_argument("--retry", action="store_true",
+                        help="Retry reports currently at the ExtractErr stage")
     return parser.parse_args()
 
 
 def _load_reports(storage: LineItemStorage, pdf_hash: str | None,
-                  stock_code: str | None) -> list[dict]:
+                  stock_code: str | None, retry: bool = False) -> list[dict]:
     if pdf_hash:
         report = storage.get_report_by_hash(pdf_hash)
         return [report] if report and (not stock_code or report.get("stock_code") == stock_code) else []
+    if retry:
+        return storage.get_reports_at_FileOK(stock_code=stock_code, retry=True)
     return (storage.get_reports_at_FileOK(stock_code=stock_code)
             if stock_code else storage.get_reports_at_FileOK())
 
@@ -625,7 +698,7 @@ def main() -> int:
             print("DATABASE_URL is not configured", file=sys.stderr)
             return 1
         try:
-            reports = _load_reports(storage, args.pdf_hash, args.stock_code)
+            reports = _load_reports(storage, args.pdf_hash, args.stock_code, args.retry)
         except Exception as error:
             print(f"Unable to load reports: {error}", file=sys.stderr)
             return 1
@@ -633,7 +706,8 @@ def main() -> int:
             if args.pdf_hash:
                 print(f"No report found for hash {args.pdf_hash}.", file=sys.stderr)
                 return 1
-            print("No reports at FileOK stage.")
+            stage = "ExtractErr" if args.retry else "FileOK"
+            print(f"No reports at {stage} stage.")
             return 0
         root = _reports_root(reports)
         for report in reports:

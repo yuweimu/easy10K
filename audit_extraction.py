@@ -11,6 +11,7 @@ import re
 
 from extract import STATEMENTS, ReportExtraction, Statement, extract_report
 from line_item_storage import LineItemStorage
+from report_metadata import match_filename_reporting_date
 from statement_parsing import table_width_issues
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -33,19 +34,11 @@ def audit_report(report: ReportExtraction, pdf_path: Path) -> dict:
             f"reporting_date sources disagree: title {report.title_reporting_date}, "
             f"balance sheet {report.balance_sheet_reporting_date}"
         )
-    year = re.search(r"(?<!\d)(20\d{2})(?!\d)", pdf_path.stem)
-    if year:
-        quarter = re.search(r"q([1234])", pdf_path.stem, re.I)
-        if quarter:
-            suffix = {"1": "03-31", "2": "06-30", "3": "09-30", "4": "12-31"}[quarter.group(1)]
-        else:
-            suffix = next((date for label, date in (
-                ("年年度", "12-31"), ("三季度", "09-30"),
-                ("一季度", "03-31"), ("半年度", "06-30"),
-            ) if label in pdf_path.stem), "12-31")
-        expected = year.group(1) + "-" + suffix
-        if report.reporting_date and report.reporting_date != expected:
-            entry["issues"].append(f"reporting_date {report.reporting_date} differs from filename expected {expected}")
+    expected = match_filename_reporting_date(pdf_path.stem)
+    if expected and report.reporting_date and report.reporting_date != expected:
+        entry["issues"].append(
+            f"reporting_date {report.reporting_date} differs from filename expected {expected}"
+        )
     for key in dict.fromkeys(STATEMENTS.values()):
         statement = getattr(report, key)
         if statement is None:
