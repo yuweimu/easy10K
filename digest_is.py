@@ -73,10 +73,11 @@ def accounting_equations(state, result):
     return equations
 
 
-def check_report(row, chart, *, absolute_tolerance=Decimal("0.00001"), relative_tolerance=Decimal("0.00001")):
+def check_report(row, chart, *, absolute_tolerance=Decimal("0.00001"), relative_tolerance=Decimal("0.00001"),
+                 emit_equations=True):
     return check_statement(row, chart, "income_statement", REQUIRED_IDS, accounting_equations,
                            absolute_tolerance=absolute_tolerance, relative_tolerance=relative_tolerance,
-                           required_numeric_ids=REQUIRED_IDS)
+                           required_numeric_ids=REQUIRED_IDS, emit_equations=emit_equations)
 
 
 def main(argv=None):

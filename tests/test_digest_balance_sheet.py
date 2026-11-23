@@ -85,17 +85,17 @@ class DigestLineItemsTests(unittest.TestCase):
         self.assertTrue(check_report(self.row(values={**values, 11: "301"}), self.chart,
                                      absolute_tolerance=Decimal("1"))["passed"])
 
-    def test_parent_comparisons_print_equations_to_stdout(self):
+    def test_parent_comparisons_are_stored_without_stdout_noise(self):
         output = io.StringIO()
         with redirect_stdout(output):
-            check_report(self.row(), self.chart)
-            check_report(self.row(values={**self.values, 11: "301"}), self.chart)
-        lines = output.getvalue().splitlines()
-        self.assertTrue(any("item 11 (资产): 300 ≈ 100(流动资产, 1101) + 200(非流动资产, 1102) = 300;" in line and line.endswith("PASS") for line in lines))
-        self.assertTrue(any("item 11 (资产): 301 ≠ 100(流动资产, 1101) + 200(非流动资产, 1102) = 300;" in line and line.endswith("FAIL") for line in lines))
-        self.assertTrue(any("item 3110 (归属于母公司股东权益合计): 170 ≈ 100(股本, 311001) + (-10)(减：库存股, 311003) + 10(资本公积, 311004) + 5(盈余公积, 311007) + 60(未分配利润, 311008) + 5(一般风险准备, 311009) = 170;" in line for line in lines))
-        self.assertTrue(any("item 21 (负债): 120 ≈ 60(流动负债, 2101) + 60(非流动负债, 2102) = 120;" in line for line in lines))
-        self.assertTrue(all("difference=" in line and "tolerance=" in line for line in lines))
+            passed = check_report(self.row(), self.chart)
+            failed = check_report(self.row(values={**self.values, 11: "301"}), self.chart)
+        self.assertEqual(output.getvalue(), "")
+        self.assertTrue(any(check["check"] == "parent_sum" and check["item_id"] == 11
+                            for check in passed["checks"]))
+        self.assertFalse(failed["passed"])
+        self.assertTrue(any(check["item_id"] == 11 and not check["passed"]
+                            for check in failed["checks"]))
 
     def test_current_assets_uses_combined_receivables_when_present(self):
         for extra, expected_sum, expected_pass in (
@@ -477,10 +477,8 @@ class DigestLineItemsTests(unittest.TestCase):
             storage.get_audit_pass_reports.return_value = [self.row()]
             self.assertEqual(main([]), 0)
         reports = [json.loads(call.args[0]) for call in output.call_args_list if call.args[0].startswith("{")]
-        self.assertEqual(len(reports), 1)
-        self.assertNotIn("items", reports[0])
-        self.assertTrue(reports[0]["passed"])
-        self.assertIn("checks", reports[0])
+        self.assertEqual(reports, [])
+        self.assertTrue(any(call.args[0].endswith(": PASS") for call in output.call_args_list))
 
     def test_cli_processes_audit_pass_queue_and_saves_failure_details(self):
         with patch("digest_bs.LineItemStorage") as factory, patch("builtins.print") as output:
@@ -497,7 +495,8 @@ class DigestLineItemsTests(unittest.TestCase):
             self.assertTrue(saved[1].args[1]["issues"])
             json_reports = [json.loads(call.args[0]) for call in output.call_args_list
                             if call.args[0].startswith("{")]
-            self.assertEqual(len(json_reports), 2)
+            self.assertEqual(len(json_reports), 1)
+            self.assertFalse(json_reports[0]["passed"])
 
     def test_cli_handles_empty_queue_and_database_failure(self):
         with patch("digest_bs.LineItemStorage") as factory, patch("builtins.print"):

@@ -74,11 +74,11 @@ def is_metadata_context_line(line: str) -> bool:
 
 
 def _statement_item_names(title: str) -> list[str]:
-    if "资产负债表" in title:
+    if title == "balance_sheet" or "资产负债表" in title:
         prefixes = range(11, 32)
-    elif "利润表" in title:
+    elif title == "income_statement" or "利润表" in title:
         prefixes = range(41, 60)
-    elif "现金流量表" in title:
+    elif title == "cash_flow_statement" or "现金流量表" in title:
         prefixes = range(81, 88)
     else:
         return []
@@ -110,6 +110,36 @@ def _combine_split_item_names(
                 candidate += blocks[end].strip()
                 if normalize_item_name(candidate) in names:
                     current = candidate
+                    index = end
+                    break
+        combined.append(current)
+        index += 1
+    return combined
+
+
+def _combine_continuation_rows(rows: list[list[str]], statement: str) -> list[list[str]]:
+    """Merge label-only continuation rows into known statement item rows."""
+    names = {normalize_label(name) for name in _statement_item_names(statement)}
+
+    def is_known_item(label: str) -> bool:
+        normalized = normalize_label(label)
+        return (normalized in names
+                or statement == "balance_sheet"
+                and re.fullmatch(r"负债.{0,6}权益.{0,8}总计", normalized) is not None)
+
+    combined = []
+    index = 0
+    while index < len(rows):
+        current = list(rows[index])
+        if current and current[0]:
+            label = current[0]
+            for end in range(index + 1, min(index + 4, len(rows))):
+                continuation = rows[end]
+                if not continuation or any(cell for cell in continuation[1:]):
+                    break
+                label += continuation[0]
+                if is_known_item(label):
+                    current[0] = label
                     index = end
                     break
         combined.append(current)
@@ -218,8 +248,16 @@ def statement_title(text: str, following_lines: list[str] | tuple[str, ...] = ()
 
 
 def clean_rows(rows: list[list[str | None]], *, statement: str | None = None,
-               reporting_date: str | None = None) -> list[list[str]]:
-    """Remove detector-created empty columns, keeping empty amount cells."""
+               reporting_date: str | None = None,
+               table_width: int | None = None) -> list[list[str]]:
+    """Clean rows while preserving the statement table's caption width.
+
+    ``find_tables`` may return a continuation fragment whose note column is
+    entirely empty.  Once the first table establishes its caption width, keep
+    all columns at that width instead of deleting that empty note column.
+    Without an established width, retain the historical cleanup of detector-
+    created empty columns.
+    """
     if not rows:
         return []
     width = max(map(len, rows))
@@ -230,8 +268,18 @@ def clean_rows(rows: list[list[str | None]], *, statement: str | None = None,
         + [""] * (width - len(row))
         for row in rows
     ]
-    columns = [i for i in range(width) if any(row[i] for row in cleaned)]
+    if table_width is None:
+        caption = next((row for row in cleaned
+                        if row and row[0] in ("项目", "科目")), None)
+        if caption is not None:
+            table_width = len(caption)
+    if table_width is not None and width == table_width:
+        columns = list(range(width))
+    else:
+        columns = [i for i in range(width) if any(row[i] for row in cleaned)]
     result = [[row[i] for i in columns] for row in cleaned if any(row)]
+    if statement:
+        result = _combine_continuation_rows(result, statement)
     return result
 
 
@@ -395,11 +443,14 @@ def _collect_statement_region(page, page_number: int, lines, active: Statement |
                     "cells": [cell or "" for cell in cells]})
         retained = [cells for row, cells in zip(table.rows, extracted)
                     if ending is None or row.bbox[1] < ending]
+        statement_width = len(active.rows[0]) if active.rows else None
         active.rows.extend(clean_rows(
             retained,
             statement=STATEMENTS[active.title],
             reporting_date=result.reporting_date or result.title_reporting_date,
+            table_width=statement_width,
         ))
+    active.rows = _combine_continuation_rows(active.rows, STATEMENTS[active.title])
     return None if ending is not None else active
 
 

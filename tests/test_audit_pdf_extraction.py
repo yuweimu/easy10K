@@ -140,7 +140,27 @@ class AuditPDFExtractionTests(unittest.TestCase):
                                          rows=[["项目", "1.00"]], text="1.00 1.00 1.00 1.00")
         result = audit_report(report, Path("2025.pdf"))
         self.assertEqual(result["statements"]["balance_sheet"]["missing_decimal_sum"], 3)
-        self.assertEqual(len(result["issues"]), 4)
+        self.assertEqual(len(result["issues"]), 3)
+
+    def test_statement_rows_must_match_width_within_each_table_segment(self):
+        report = sample_report()
+        report.balance_sheet = Statement(
+            "合并资产负债表", pages=[1],
+            rows=[
+                ["项目", "本期", "上期"],
+                ["货币资金", "1.00", "2.00"],
+                ["应收账款", "3.00"],
+                ["项目", "附注", "本期", "上期"],
+                ["存货", "六、1", "4.00", "5.00"],
+            ],
+            text="1.00 2.00 3.00 4.00 5.00",
+        )
+        result = audit_report(report, Path("2025.pdf"))
+        self.assertIn(
+            "balance_sheet[1]: row 3 has 2 columns; expected 3",
+            result["issues"],
+        )
+        self.assertFalse(any("row 5" in issue for issue in result["issues"]))
 
     def test_recursive_batch_continues_after_error_and_writes_outputs(self):
         with tempfile.TemporaryDirectory() as directory:

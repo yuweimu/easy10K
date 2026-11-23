@@ -11,6 +11,7 @@ import re
 
 from extract import STATEMENTS, ReportExtraction, Statement, extract_report
 from line_item_storage import LineItemStorage
+from statement_parsing import table_width_issues
 
 PROJECT_DIR = Path(__file__).resolve().parent
 NUMBER = re.compile(r"(?<![\d.])[-−]?\d[\d,]*\.\d{2,}(?!\d)")
@@ -67,8 +68,11 @@ def audit_report(report: ReportExtraction, pdf_path: Path) -> dict:
             entry["issues"].append(f"{key}{statement.pages}: unusually long")
         if missing_sum >= max(3, total_sum * .05):
             entry["issues"].append(f"{key}{statement.pages}: decimals missing from rows ({missing_sum}/{total_sum}) {missing_numbers}")
-        if any(len(row) < 3 for row in statement.rows):
-            entry["issues"].append(f"{key}{statement.pages}: row fewer than 3 columns")
+        for row_number, expected_width, actual_width in table_width_issues(statement.rows):
+            entry["issues"].append(
+                f"{key}{statement.pages}: row {row_number} has {actual_width} columns; "
+                f"expected {expected_width}"
+            )
     return entry
 
 

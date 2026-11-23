@@ -751,7 +751,23 @@ class PDFExtractTests(unittest.TestCase):
         self.assertEqual(clean_rows([["", "项目", "", "金额"],
                                      [None, "现金", None, None]]),
                          [["项目", "金额"], ["现金", ""]])
+        self.assertEqual(clean_rows([["项目", "", "本期", "上期"],
+                                     ["现金", "", "1", "2"]],
+                                    table_width=4),
+                         [["项目", "", "本期", "上期"], ["现金", "", "1", "2"]])
         self.assertEqual(clean_rows([]), [])
+
+    def test_continuation_rows_merge_before_digestion(self):
+        cases = (
+            ("balance_sheet", "负债和所有者权益（或股东权", "益）总计", ["1", "2"]),
+            ("income_statement", "手续费及佣", "金收入", ["1", "2", "3", "4"]),
+            ("cash_flow_statement", "销售商品、提供劳", "务收到的现金", ["1", "2"]),
+        )
+        for statement, first, second, amounts in cases:
+            with self.subTest(statement=statement):
+                rows = clean_rows([[first, *amounts], [second, *([""] * len(amounts))]],
+                                  statement=statement)
+                self.assertEqual(rows, [[first + second, *amounts]])
 
     def test_accounting_signoffs_end_statement_before_parent_content(self):
         for signoff in ("主管会计工作负责人：张三", " 会计机构负责人：李四"):

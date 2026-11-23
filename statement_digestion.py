@@ -11,6 +11,7 @@ from digest_bs import (check_report_metadata, clean_cell, nonnegative_decimal,
                                   parse_amount, pdf_hash_argument, select_amount_column)
 from line_item_chart import LineItem, LineItemChart
 from line_item_storage import LineItemStorage
+from statement_parsing import split_cells
 
 
 @dataclass
@@ -34,6 +35,7 @@ class Equation:
 
 def normalize_label(text):
     label = clean_cell(re.sub(r"【[^】]*(?:】|$)", "", text)).replace("(", "（").replace(")", "）")
+    label = re.sub(r"^[☆★]+", "", label)
     label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", label)
     label = re.sub(r"^(?:其中|加|减)[：:]", "", label)
     label = re.sub(r"（减少）", "", label)
@@ -61,6 +63,7 @@ def parse_statement(markdown, chart, statement):
     amount_column, finance_details, oci_group = 1, False, None
     in_operating_costs = False
     previous_label = previous_full_name = ""
+    table_width = None
 
     def statement_amount_column(cells):
         if statement == "income_statement" and len(cells) == 5:
@@ -82,31 +85,29 @@ def parse_statement(markdown, chart, statement):
 
     lines = markdown.splitlines()
     for index, line in enumerate(lines):
-        if "持续经营净利润" in line:
-            print("found line")
         number = index + 1
         if not line.strip().startswith("|"):
             continue
-        cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+        cells = split_cells(line)
         if len(cells) < 2:
             continue
         raw = clean_cell(cells[0])
         label = normalize_label(cells[0])
         if label in ("项目", "科目"):
+            table_width = len(cells)
             amount_column = 2 if re.search(r"附注|注释|行次|^注$", clean_cell(cells[1])) else 1
+            continue
+
+        if table_width is not None and len(cells) != table_width:
+            # use strict check temperatorily. Disable it if too strict. 
+            state.issues.append(
+                f"Line {number}: expected {table_width} table columns, got {len(cells)}"
+            )
             continue
         if not label or re.fullmatch(r"[:\-]+", label):
             continue
         item = find_item(label)
         item_id = item.item_id if item else aliases.get(label) if statement == "income_statement" else None
-        if item_id is None and label and index + 1 < len(lines):
-            continuation_cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", lines[index + 1].strip().strip("|"))]
-            continuation_label = normalize_label(continuation_cells[0]) if continuation_cells else ""
-            continuation_has_amount = any(clean_cell(cell) for cell in continuation_cells[1:])
-            if continuation_label and not continuation_has_amount:
-                combined_label = label + continuation_label
-                continuation_item = find_item(combined_label)
-                item_id = continuation_item.item_id if continuation_item else aliases.get(combined_label)
         if statement == "income_statement":
             if label == "资产减值损失" and in_operating_costs:
                 item_id = 4227
@@ -228,7 +229,7 @@ def resolve_shifted_amounts(state, equations, required_ids, absolute_tolerance, 
 
 def check_statement(row, chart, statement, required_ids, equation_builder, *,
                     absolute_tolerance=Decimal("0.01"), relative_tolerance=Decimal("0.0001"),
-                    required_numeric_ids=()):
+                    required_numeric_ids=(), emit_equations=True):
     result = {"pdf_hash": row["pdf_hash"], "statement": statement, "passed": False, "issues": [],
               "checks": [], "unmapped_rows": [], "items": [],
               "tolerance": {"absolute_statement_units": str(absolute_tolerance), "relative": str(relative_tolerance)}}
@@ -256,11 +257,12 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
     for equation in equations:
         check = evaluate_equation(equation, state, absolute_tolerance, relative_tolerance)
         result["checks"].append(check)
-        expression = " + ".join(f"{sign} × {state.amounts.get(item_id) or 0}({chart._items_by_id[item_id].name}, {item_id})"
-                                for item_id, sign in equation.terms)
-        print(f"{row['pdf_hash']} item {equation.target} ({chart._items_by_id[equation.target].name}): "
-              f"{check['amount']} {'≈' if check['passed'] else '≠'} {expression or '0'} = {check['children_sum']}; "
-              f"difference={check['difference']}, tolerance={check['tolerance']}: {'PASS' if check['passed'] else 'FAIL'}", flush=True)
+        if emit_equations and not check["passed"]:
+            expression = " + ".join(f"{sign} × {state.amounts.get(item_id) or 0}({chart._items_by_id[item_id].name}, {item_id})"
+                                    for item_id, sign in equation.terms)
+            print(f"{row['pdf_hash']} item equation {equation.target} ({chart._items_by_id[equation.target].name}): "
+                  f"{check['amount']} {'≈' if check['passed'] else '≠'} {expression or '0'} = {check['children_sum']}; "
+                  f"difference={check['difference']}, tolerance={check['tolerance']}: {'PASS' if check['passed'] else 'FAIL'}", flush=True)
         if not check["passed"]:
             result["issues"].append(f"Item {equation.target} ({equation.name}): {check['amount']} differs from {check['children_sum']}"
                                      + (f"; missing {check['missing_item_ids']}" if check["missing_item_ids"] else ""))
@@ -325,6 +327,10 @@ def run_cli(statement, check_report, argv=None):
                 succeeded += 1
             else:
                 failures += 1
-            print(json.dumps({key: value for key, value in result.items() if key != "items"}, ensure_ascii=False), flush=True)
+            if result["passed"]:
+                print(f"{row['pdf_hash']}: PASS", flush=True)
+            else:
+                print(json.dumps({key: value for key, value in result.items()
+                                  if key != "items"}, ensure_ascii=False), flush=True)
     print(f"Summary: {succeeded} succeeded, {failures} failed", flush=True)
     return int(failures > 0)

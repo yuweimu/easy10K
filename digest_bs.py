@@ -15,6 +15,7 @@ import sys
 
 from line_item_chart import LineItem, LineItemChart
 from line_item_storage import LineItemStorage
+from statement_parsing import split_cells
 
 
 REQUIRED_IDS = (11, 
@@ -104,35 +105,40 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
                   for name in chart.items if len(clean_cell(name)) >= 16]
     parsed, ambiguous_rows, shifted_items = state.items, state.ambiguous_rows, state.shifted_items
     issues = state.issues
+    def normalize_balance_label(text):
+        label = clean_cell(re.sub(r"【[^】]*(?:】|$)", "", text)).replace("(", "（").replace(")", "）")
+        label = re.sub(r"^[☆★]+", "", label)
+        label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", label)
+        return label.rstrip("：:")
+
     lines = markdown.splitlines()
+    table_width = None
     for index, line in enumerate(lines):
         line_number = index + 1
         if not line.strip().startswith("|"):
             continue
-        cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+        cells = split_cells(line)
         if len(cells) < 2:
             continue
         label = clean_cell(re.sub(r"【[^】]*(?:】|$)", "", cells[0])).replace("(", "（").replace(")", "）")
+        label = re.sub(r"^[☆★]+", "", label)
         notes_header = (
             len(cells) >= 4
             and re.search(r"附注|注释|行次|^注$", clean_cell(cells[1]))
             and re.search(r"期末|期初|上年年末", clean_cell(cells[2]))
         )
         if label in ("项目", "科目") or notes_header:
+            table_width = len(cells)
             amount_column = 2 if re.search(r"附注|注释|行次|^注$", clean_cell(cells[1])) else 1
+            continue
+        if table_width is not None and len(cells) != table_width:
+            issues.append(f"Line {line_number}: expected {table_width} table columns, got {len(cells)}")
             continue
         if not label or re.fullmatch(r"[:\-]+", label):
             continue
         label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", label)
         label = label.rstrip("：:")
         item = chart.get(label)
-        if item is None and label and index + 1 < len(lines):
-            continuation_cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", lines[index + 1].strip().strip("|"))]
-            continuation_label = clean_cell(continuation_cells[0]) if continuation_cells else ""
-            continuation_label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", continuation_label).rstrip("：:")
-            continuation_has_amount = any(clean_cell(cell) for cell in continuation_cells[1:])
-            if continuation_label and not continuation_has_amount:
-                item = chart.get(label + continuation_label)
         if item is None or item.item_id in (0, 99000001):
             continue_if_total = re.search(r"负债[和及].*权益.*总计", label)
             truncated_suffix = len(label) >= 3 and any(
@@ -248,7 +254,8 @@ def check_required_items(parsed: dict[int, tuple[LineItem, Decimal | None]], res
 
 
 def check_parent_totals(row: dict, parsed: dict[int, tuple[LineItem, Decimal | None]],
-                        result: dict, absolute_tolerance: Decimal, relative_tolerance: Decimal) -> None:
+                        result: dict, absolute_tolerance: Decimal, relative_tolerance: Decimal,
+                        emit_equations: bool = True) -> None:
     """Validate subtotals and print their arithmetic equations."""
     issues, checks = result["issues"], result["checks"]
     amounts = {item_id: amount for item_id, (_, amount) in parsed.items() if amount is not None}
@@ -274,10 +281,11 @@ def check_parent_totals(row: dict, parsed: dict[int, tuple[LineItem, Decimal | N
         expression = " + ".join(
             (f"({amount})" if amount < 0 else str(amount)) + f"({parsed[item_id][0].name}, {item_id})"
             for item_id, amount in zip(children, child_amounts))
-        print(f"{row['pdf_hash']} item {parent_id} ({parsed[parent_id][0].name}): "
-              f"{parent_amount} {'≈' if passed else '≠'} "
-              f"{expression} = {total}; difference={difference}, tolerance={tolerance}: "
-              f"{'PASS' if passed else 'FAIL'}", flush=True)
+        if emit_equations and not passed:
+            print(f"{row['pdf_hash']} item equation {parent_id} ({parsed[parent_id][0].name}): "
+                  f"{parent_amount} {'≈' if passed else '≠'} "
+                  f"{expression} = {total}; difference={difference}, tolerance={tolerance}: "
+                  f"{'PASS' if passed else 'FAIL'}", flush=True)
         checks.append({"check": "parent_sum", "item_id": parent_id, "children": sorted(children),
                        "amount": str(parent_amount), "children_sum": str(total),
                        "difference": str(difference), "tolerance": str(tolerance), "passed": passed})
@@ -297,7 +305,8 @@ def build_line_items(parsed: dict[int, tuple[LineItem, Decimal | None]], multipl
 
 
 def check_report(row: dict, chart: LineItemChart, *, absolute_tolerance: Decimal = Decimal("0.001"),
-                 relative_tolerance: Decimal = Decimal("0.0001")) -> dict:
+                 relative_tolerance: Decimal = Decimal("0.0001"),
+                 emit_equations: bool = True) -> dict:
     """Return JSON-serializable parsing details, checks, and proposed line items."""
     result = {"pdf_hash": row["pdf_hash"], "passed": False, "issues": [], "checks": [],
               "items": [], "unmapped_rows": [],
@@ -314,7 +323,8 @@ def check_report(row: dict, chart: LineItemChart, *, absolute_tolerance: Decimal
     if state.unmapped_rows:
         result["issues"].append(f"Unmapped balance-sheet rows: {len(state.unmapped_rows)}")
     check_required_items(state.items, result)
-    check_parent_totals(row, state.items, result, absolute_tolerance, relative_tolerance)
+    check_parent_totals(row, state.items, result, absolute_tolerance, relative_tolerance,
+                        emit_equations=emit_equations)
     result["items"] = build_line_items(state.items, multiplier)
     result["passed"] = not result["issues"]
     return result
@@ -389,8 +399,11 @@ def main(argv: list[str] | None = None) -> int:
                 succeeded += 1
             else:
                 failures += 1
-            print(json.dumps({key: value for key, value in result.items() if key != "items"},
-                             ensure_ascii=False), flush=True)
+            if result["passed"]:
+                print(f"{row['pdf_hash']}: PASS", flush=True)
+            else:
+                print(json.dumps({key: value for key, value in result.items()
+                                  if key != "items"}, ensure_ascii=False), flush=True)
     print(f"Summary: {succeeded} succeeded, {failures} failed", flush=True)
     return int(failed)
 
