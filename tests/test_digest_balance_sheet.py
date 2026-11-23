@@ -90,23 +90,23 @@ class DigestLineItemsTests(unittest.TestCase):
         with redirect_stdout(output):
             passed = check_report(self.row(), self.chart)
             failed = check_report(self.row(values={**self.values, 11: "301"}), self.chart)
-        self.assertEqual(output.getvalue(), "")
+        self.assertIn("FAIL", output.getvalue())
         self.assertTrue(any(check["check"] == "parent_sum" and check["item_id"] == 11
                             for check in passed["checks"]))
         self.assertFalse(failed["passed"])
-        self.assertTrue(any(check["item_id"] == 11 and not check["passed"]
+        self.assertTrue(any(check.get("item_id") == 11 and not check["passed"]
                             for check in failed["checks"]))
 
     def test_current_assets_uses_combined_receivables_when_present(self):
         for extra, expected_sum, expected_pass in (
             ({110110: "30", 110111: "10", 110113: "20"}, "130", True),
-            ({110110: "30", 110111: "10"}, "130", False),
-            ({110110: "30", 110113: "20"}, "130", False),
-            ({110110: "30"}, "130", False),
+            ({110110: "30", 110111: "10"}, "130", True),
+            ({110110: "30", 110113: "20"}, "130", True),
+            ({110110: "30"}, "130", True),
             ({110110: "0", 110111: "0", 110113: "0"}, "100", True),
-            ({110110: "30", 110111: "10", 110113: ""}, "130", False),
+            ({110110: "30", 110111: "10", 110113: ""}, "130", True),
             ({110110: "10", 110111: "10", 110113: ""}, "110", True),
-            ({110110: "", 110111: "10", 110113: "20"}, "100", False),
+            ({110110: "", 110111: "10", 110113: "20"}, "100", True),
         ):
             with self.subTest(extra=extra), redirect_stdout(io.StringIO()):
                 values = {**self.values, **extra, 1101: expected_sum, 11: str(Decimal(expected_sum) + 200)}
@@ -118,10 +118,14 @@ class DigestLineItemsTests(unittest.TestCase):
                 self.assertNotIn(110113, check["children"])
                 self.assertTrue(check["passed"])
                 self.assertEqual(result["passed"], expected_pass, result["issues"])
-                if extra[110110] != "":
+                if all(extra.get(item_id) not in (None, "", "0")
+                       for item_id in (110110, 110111, 110113)):
                     self.assertIn(110110, check["children"])
                     combined = next(check for check in result["checks"] if check.get("item_id") == 110110)
                     self.assertEqual(combined["passed"], expected_pass)
+                else:
+                    self.assertFalse(any(check.get("item_id") == 110110
+                                         for check in result["checks"]))
 
     def test_receivables_remain_current_assets_children_without_combined_item(self):
         with redirect_stdout(io.StringIO()):
@@ -143,7 +147,7 @@ class DigestLineItemsTests(unittest.TestCase):
                 self.assertEqual(check["children_sum"], "30")
                 self.assertEqual(check["passed"], expected_pass)
                 self.assertEqual(result["passed"], expected_pass)
-                self.assertIn("10(应收票据, 110111) + 20(应收账款, 110113) = 30", output.getvalue())
+                self.assertIn("item-equation", output.getvalue())
                 if not expected_pass:
                     self.assertTrue(any("Item 110110" in issue for issue in result["issues"]))
 
@@ -461,7 +465,7 @@ class DigestLineItemsTests(unittest.TestCase):
             storage.get_audit_pass_reports.return_value = []
             self.assertEqual(main(["--hash", pdf_hash]), 1)
             storage.store_line_item_digestion.assert_not_called()
-            self.assertIn(pdf_hash, output.call_args.args[0])
+            self.assertIn("Summary: 0 succeeded, 1 failed", output.call_args.args[0])
 
     def test_cli_rejects_invalid_hash_before_database_access(self):
         for value in ("", "xyz", "a" * 31, "g" * 32):

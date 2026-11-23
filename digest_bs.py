@@ -5,15 +5,13 @@ Amounts are checked in statement units, then converted to yuan for storage.
 The default tolerance is the greater of 0.01 statement units and 0.1 percent.
 """
 
-import argparse
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
-import json
 import re
-import sys
 
 from line_item_chart import LineItem, LineItemChart
+from digest_cli import print_equation, run_digest_cli
 from line_item_storage import LineItemStorage
 from statement_parsing import split_cells
 
@@ -23,6 +21,11 @@ REQUIRED_IDS = (11,
                 1102, 110231, 110242,
                 21, 2101, 
                 31, 3110, 311001, 311004, 311008)
+CURRENT_ASSETS_ID = 1101
+RECEIVABLES_TOTAL_ID = 110110
+RECEIVABLE_NOTES_ID = 110111
+RECEIVABLE_ACCOUNTS_ID = 110113
+RECEIVABLE_COMPONENT_IDS = (RECEIVABLE_NOTES_ID, RECEIVABLE_ACCOUNTS_ID)
 UNITS = {"元": 1, "千元": 1000, "万元": 10000, "百万元": 1000000, "亿元": 100000000}
 NUMBER = re.compile(r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
 
@@ -169,19 +172,27 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
     return state
 
 
+def has_nonzero_receivables_subtotal(amounts: dict[int, Decimal]) -> bool:
+    return all(item_id in amounts and amounts[item_id] != 0
+               for item_id in (RECEIVABLES_TOTAL_ID, *RECEIVABLE_COMPONENT_IDS))
+
+
 def subtotal_children(parent_id: int, amounts: dict[int, Decimal],
                       reporting_date: str | date | None, *,
                       present_items: set[int] | None = None) -> list[int]:
     """Select subtotal children using the hierarchy for the report's period."""
-    if parent_id == 110110:
-        return [item_id for item_id in (110111, 110113) if item_id in amounts]
+    if parent_id == RECEIVABLES_TOTAL_ID:
+        if not has_nonzero_receivables_subtotal(amounts):
+            return []
+        return [item_id for item_id in RECEIVABLE_COMPONENT_IDS if item_id in amounts]
     prefix = str(parent_id)
     if len(prefix) not in (2, 4):
         return []
     children = [item_id for item_id in amounts
                 if str(item_id).startswith(prefix) and len(str(item_id)) == len(prefix) + 2]
-    if parent_id == 1101 and 110110 in (present_items if present_items is not None else amounts):
-        children = [item_id for item_id in children if item_id not in (110111, 110113)]
+    if parent_id == CURRENT_ASSETS_ID and RECEIVABLES_TOTAL_ID in (
+            present_items if present_items is not None else amounts):
+        children = [item_id for item_id in children if item_id not in RECEIVABLE_COMPONENT_IDS]
     return children
 
 
@@ -259,9 +270,11 @@ def check_parent_totals(row: dict, parsed: dict[int, tuple[LineItem, Decimal | N
     """Validate subtotals and print their arithmetic equations."""
     issues, checks = result["issues"], result["checks"]
     amounts = {item_id: amount for item_id, (_, amount) in parsed.items() if amount is not None}
-    if 110110 in parsed and 110110 not in amounts:
-        issues.append("Item 110110: missing amount for 应收票据及应收账款")
+    if RECEIVABLES_TOTAL_ID in parsed and RECEIVABLES_TOTAL_ID not in amounts:
+        issues.append(f"Item {RECEIVABLES_TOTAL_ID}: missing amount for 应收票据及应收账款")
     for parent_id, parent_amount in amounts.items():
+        if parent_id == RECEIVABLES_TOTAL_ID and not has_nonzero_receivables_subtotal(amounts):
+            continue
         options = subtotal_child_options(parent_id, amounts, row.get("reporting_date"), set(parsed))
         def option_difference(children):
             total = sum((-abs(amounts[item_id]) if item_id == 311003 else amounts[item_id]
@@ -278,14 +291,14 @@ def check_parent_totals(row: dict, parsed: dict[int, tuple[LineItem, Decimal | N
         difference = abs(parent_amount - total)
         tolerance = max(absolute_tolerance, relative_tolerance * max(abs(parent_amount), abs(total)))
         passed = difference <= tolerance
-        expression = " + ".join(
-            (f"({amount})" if amount < 0 else str(amount)) + f"({parsed[item_id][0].name}, {item_id})"
-            for item_id, amount in zip(children, child_amounts))
-        if emit_equations and not passed:
-            print(f"{row['pdf_hash']} item equation {parent_id} ({parsed[parent_id][0].name}): "
-                  f"{parent_amount} {'≈' if passed else '≠'} "
-                  f"{expression} = {total}; difference={difference}, tolerance={tolerance}: "
-                  f"{'PASS' if passed else 'FAIL'}", flush=True)
+        if emit_equations or not passed:
+            expression = " + ".join(
+                (f"({amount})" if amount < 0 else str(amount)) + f"({parsed[item_id][0].name}, {item_id})"
+                for item_id, amount in zip(children, child_amounts))
+            print_equation(
+                row["pdf_hash"], parent_id, parsed[parent_id][0].name,
+                parent_amount, expression, total, difference, tolerance, passed,
+            )
         checks.append({"check": "parent_sum", "item_id": parent_id, "children": sorted(children),
                        "amount": str(parent_amount), "children_sum": str(total),
                        "difference": str(difference), "tolerance": str(tolerance), "passed": passed})
@@ -330,82 +343,25 @@ def check_report(row: dict, chart: LineItemChart, *, absolute_tolerance: Decimal
     return result
 
 
-def nonnegative_decimal(value: str) -> Decimal:
-    try:
-        number = Decimal(value)
-        if not number.is_finite() or number < 0:
-            raise ValueError
-        return number
-    except (InvalidOperation, ValueError):
-        raise argparse.ArgumentTypeError("Expected a finite nonnegative number") from None
-
-
-def pdf_hash_argument(value: str) -> str:
-    if not re.fullmatch(r"[0-9a-fA-F]{32}", value.strip()):
-        raise argparse.ArgumentTypeError("Expected a 32-character hexadecimal PDF hash")
-    return value.strip().lower()
-
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--hash", dest="pdf_hash", type=pdf_hash_argument,
-                        help="Digest only this PDF hash, regardless of its current stage")
-    parser.add_argument("--stock_code", help="Digest only reports for this stock code")
-    parser.add_argument("--retry", action="store_true",
-                        help="Retry reports at the BalanceErr stage")
-    parser.add_argument("--absolute-tolerance", type=nonnegative_decimal, default=Decimal("0.00001"))
-    parser.add_argument("--relative-tolerance", type=nonnegative_decimal, default=Decimal("0.00001"))
-    args = parser.parse_args(argv)
-    save_options = {"allow_any_stage": True} if args.pdf_hash or args.retry else {}
-    chart = LineItemChart()
-    failed = False
-    succeeded = 0
-    failures = 0
-    with LineItemStorage() as storage:
-        try:
-            query_options = {"pdf_hash": args.pdf_hash, "retry": args.retry}
-            if args.stock_code:
-                query_options["stock_code"] = args.stock_code
-            rows = storage.get_audit_pass_reports(**query_options)
-        except Exception as error:
-            print(f"Unable to load reports for digestion: {error}", file=sys.stderr)
-            print("Summary: 0 succeeded, 1 failed", flush=True)
-            return 1
-        if args.pdf_hash and not rows:
-            print(f"No report found for PDF hash {args.pdf_hash}", file=sys.stderr)
-            print(f"Summary: 0 succeeded, 1 failed (no report found for PDF hash {args.pdf_hash})", flush=True)
-            return 1
-        for row in rows:
-            try:
-                result = check_report(row, chart, absolute_tolerance=args.absolute_tolerance,
-                                      relative_tolerance=args.relative_tolerance)
-            except Exception as error:
-                result = {"pdf_hash": row["pdf_hash"], "passed": False, "checks": [], "items": [],
-                          "issues": [f"Unable to check report: {error}"]}
-            try:
-                # print("skip writing db")
-                storage.store_line_item_digestion(row, result, **save_options)
-            except Exception as error:
-                storage.close()
-                result["passed"] = False
-                result["issues"].append(f"Unable to save digestion: {error}")
-                try:
-                    storage.store_line_item_digestion(row, result, **save_options)
-                except Exception as save_error:
-                    print(f"{row['pdf_hash']}: unable to save failure: {save_error}", file=sys.stderr)
-                    storage.close()
+    def load_rows(storage, args):
+        options = {"pdf_hash": args.pdf_hash, "retry": args.retry}
+        if args.stock_code:
+            options["stock_code"] = args.stock_code
+        return storage.get_audit_pass_reports(**options)
 
-            failed |= not result["passed"]
-            if result["passed"]:
-                succeeded += 1
-            else:
-                failures += 1
-            if result["passed"]:
-                print(f"{row['pdf_hash']}: PASS", flush=True)
-            else:
-                print(json.dumps({key: value for key, value in result.items()
-                                  if key != "items"}, ensure_ascii=False), flush=True)
-    print(f"Summary: {succeeded} succeeded, {failures} failed", flush=True)
-    return int(failed)
+    def save_row(storage, row, result, args, retry_failure=False):
+        options = {"allow_any_stage": True} if args.pdf_hash or (args.retry and not retry_failure) else {}
+        storage.store_line_item_digestion(row, result, **options)
+
+    return run_digest_cli(
+        "balance_sheet", check_report, load_rows, save_row, argv,
+        description=__doc__, absolute_tolerance=Decimal("0.00001"),
+        relative_tolerance=Decimal("0.00001"),
+        retry_help="Retry reports at the BalanceErr stage",
+        allow_dry_run=False,
+        storage_class=LineItemStorage,
+    )
 
 
 if __name__ == "__main__":

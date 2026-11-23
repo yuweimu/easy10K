@@ -1,14 +1,11 @@
 """Shared parsing, signed accounting equations, and CLI for statement digestion."""
 
-import argparse
 from dataclasses import dataclass, field
 from decimal import Decimal
-import json
 import re
-import sys
 
-from digest_bs import (check_report_metadata, clean_cell, nonnegative_decimal,
-                                  parse_amount, pdf_hash_argument, select_amount_column)
+from digest_bs import check_report_metadata, clean_cell, parse_amount, select_amount_column
+from digest_cli import print_equation, run_digest_cli
 from line_item_chart import LineItem, LineItemChart
 from line_item_storage import LineItemStorage
 from statement_parsing import split_cells
@@ -257,12 +254,15 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
     for equation in equations:
         check = evaluate_equation(equation, state, absolute_tolerance, relative_tolerance)
         result["checks"].append(check)
-        if emit_equations and not check["passed"]:
+        if emit_equations or not check["passed"]:
             expression = " + ".join(f"{sign} × {state.amounts.get(item_id) or 0}({chart._items_by_id[item_id].name}, {item_id})"
                                     for item_id, sign in equation.terms)
-            print(f"{row['pdf_hash']} item equation {equation.target} ({chart._items_by_id[equation.target].name}): "
-                  f"{check['amount']} {'≈' if check['passed'] else '≠'} {expression or '0'} = {check['children_sum']}; "
-                  f"difference={check['difference']}, tolerance={check['tolerance']}: {'PASS' if check['passed'] else 'FAIL'}", flush=True)
+            print_equation(
+                row["pdf_hash"], equation.target,
+                chart._items_by_id[equation.target].name,
+                check["amount"], expression, check["children_sum"],
+                check["difference"], check["tolerance"], check["passed"],
+            )
         if not check["passed"]:
             result["issues"].append(f"Item {equation.target} ({equation.name}): {check['amount']} differs from {check['children_sum']}"
                                      + (f"; missing {check['missing_item_ids']}" if check["missing_item_ids"] else ""))
@@ -277,60 +277,20 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
 
 
 def run_cli(statement, check_report, argv=None):
-    parser = argparse.ArgumentParser(description=f"Validate and digest {statement} reports")
-    parser.add_argument("--hash", dest="pdf_hash", type=pdf_hash_argument, help="Process this hash regardless of stage")
-    parser.add_argument("--stock_code", help="Process only reports for this stock code")
-    parser.add_argument("--retry", action="store_true",
-                        help=f"Retry reports at the {statement.replace('_', '-')} error stage")
-    parser.add_argument("--dry-run", action="store_true", help="Validate and print without writing to the database")
-    parser.add_argument("--absolute-tolerance", type=nonnegative_decimal, default=Decimal("0.01"))
-    parser.add_argument("--relative-tolerance", type=nonnegative_decimal, default=Decimal("0.0001"))
-    args = parser.parse_args(argv)
-    succeeded = 0
-    failures = 0
-    with LineItemStorage() as storage:
-        try:
-            query_options = {"pdf_hash": args.pdf_hash, "retry": args.retry}
-            if args.stock_code:
-                query_options["stock_code"] = args.stock_code
-            rows = storage.get_statement_reports(statement, **query_options)
-        except Exception as error:
-            print(f"Unable to load {statement}: {error}", file=sys.stderr)
-            print("Summary: 0 succeeded, 1 failed", flush=True)
-            return 1
-        if args.pdf_hash and not rows:
-            print(f"No report found for PDF hash {args.pdf_hash}", file=sys.stderr)
-            print("Summary: 0 succeeded, 1 failed", flush=True)
-            return 1
-        chart = LineItemChart()
-        for row in rows:
-            try:
-                result = check_report(row, chart, absolute_tolerance=args.absolute_tolerance,
-                                      relative_tolerance=args.relative_tolerance)
-            except Exception as error:
-                result = {"pdf_hash": row["pdf_hash"], "statement": statement, "passed": False,
-                          "issues": [f"Unable to check report: {error}"], "checks": [], "items": [], "unmapped_rows": []}
-            if not args.dry_run:
-                try:
-                    storage.store_statement_digestion(
-                        statement, row, result, allow_any_stage=bool(args.pdf_hash or args.retry))
-                except Exception as error:
-                    storage.close()
-                    result["passed"] = False
-                    result["issues"].append(f"Unable to save digestion: {error}")
-                    try:
-                        storage.store_statement_digestion(statement, row, result, allow_any_stage=bool(args.pdf_hash))
-                    except Exception as retry_error:
-                        print(f"{row['pdf_hash']}: unable to save failure: {retry_error}", file=sys.stderr)
-                        storage.close()
-            if result["passed"]:
-                succeeded += 1
-            else:
-                failures += 1
-            if result["passed"]:
-                print(f"{row['pdf_hash']}: PASS", flush=True)
-            else:
-                print(json.dumps({key: value for key, value in result.items()
-                                  if key != "items"}, ensure_ascii=False), flush=True)
-    print(f"Summary: {succeeded} succeeded, {failures} failed", flush=True)
-    return int(failures > 0)
+    def load_rows(storage, args):
+        options = {"pdf_hash": args.pdf_hash, "retry": args.retry}
+        if args.stock_code:
+            options["stock_code"] = args.stock_code
+        return storage.get_statement_reports(statement, **options)
+
+    def save_row(storage, row, result, args, retry_failure=False):
+        options = {"allow_any_stage": True} if args.pdf_hash or (args.retry and not retry_failure) else {}
+        storage.store_statement_digestion(statement, row, result, **options)
+
+    return run_digest_cli(
+        statement, check_report, load_rows, save_row, argv,
+        description=f"Validate and digest {statement} reports",
+        absolute_tolerance=Decimal("0.01"), relative_tolerance=Decimal("0.0001"),
+        retry_help=f"Retry reports at the {statement.replace('_', '-')} error stage",
+        storage_class=LineItemStorage,
+    )
