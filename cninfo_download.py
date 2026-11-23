@@ -204,6 +204,9 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
     save_download_log(log_path, log)
     seen = set()
     failed = False
+    downloaded_count = 0
+    skipped_count = 0
+    failed_count = 0
     for report in chain(retry_reports, reports):
         title, url = report["title"], report["download_url"]
         if should_skip_title(title):
@@ -225,6 +228,7 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
         needs_fetch = (not destination.is_file() or entry.get("status") == "DOWNLOADING"
                        or (entry.get("status") == "ERROR" and entry.get("error_stage") != "enrollment"))
         if not needs_fetch:
+            skipped_count += 1
             print(f"Network download request: NO\t{url}", flush=True)
             print(f"Skipping existing file: {destination}", file=sys.stderr, flush=True)
         else:
@@ -241,6 +245,7 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
                 entry.update(info or {})
             except (OSError, ValueError, IncompleteRead) as error:
                 failed = True
+                failed_count += 1
                 entry.update(status="ERROR", error_stage="download", error=str(error),
                              updated_at=datetime.now(timezone.utc).isoformat())
                 save_download_log(log_path, log)
@@ -277,8 +282,11 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
             entry["status"] = "DONE"
             entry.pop("error", None)
             entry.pop("error_stage", None)
+            if needs_fetch:
+                downloaded_count += 1
         except Exception as error:
             failed = True
+            failed_count += 1
             entry.update(status="ERROR", error_stage="enrollment", error=str(error))
             print(f"Unable to enroll {destination}: {error}", file=sys.stderr, flush=True)
         entry["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -286,6 +294,11 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
     log["listing_complete"] = True
     log["listing_since"] = "2016-12-31"
     save_download_log(log_path, log)
+    print(
+        f"Summary: {downloaded_count} downloaded, "
+        f"{skipped_count} skipped, {failed_count} failed",
+        flush=True,
+    )
     return int(failed)
 
 
@@ -301,12 +314,15 @@ def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
         raise ValueError(f"Invalid download report log: {log_path}")
 
     failed = False
+    enrolled_count = 0
+    failed_count = 0
     with LineItemStorage() as storage:
         if not storage.database_url:
             raise RuntimeError("DATABASE_URL is not configured")
         for url, entry in log["downloads"].items():
             if not isinstance(entry, dict):
                 failed = True
+                failed_count += 1
                 print(f"Unable to enroll {url}: invalid download report entry", file=sys.stderr, flush=True)
                 continue
             filename = entry.get("file")
@@ -314,11 +330,13 @@ def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
                     or any(char in filename for char in ("/", "\\", "\x00"))
                     or not filename.endswith(".pdf")):
                 failed = True
+                failed_count += 1
                 print(f"Unable to enroll {url}: invalid PDF filename", file=sys.stderr, flush=True)
                 continue
             destination = directory / filename
             if not destination.is_file():
                 failed = True
+                failed_count += 1
                 print(f"Unable to enroll {destination}: file not found", file=sys.stderr, flush=True)
                 continue
             local_stock_code, reporting_date = extract_local_report_metadata(destination)
@@ -349,13 +367,16 @@ def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
                 entry["status"] = "DONE"
                 entry.pop("error", None)
                 entry.pop("error_stage", None)
+                enrolled_count += 1
                 print(f"Enrolled local PDF: {destination}", flush=True)
             except Exception as error:
                 failed = True
+                failed_count += 1
                 entry.update(status="ERROR", error_stage="enrollment", error=str(error))
                 print(f"Unable to enroll {destination}: {error}", file=sys.stderr, flush=True)
             entry["updated_at"] = datetime.now(timezone.utc).isoformat()
             save_download_log(log_path, log)
+    print(f"Summary: {enrolled_count} enrolled, {failed_count} failed", flush=True)
     return int(failed)
 
 
@@ -383,13 +404,18 @@ def main(argv=None):
             if args.urls_only:
                 for report in cached:
                     print(f"{report['title']}\t{report['download_url']}", flush=True)
+                print(f"Summary: 0 downloaded, {len(cached)} skipped, 0 failed", flush=True)
             else:
                 print(f"All logged reports are downloaded for {args.stock_code}; skipping CNInfo requests.", file=sys.stderr)
+                print(f"Summary: 0 downloaded, {len(cached)} skipped, 0 failed", flush=True)
             return 0
         reports = cninfo_pdf_urls(args.stock_code, args.org_id, column=args.column)
         if args.urls_only:
+            count = 0
             for report in reports:
                 print(f"{report['title']}\t{report['download_url']}", flush=True)
+                count += 1
+            print(f"Summary: {count} URLs, 0 failed", flush=True)
         else:
             return download_reports(args.stock_code, reports, args.output_dir, delay=args.delay)
     except (OSError, ValueError, RuntimeError) as error:

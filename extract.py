@@ -87,26 +87,58 @@ def _statement_item_names(title: str) -> list[str]:
 
 
 def normalize_item_name(label):
+    # return normalize_label(label)
+    label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．])", "", label)
     label = re.sub(r"^(?:其中|加|减)[：:]", "", label)
     label = re.sub(r"（减少）", "", label)
     label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*）$", "", label)
     return label.rstrip("：:")
 
+
+def _combine_split_item_names(
+    blocks: list[str] | tuple[str, ...], title: str,
+) -> list[str]:
+    """Join adjacent PDF text lines when they form one chart item name."""
+    names = _statement_item_names(title)
+    combined = []
+    index = 0
+    while index < len(blocks):
+        current = blocks[index].strip()
+        if current:
+            candidate = current
+            for end in range(index + 1, min(index + 4, len(blocks))):
+                candidate += blocks[end].strip()
+                if normalize_item_name(candidate) in names:
+                    current = candidate
+                    index = end
+                    break
+        combined.append(current)
+        index += 1
+    return combined
+
+
 def _has_ordered_statement_rows(blocks: list[str] | tuple[str, ...], title: str) -> bool:
     names = _statement_item_names(title)
     if not names:
         return False
+    blocks = _combine_split_item_names(blocks, title)
     name_order = {name: index for index, name in enumerate(names)}
     numeric = r"[-+−]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)"
+    numeric_block = re.compile(rf"{numeric}(?:\s+{numeric})*")
     other_block = re.compile(r"^[一二三四五六七八九十\d、()（）\[\]【】\s]+$")
     item_count = 0
     non_item_count = 0
     previous_order = -1
     for raw_block in blocks:
-        block = normalize_label(raw_block.strip())
-        matching_names = [name for name in names if block.startswith(name)]
-        if not matching_names and len(block) > 6:
-            matching_names = [name for name in names if name.startswith(block)]
+        block = raw_block.strip()
+        item_block = normalize_item_name(block)
+        matching_names = [name for name in names if item_block.startswith(name)]
+        if not matching_names:
+            matching_names = [name for name in names if name.startswith(item_block)]
+            matching_names = [
+                name for name in matching_names
+                if name_order[name] >= previous_order
+            ]
 
         if matching_names:
             row_order = max(name_order[name] for name in matching_names)
@@ -119,7 +151,7 @@ def _has_ordered_statement_rows(blocks: list[str] | tuple[str, ...], title: str)
                 return True
             continue
 
-        if not block or re.fullmatch(numeric, block) or other_block.fullmatch(block):
+        if not block or numeric_block.fullmatch(block) or other_block.fullmatch(block):
             if item_count:
                 non_item_count += 1
                 if non_item_count <= 6:
@@ -138,9 +170,6 @@ def statement_title(text: str, following_lines: list[str] | tuple[str, ...] = ()
         return None;
     if len(lines) > 1:
         return None
-
-    if "合并现金流量表" in text:
-        print("found 合并现金流量表")
 
     heading = re.sub(r"[\s*#]", "", text)
     match = HEADING.fullmatch(heading)
@@ -188,18 +217,24 @@ def statement_title(text: str, following_lines: list[str] | tuple[str, ...] = ()
     return title if re.search(period, context) else None
 
 
-def clean_rows(rows: list[list[str | None]]) -> list[list[str]]:
+def clean_rows(rows: list[list[str | None]], *, statement: str | None = None,
+               reporting_date: str | None = None) -> list[list[str]]:
     """Remove detector-created empty columns, keeping empty amount cells."""
     if not rows:
         return []
     width = max(map(len, rows))
+    for row in rows:
+        assert len(row) == width, f"warning: possible column misalignment {len(row)}/{width}(row={row})"
     cleaned = [
         [re.sub(r"\s+", " ", cell or "").strip() for cell in row]
         + [""] * (width - len(row))
         for row in rows
     ]
     columns = [i for i in range(width) if any(row[i] for row in cleaned)]
-    return [[row[i] for i in columns] for row in cleaned if any(row)]
+    result = [[row[i] for i in columns] for row in cleaned if any(row)]
+    if statement == "income_statement" and reporting_date and reporting_date.endswith("-09-30"):
+        result = [([row[0], row[3], row[4]] if len(row) >= 5 else row) for row in result]
+    return result
 
 
 @dataclass
@@ -266,9 +301,9 @@ def _find_page_boundaries(document, page_number: int, lines, result: ReportExtra
                           next_page_lines):
     boundaries = []
     statement_end_patterns = {
-        "balance_sheet": re.compile(r"负债.{0,6}权益.{0,8}总计"),
+        "balance_sheet": re.compile(r"负债[和及].{0,6}权益.{0,6}总计"),
         "income_statement": re.compile(r"(?:基本|稀释)?每股收益"),
-        "cash_flow_statement": re.compile(r"期末现金及现金等价物余额"),
+        "cash_flow_statement": re.compile(r"[期年]末现金及现金等价物余额"),
     }
     current_statement = next(
         (name for name in ("cash_flow_statement", "income_statement", "balance_sheet")
@@ -362,7 +397,11 @@ def _collect_statement_region(page, page_number: int, lines, active: Statement |
                     "cells": [cell or "" for cell in cells]})
         retained = [cells for row, cells in zip(table.rows, extracted)
                     if ending is None or row.bbox[1] < ending]
-        active.rows.extend(clean_rows(retained))
+        active.rows.extend(clean_rows(
+            retained,
+            statement=STATEMENTS[active.title],
+            reporting_date=result.reporting_date or result.title_reporting_date,
+        ))
     return None if ending is not None else active
 
 
