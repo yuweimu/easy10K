@@ -82,6 +82,7 @@ class LineItemStorage:
                    for value in (pdf_hash, download_url, local_path)):
             raise ValueError("Download hash, URL, and local path must be nonblank strings")
         if not self.database_url:
+            print("database_url unspecified")
             return
         connection = self._connect()
         with connection.cursor() as cursor:
@@ -100,6 +101,7 @@ class LineItemStorage:
                     stock_code = COALESCE(EXCLUDED.stock_code, report_digestion.stock_code),
                     reporting_date = COALESCE(EXCLUDED.reporting_date, report_digestion.reporting_date),
                     pdf_creation_date = COALESCE(EXCLUDED.pdf_creation_date, report_digestion.pdf_creation_date),
+                    digestion_stage = 'FileOK',
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (pdf_hash, download_url, _registry_path(local_path), download_report,
@@ -397,40 +399,56 @@ class LineItemStorage:
             row = cursor.fetchone()
         return dict(zip(fields, row)) if row else None
 
-    def get_reports_at_FileOK(self) -> list[dict]:
+    def get_reports_at_FileOK(self, stock_code: str | None = None) -> list[dict]:
         """Read registered PDFs awaiting extraction without modifying the database."""
         fields = ("pdf_hash", "local_path", "stock_code", "reporting_date")
         with self._connect().cursor() as cursor:
-            cursor.execute(
-                "SELECT pdf_hash, local_path, stock_code, reporting_date FROM report_digestion "
-                "WHERE digestion_stage = %s ORDER BY pdf_hash",
-                ("FileOK",),
-            )
+            query = ("SELECT pdf_hash, local_path, stock_code, reporting_date FROM report_digestion "
+                     "WHERE digestion_stage = %s")
+            parameters: tuple[object, ...] = ("FileOK",)
+            if stock_code:
+                query += " AND stock_code = %s"
+                parameters += (stock_code,)
+            cursor.execute(query + " ORDER BY pdf_hash", parameters)
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
-    def get_extracted_reports(self) -> list[dict]:
-        """Read completed extraction inputs without modifying the database."""
+    def get_extracted_reports(self, pdf_hash: str | None = None,
+                              stock_code: str | None = None) -> list[dict]:
+        """Read extraction inputs, optionally selecting one PDF by hash."""
         fields = ("pdf_hash", "local_path", "extraction_report")
         with self._connect().cursor() as cursor:
+            conditions = []
+            parameters = []
+            if pdf_hash:
+                conditions.append("pdf_hash = %s")
+                parameters.append(pdf_hash)
+            else:
+                conditions.append("digestion_stage = %s")
+                parameters.append("ExtractOK")
+            if stock_code:
+                conditions.append("stock_code = %s")
+                parameters.append(stock_code)
             cursor.execute(
-                "SELECT pdf_hash, local_path, extraction_report FROM report_digestion "
-                "WHERE digestion_stage = %s ORDER BY pdf_hash",
-                ("ExtractOK",),
-            )
+                "SELECT pdf_hash, local_path, extraction_report FROM report_digestion WHERE "
+                + " AND ".join(conditions) + " ORDER BY pdf_hash", tuple(parameters))
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
-    def get_audit_pass_reports(self, pdf_hash: str | None = None) -> list[dict]:
-        """Read AuditPass balance sheets, or one explicit hash at any stage."""
+    def get_audit_pass_reports(self, pdf_hash: str | None = None, *, retry: bool = False,
+                               stock_code: str | None = None) -> list[dict]:
+        """Read queued balance sheets, retrying BalanceErr reports when requested."""
         fields = ("pdf_hash", "balance_sheet", "stock_code", "reporting_date", "pdf_creation_date")
-        condition = "WHERE digestion_stage = %s "
-        parameters = ("AuditPass",)
+        conditions = ["digestion_stage = %s"]
+        parameters = ["BalanceErr" if retry else "AuditPass"]
         if pdf_hash is not None:
-            condition = "WHERE pdf_hash = %s "
-            parameters = (pdf_hash,)
+            conditions = ["pdf_hash = %s"]
+            parameters = [pdf_hash]
+        if stock_code:
+            conditions.append("stock_code = %s")
+            parameters.append(stock_code)
         with self._connect().cursor() as cursor:
             cursor.execute(
                 "SELECT " + ", ".join(fields) + " FROM report_digestion " +
-                condition + "ORDER BY pdf_hash", parameters,
+                "WHERE " + " AND ".join(conditions) + " ORDER BY pdf_hash", tuple(parameters),
             )
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
@@ -478,15 +496,20 @@ class LineItemStorage:
         self._report_digestion_ready = True
 
     def get_statement_reports(self, statement: str, *, pdf_hash: str | None = None,
-                              retry: bool = False) -> list[dict]:
+                              retry: bool = False, stock_code: str | None = None) -> list[dict]:
         """Read queued statements, retrying only the matching error stage when requested."""
         if statement not in STATEMENT_DIGESTION:
             raise ValueError("Unsupported statement")
         fields = ("pdf_hash", statement, "stock_code", "reporting_date", "pdf_creation_date")
         stage = STATEMENT_DIGESTION[statement][2] if retry else STATEMENT_DIGESTION[statement][0]
-        condition, value = ("pdf_hash", pdf_hash) if pdf_hash is not None else ("digestion_stage", stage)
+        conditions = ["pdf_hash = %s" if pdf_hash is not None else "digestion_stage = %s"]
+        parameters = [pdf_hash if pdf_hash is not None else stage]
+        if stock_code:
+            conditions.append("stock_code = %s")
+            parameters.append(stock_code)
         with self._connect().cursor() as cursor:
-            cursor.execute("SELECT " + ", ".join(fields) + f" FROM report_digestion WHERE {condition} = %s ORDER BY pdf_hash", (value,))
+            cursor.execute("SELECT " + ", ".join(fields) + " FROM report_digestion WHERE "
+                           + " AND ".join(conditions) + " ORDER BY pdf_hash", tuple(parameters))
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
     def store_statement_digestion(self, statement: str, row: dict, report: dict, *, allow_any_stage=False) -> None:

@@ -1,6 +1,8 @@
 .digestion-content { min-width: 220px; max-width: 500px; white-space: normal; }
 .digestion-content details + details { margin-top: 8px; }
 .digestion-content summary { cursor: pointer; color: #3865b8; }
+.digestion-content summary.report-pass { color: #16a34a; }
+.digestion-content summary.report-fail { color: #ae3a3a; }
 .digestion-content pre { max-height: 350px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #f4f6fa; font-size: 12px; }
 .pdf-local-path { overflow: visible; }
 .copy-control { position: relative; display: inline-block; margin-left: 8px; }
@@ -11,8 +13,11 @@
 .pdf-hash { overflow: visible; }
 .pdf-source-line { font-size: 12px; margin-bottom: 5px; }
 .pdf-download-report { margin-top: 5px; }
+.pdf-download-report details, .pdf-download-report pre { max-width: 100%; }
+.pdf-download-report pre { white-space: pre; overflow-x: auto; overflow-y: auto; }
 .pdf-local-line { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: calc(12px + 1pt); }
 .pdf-creation-date { margin-top: 5px; font-size: 11px; color: #738095; }
+.pdf-creation-date-warning { color: #dc2626; font-weight: 700; }
 .report-identity { line-height: 1.6; }
 .report-identity div:first-child { font-weight: 600; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .report-identity div:last-child { font-size: 12px; color: #738095; }

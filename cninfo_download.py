@@ -61,7 +61,10 @@ def metadata_warnings(stock_code, reporting_date, pdf_creation_time):
     if not reporting_date:
         warnings.append("reporting_date unavailable from local file name")
     if not pdf_creation_time:
-        warnings.append("pdf_creation_time unavailable from PDF metadata")
+        if reporting_date:
+            warnings.append("pdf_creation_time unavailable from PDF metadata; using reporting_date as fallback")
+        else:
+            warnings.append("pdf_creation_time unavailable from PDF metadata")
     return warnings
 
 
@@ -245,7 +248,8 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
                 continue
         pdf_creation_time = extract_pdf_creation_time(destination)
         warnings = metadata_warnings(local_stock_code, reporting_date, pdf_creation_time)
-        entry["pdf_creation_time"] = pdf_creation_time
+        effective_pdf_creation_time = pdf_creation_time or reporting_date
+        entry["pdf_creation_time"] = effective_pdf_creation_time
         if warnings:
             entry["warnings"] = warnings
             for warning in warnings:
@@ -265,10 +269,10 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
                 storage.store_downloaded_report(
                     entry["pdf_hash"], url, entry["local_path"],
                     stock_code=local_stock_code, reporting_date=reporting_date,
-                    pdf_creation_date=pdf_creation_time,
+                    pdf_creation_date=effective_pdf_creation_time,
                     download_report=json.dumps(entry, ensure_ascii=False, sort_keys=True),
                 )
-                if warnings:
+                if not local_stock_code or not reporting_date:
                     storage.update_report_digestion_stage(entry["pdf_hash"], "FileErr")
             entry["status"] = "DONE"
             entry.pop("error", None)
@@ -320,9 +324,10 @@ def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
             local_stock_code, reporting_date = extract_local_report_metadata(destination)
             pdf_creation_time = extract_pdf_creation_time(destination)
             warnings = metadata_warnings(local_stock_code, reporting_date, pdf_creation_time)
+            effective_pdf_creation_time = pdf_creation_time or reporting_date
             entry.update(
                 stock_code=local_stock_code, reporting_date=reporting_date,
-                pdf_creation_time=pdf_creation_time, local_path=str(destination.resolve()),
+                pdf_creation_time=effective_pdf_creation_time, local_path=str(destination.resolve()),
             )
             if warnings:
                 entry["warnings"] = warnings
@@ -336,10 +341,10 @@ def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
                 storage.store_downloaded_report(
                     entry["pdf_hash"], entry.get("download_url", url), entry["local_path"],
                     stock_code=local_stock_code, reporting_date=reporting_date,
-                    pdf_creation_date=pdf_creation_time,
+                    pdf_creation_date=effective_pdf_creation_time,
                     download_report=json.dumps(entry, ensure_ascii=False, sort_keys=True),
                 )
-                if warnings:
+                if not local_stock_code or not reporting_date:
                     storage.update_report_digestion_stage(entry["pdf_hash"], "FileErr")
                 entry["status"] = "DONE"
                 entry.pop("error", None)

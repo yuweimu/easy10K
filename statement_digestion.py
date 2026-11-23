@@ -36,7 +36,8 @@ def normalize_label(text):
     label = clean_cell(re.sub(r"【[^】]*(?:】|$)", "", text)).replace("(", "（").replace(")", "）")
     label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", label)
     label = re.sub(r"^(?:其中|加|减)[：:]", "", label)
-    label = re.sub(r"（(?:净亏损|亏损总额|亏损|损失)[^）]*(?:）|$)", "", label)
+    label = re.sub(r"（减少）", "", label)
+    label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*）$", "", label)
     label = re.sub(r"（(?:人民币)?元(?:/股)?）", "", label)
     return label.rstrip("：:")
 
@@ -44,7 +45,15 @@ def normalize_label(text):
 def parse_statement(markdown, chart, statement):
     state = ParsedStatement()
     allowed = lambda item_id: 41 <= int(str(item_id)[:2]) <= 59 if statement == "income_statement" else 81 <= int(str(item_id)[:2]) <= 87
-    names = {normalize_label(name): item for name, item in chart.items.items() if allowed(item.item_id)}
+    names = {name: item for name, item in chart.items.items() if allowed(item.item_id)}
+
+    def find_item(label):
+        item = next((item for name, item in names.items() if normalize_label(name) == normalize_label(label)), None)
+        if item is None and len(label) >= 8:
+            item = next((item for name, item in names.items()
+                         if normalize_label(name).startswith(normalize_label(label))), None)
+        return item
+
     aliases = {"归属于母公司所有者的净利润": 560201, "归属于母公司所有者的其他综合收益的税后净额": 5701,
                "归属于母公司股东的其他综合收益的税后净额": 5701,
                "归属于母公司股东的综合收益总额": 5801,
@@ -68,6 +77,8 @@ def parse_statement(markdown, chart, statement):
 
     lines = markdown.splitlines()
     for index, line in enumerate(lines):
+        if "持续经营净利润" in line:
+            print("found line")
         number = index + 1
         if not line.strip().startswith("|"):
             continue
@@ -81,9 +92,7 @@ def parse_statement(markdown, chart, statement):
             continue
         if not label or re.fullmatch(r"[:\-]+", label):
             continue
-        item = names.get(label)
-        if item is None and len(label) >= 8:
-            item = next((item for name, item in names.items() if name.startswith(label)), None)
+        item = find_item(label)
         item_id = item.item_id if item else aliases.get(label) if statement == "income_statement" else None
         if item_id is None and label and index + 1 < len(lines):
             continuation_cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", lines[index + 1].strip().strip("|"))]
@@ -91,10 +100,7 @@ def parse_statement(markdown, chart, statement):
             continuation_has_amount = any(clean_cell(cell) for cell in continuation_cells[1:])
             if continuation_label and not continuation_has_amount:
                 combined_label = label + continuation_label
-                continuation_item = names.get(combined_label)
-                if continuation_item is None and len(combined_label) >= 8:
-                    continuation_item = next((item for name, item in names.items()
-                                              if name.startswith(combined_label)), None)
+                continuation_item = find_item(combined_label)
                 item_id = continuation_item.item_id if continuation_item else aliases.get(combined_label)
         if statement == "income_statement":
             if label == "资产减值损失" and in_operating_costs:
@@ -266,6 +272,7 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
 def run_cli(statement, check_report, argv=None):
     parser = argparse.ArgumentParser(description=f"Validate and digest {statement} reports")
     parser.add_argument("--hash", dest="pdf_hash", type=pdf_hash_argument, help="Process this hash regardless of stage")
+    parser.add_argument("--stock_code", help="Process only reports for this stock code")
     parser.add_argument("--retry", action="store_true",
                         help=f"Retry reports at the {statement.replace('_', '-')} error stage")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print without writing to the database")
@@ -276,7 +283,10 @@ def run_cli(statement, check_report, argv=None):
     failures = 0
     with LineItemStorage() as storage:
         try:
-            rows = storage.get_statement_reports(statement, pdf_hash=args.pdf_hash, retry=args.retry)
+            query_options = {"pdf_hash": args.pdf_hash, "retry": args.retry}
+            if args.stock_code:
+                query_options["stock_code"] = args.stock_code
+            rows = storage.get_statement_reports(statement, **query_options)
         except Exception as error:
             print(f"Unable to load {statement}: {error}", file=sys.stderr)
             print("Summary: 0 succeeded, 1 failed", flush=True)

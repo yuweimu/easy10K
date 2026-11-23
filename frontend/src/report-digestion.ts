@@ -93,6 +93,11 @@ function formatJson(value: string): string {
   }
 }
 
+function datePart(value: string | null | undefined): string {
+  const match = value?.match(/(?:^|\D)(\d{4})[-/]?(\d{2})[-/]?(\d{2})(?:\D|$)/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : "";
+}
+
 function textDetails(value: string | null | undefined, title: string, prettyJson = false): HTMLTableCellElement {
   const td = cell(null);
   td.className = "digestion-content";
@@ -134,34 +139,6 @@ function textDetails(value: string | null | undefined, title: string, prettyJson
     text.textContent = prettyJson ? formatJson(value) : value;
     details.append(heading, text);
     td.replaceChildren(details);
-  }
-  return td;
-}
-
-function auditCell(value: string | null | undefined): HTMLTableCellElement {
-  const td = cell(null);
-  td.className = "digestion-content";
-  if (value) {
-    const text = document.createElement("pre");
-    try {
-      const audit: unknown = JSON.parse(value);
-      if (audit && typeof audit === "object" && !Array.isArray(audit) && "statements" in audit) {
-        const { statements, ...visible } = audit;
-        text.textContent = JSON.stringify(visible, null, 2);
-        const details = document.createElement("details");
-        const heading = document.createElement("summary");
-        heading.textContent = "statements";
-        const statementText = document.createElement("pre");
-        statementText.textContent = JSON.stringify(statements, null, 2);
-        details.append(heading, statementText);
-        td.replaceChildren(text, details);
-        return td;
-      }
-      text.textContent = JSON.stringify(audit, null, 2);
-    } catch {
-      text.textContent = value;
-    }
-    td.replaceChildren(text);
   }
   return td;
 }
@@ -276,6 +253,10 @@ function render(items: Report[]): void {
     creationLine.className = "pdf-creation-date";
     creationLine.textContent = `Created: ${report.pdf_creation_date || "—"}`;
     creationLine.title = "PDF creation date";
+    if (datePart(report.pdf_creation_date) &&
+        datePart(report.pdf_creation_date) === datePart(report.reporting_date)) {
+      creationLine.classList.add("pdf-creation-date-warning");
+    }
     const metadataLine = document.createElement("div");
     metadataLine.className = "pdf-metadata";
     metadataLine.textContent = `${report.stock_code || "—"} · ${report.reporting_date || "—"}`;
@@ -285,8 +266,7 @@ function render(items: Report[]): void {
     downloadReportLine.className = "pdf-download-report";
     downloadReportLine.append(...Array.from(downloadReport.childNodes));
     files.replaceChildren(sourceLine, localLine, creationLine, metadataLine, downloadReportLine);
-    const content = cell(null);
-    content.className = "digestion-content";
+    const content = document.createElement("div");
     const fields = [
       ["balance_sheet", "Balance sheet"], ["balance_sheet_ex", "Balance sheet (extended)"],
       ["income_statement", "Income statement"], ["income_statement_ex", "Income statement (extended)"],
@@ -395,18 +375,45 @@ function render(items: Report[]): void {
     ]) {
       if (!value) continue;
       if (!digestionReports.querySelector("details")) digestionReports.replaceChildren();
-      digestionReports.append(...textDetails(value, title!).childNodes);
+      const reportDetails = textDetails(value, title!, true);
+      try {
+        const parsed: unknown = JSON.parse(value);
+        const passed = parsed && typeof parsed === "object"
+          ? (parsed as { passed?: unknown }).passed
+          : undefined;
+        const summary = reportDetails.querySelector("summary");
+        if (summary && passed === true) summary.classList.add("report-pass");
+        if (summary && passed === false) summary.classList.add("report-fail");
+      } catch {
+        // Keep the default label color for non-JSON digestion reports.
+      }
+      digestionReports.append(...reportDetails.childNodes);
     }
+    const extractionReport = textDetails(report.extraction_report, "Extraction report", true);
+    extractionReport.append(...Array.from(content.childNodes));
+    const extractionAudit = textDetails(report.extraction_audit, "Audit report", true);
+    try {
+      const audit: unknown = report.extraction_audit ? JSON.parse(report.extraction_audit) : undefined;
+      const issues = audit && typeof audit === "object"
+        ? (audit as { issues?: unknown }).issues
+        : undefined;
+      const summary = extractionAudit.querySelector("summary");
+      if (summary && Array.isArray(issues)) {
+        summary.classList.add(issues.length === 0 ? "report-pass" : "report-fail");
+      }
+    } catch {
+      // Keep the default label color for invalid audit reports.
+    }
+    extractionReport.append(...Array.from(extractionAudit.childNodes));
     tr.append(hash, files,
-      textDetails(report.extraction_report, "View report"),
-      auditCell(report.extraction_audit),
-      digestionReports, content,
+      extractionReport,
+      digestionReports,
       updated);
     rows.append(tr);
   }
   if (!items.length) {
     const td = cell("No reports match the selected filter.");
-    td.colSpan = 7;
+    td.colSpan = 5;
     td.className = "empty";
     const tr = document.createElement("tr");
     tr.append(td);
