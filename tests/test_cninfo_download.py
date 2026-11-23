@@ -98,6 +98,27 @@ class CNInfoDownloadTests(unittest.TestCase):
         self.storage.store_downloaded_report.assert_called_once()
         self.assertIn("Enrolled local PDF", output.getvalue())
 
+    def test_enroll_only_skips_pdf_already_marked_deprecated(self):
+        self.storage.get_report_digestion_stage.return_value = "Deprecated"
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as root, redirect_stdout(output), redirect_stderr(io.StringIO()):
+            directory = Path(root) / "300750"
+            directory.mkdir()
+            (directory / "2024年一季报.pdf").write_bytes(b"PDF")
+            url = "https://example.com/report.pdf"
+            (directory / "download_reports.json").write_text(json.dumps({
+                "stock_code": "300750", "downloads": {url: {
+                    "title": "2024年一季报", "download_url": url,
+                    "file": "2024年一季报.pdf", "status": "DOWNLOADED",
+                }}}, ensure_ascii=False))
+            self.assertEqual(main(["300750", "--output-dir", root, "--enroll-only"]), 0)
+            entry = json.loads((directory / "download_reports.json").read_text(encoding="utf-8"))["downloads"][url]
+        self.storage.store_downloaded_report.assert_not_called()
+        self.storage.update_report_digestion_stage.assert_not_called()
+        self.assertEqual(entry["status"], "DEPRECATED")
+        self.assertEqual(entry["skip_reason"], "Already Deprecated")
+        self.assertIn("Skipping Deprecated PDF", output.getvalue())
+
     @patch("cninfo_download.cninfo_pdf_urls", return_value=[])
     def test_missing_file_and_incomplete_listing_do_not_skip_query(self, reports):
         output = io.StringIO()

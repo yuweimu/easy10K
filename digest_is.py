@@ -47,6 +47,21 @@ def repair_comprehensive_income(state):
                 + (values.get(OTHER_COMPREHENSIVE_TOTAL_ID) or Decimal(0))
             )
 
+    # Some reports leave the ownership-level comprehensive-income total
+    # blank while still reporting the corresponding net profit.  A blank OCI
+    # attribution means zero, so the omitted total is derivable and should
+    # participate in the parent comprehensive-income equation.
+    for total, profit, other_income in (
+            (COMPREHENSIVE_INCOME_OWNERS_ID, NET_PROFIT_OWNERSHIP_CURRENT_ID,
+             OTHER_COMPREHENSIVE_INCOME_ID),
+            (COMPREHENSIVE_INCOME_NONCONTROLLING_ID,
+             NET_PROFIT_OWNERSHIP_NONCONTROLLING_ID,
+             OTHER_COMPREHENSIVE_INCOME_NONCONTROLLING_ID)):
+        if total not in values or values[total] is None:
+            if profit not in values or values[profit] is None:
+                continue
+            values[total] = values[profit] + (values.get(other_income) or Decimal(0))
+
     required = (
         COMPREHENSIVE_INCOME_OWNERS_ID,
         COMPREHENSIVE_INCOME_NONCONTROLLING_ID,

@@ -2,17 +2,30 @@ import tempfile
 import hashlib
 from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 import json
 from unittest.mock import call, patch
 
 import pymupdf
 
-from extract import (STATEMENTS, Statement, ReportExtraction, clean_rows,
+from extract import (STATEMENTS, Statement, ReportExtraction, _recover_blank_table_rows, clean_rows,
                      detect_statement_title as statement_title, extract_report, main)
 
 
 class PDFExtractTests(unittest.TestCase):
+    def test_recover_blank_strict_table_row_from_relaxed_extraction(self):
+        strict_row = SimpleNamespace(bbox=(0, 10, 100, 20))
+        relaxed_row = SimpleNamespace(bbox=(0, 10, 100, 20))
+        strict_table = SimpleNamespace(bbox=(0, 0, 100, 30), rows=[strict_row])
+        relaxed_table = SimpleNamespace(bbox=(0, 0, 100, 30), rows=[relaxed_row])
+        result = _recover_blank_table_rows(
+            "balance_sheet",
+            [(strict_table, [["资本公积", "", ""]])],
+            [(relaxed_table, [["资本公积", "1,752,043,671.89", "1,720,618,162.56"]])],
+        )
+        self.assertEqual(result[0][1][0][1:], ["1,752,043,671.89", "1,720,618,162.56"])
+
     def test_cli_queries_downloaded_reports_without_path_arguments(self):
         with patch("extract.extract_report", return_value=ReportExtraction(
                 "reports/report.pdf", pdf_hash="registered",

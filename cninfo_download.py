@@ -121,7 +121,7 @@ def deprecate_non_statement_report(storage, entry, destination, download_url,
                                    stock_code, reporting_date, pdf_creation_time):
     """Persist and permanently exclude an analysis-only PDF from extraction."""
     pdf_hash = entry["pdf_hash"]
-    if storage.get_report_digestion_stage(pdf_hash) == "Deprecated":
+    if is_deprecated_report(storage, pdf_hash):
         return True
     if not is_non_statement_report(destination):
         return False
@@ -133,6 +133,11 @@ def deprecate_non_statement_report(storage, entry, destination, download_url,
     )
     storage.update_report_digestion_stage(pdf_hash, "Deprecated")
     return True
+
+
+def is_deprecated_report(storage, pdf_hash):
+    """Return whether a report has already been permanently excluded."""
+    return storage.get_report_digestion_stage(pdf_hash) == "Deprecated"
 
 
 def metadata_warnings(stock_code, reporting_date, pdf_creation_time):
@@ -368,6 +373,13 @@ def download_reports(stock_code, reports, output_dir=DEFAULT_REPORTS_DIR, *, del
             with LineItemStorage() as storage:
                 if not storage.database_url:
                     raise RuntimeError("DATABASE_URL is not configured")
+                if is_deprecated_report(storage, entry["pdf_hash"]):
+                    entry.update(status="DEPRECATED", skip_reason="Already Deprecated")
+                    skipped_count += 1
+                    print(f"Skipping Deprecated PDF: {destination}", flush=True)
+                    entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    save_download_log(log_path, log)
+                    continue
                 if deprecate_non_statement_report(
                     storage, entry, destination, url, local_stock_code,
                     reporting_date, effective_pdf_creation_time,
@@ -463,6 +475,12 @@ def enroll_local_reports(stock_code, output_dir=DEFAULT_REPORTS_DIR):
             try:
                 with destination.open("rb") as pdf:
                     entry["pdf_hash"] = file_digest(pdf, lambda: md5(usedforsecurity=False)).hexdigest()
+                if is_deprecated_report(storage, entry["pdf_hash"]):
+                    entry.update(status="DEPRECATED", skip_reason="Already Deprecated")
+                    print(f"Skipping Deprecated PDF: {destination}", flush=True)
+                    entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    save_download_log(log_path, log)
+                    continue
                 if deprecate_non_statement_report(
                     storage, entry, destination, entry.get("download_url", url),
                     local_stock_code, reporting_date, effective_pdf_creation_time,

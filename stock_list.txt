@@ -120,9 +120,9 @@
 688578 艾力斯 # enrolled
 002028 思源电气 # enrolled-working
 
-605599 菜百股份 # enrolled-working
+605599 菜百股份 # enrolled
 688334 西高院 # enrolled
-603565 中谷物流 # enrolled-working
+603565 中谷物流 # enrolled
 002262 恩华药业 # enrolled
 
-688188 柏楚电子 # enrolled-error
+688188 柏楚电子 # enrolled

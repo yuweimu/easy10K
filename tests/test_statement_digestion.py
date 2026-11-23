@@ -150,6 +150,26 @@ class StatementDigestionTests(unittest.TestCase):
         self.assertTrue(any(check["check"] == "comprehensive_income_by_ownership" and not check["passed"]
                             for check in result["checks"]))
 
+    def test_blank_minority_comprehensive_total_is_derived_from_minority_profit(self):
+        values = {key: value for key, value in self.income.items()
+                  if not str(key).startswith(("56", "57", "58"))}
+        values.update({51: "369611314.60", 54: "369611314.60", 55: "0",
+                       56: "369611314.60", 560201: "370592915.28",
+                       560203: "-981600.68", 57: "0", 5801: "370592915.28",
+                       58: "369611314.60"})
+        result = self.check(income, "income_statement", values)
+        check = next(check for check in result["checks"]
+                     if check.get("item_id") == 5803)
+        self.assertTrue(check["passed"])
+        self.assertEqual(check["amount"], "-981600.68")
+        self.assertEqual(check["children_sum"], "-981600.68")
+
+    def test_blank_ownership_profit_does_not_crash_comprehensive_repair(self):
+        values = {**self.income, 560203: "", 5803: ""}
+        result = self.check(income, "income_statement", values)
+        self.assertFalse(result["passed"])
+        self.assertFalse(any("Unable to check report" in issue for issue in result["issues"]))
+
     def test_negative_financial_sector_cash_components_are_valid(self):
         result = self.check(cash, "cash_flow_statement", {**self.cash, 810103: "-5", 810125: "55"})
         self.assertTrue(result["passed"], result["issues"])

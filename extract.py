@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import sys
+from types import SimpleNamespace
 
 import pymupdf
 
@@ -522,20 +523,93 @@ def _statement_ending(marker: str | None, lines, top: float, bottom: float, tabl
     return ending
 
 
+def _recover_blank_table_rows(statement: str, strict_data, relaxed_data):
+    """Recover numeric cells missed by ``lines_strict`` table detection.
+
+    A few PDFs have a row whose label is detected but whose horizontal or
+    vertical rules are slightly different from the rest of the table.  The
+    strict extractor then returns ``[label, "", ""]`` even though the text is
+    visibly present.  The relaxed line strategy can recover those cells; only
+    blank strict rows with the same label and overlapping row bounds are
+    replaced.
+    """
+    names = [re.sub(r"\s+", "", name) for name in _statement_item_names(statement)]
+
+    def is_known_label(label: str) -> bool:
+        compact = re.sub(r"\s+", "", label or "")
+        return bool(compact) and any(name.startswith(compact) or compact.startswith(name)
+                                    for name in names)
+
+    recovered = []
+    for strict_table, strict_rows in strict_data:
+        relaxed_rows = []
+        for relaxed_table, candidate_rows in relaxed_data:
+            if not (strict_table.bbox[1] < relaxed_table.bbox[3]
+                    and relaxed_table.bbox[3] > strict_table.bbox[1]):
+                continue
+            relaxed_rows.extend(zip(relaxed_table.rows, candidate_rows))
+        merged_rows = []
+        for strict_row, strict_cells in zip(strict_table.rows, strict_rows):
+            cells = list(strict_cells)
+            if (len(cells) > 1 and cells[0] and not any(cells[1:])
+                    and is_known_label(cells[0])):
+                for relaxed_row, relaxed_cells in relaxed_rows:
+                    same_row = (strict_row.bbox[1] < relaxed_row.bbox[3]
+                                and relaxed_row.bbox[1] < strict_row.bbox[3])
+                    same_label = (relaxed_cells and relaxed_cells[0]
+                                  and re.sub(r"\s+", "", relaxed_cells[0])
+                                  == re.sub(r"\s+", "", cells[0]))
+                    if same_row and same_label and any(relaxed_cells[1:]):
+                        cells = list(relaxed_cells)
+                        break
+            merged_rows.append(cells)
+        recovered.append((strict_table, merged_rows))
+    return recovered
+
+
 def _collect_statement_region(page, page_number: int, lines, active: Statement | None,
                               result: ReportExtraction, top: float, bottom: float) -> Statement | None:
     if active is None or bottom <= top:
         return active
     clip = pymupdf.Rect(0, top, page.rect.width, bottom)
+    # A statement can continue at the very top of a page.  If the clip starts
+    # exactly on the first row's upper border, PyMuPDF may keep that row label
+    # but lose its numeric cells during table extraction.  Keep the text clip
+    # unchanged, but give table detection a small amount of context above it.
+    # Table extraction needs to see the complete grid.  A continuation table
+    # may extend below this statement region; clipping it at ``bottom`` can
+    # make PyMuPDF return blank cells for rows near the top of that grid.
+    table_clip = pymupdf.Rect(0, max(0, top - 2), page.rect.width, page.rect.height)
     with redirect_stdout(sys.stderr):
-        tables = page.find_tables(clip=clip, strategy="lines_strict")
+        tables = page.find_tables(clip=table_clip, strategy="lines_strict")
         table_data = [(table, table.extract()) for table in tables.tables]
+        blank_item_row = any(
+            len(cells) > 1 and cells[0] and not any(cells[1:])
+            and any(re.sub(r"\s+", "", name).startswith(re.sub(r"\s+", "", cells[0]))
+                    or re.sub(r"\s+", "", cells[0]).startswith(re.sub(r"\s+", "", name))
+                    for name in _statement_item_names(STATEMENTS[active.title]))
+            for _, extracted in table_data for cells in extracted
+        )
+        if blank_item_row:
+            relaxed_tables = page.find_tables(clip=table_clip, strategy="lines")
+            relaxed_data = [(table, table.extract()) for table in relaxed_tables.tables]
+            table_data = _recover_blank_table_rows(
+                STATEMENTS[active.title], table_data, relaxed_data)
     marker = {
         "cash_flow_statement": r"[期年]末现金及现金等价物余额",
         "income_statement": "稀释每股收益",
         "balance_sheet": r"负债[和及].{0,6}权益.{0,6}总计",
     }.get(STATEMENTS[active.title])
-    ending = _statement_ending(marker, lines, top, bottom, table_data)
+    region_table_data = []
+    for table, extracted in table_data:
+        pairs = [(row, cells) for row, cells in zip(table.rows, extracted)
+                 if top <= row.bbox[1] < bottom]
+        if pairs:
+            region_table_data.append((
+                SimpleNamespace(rows=[row for row, _ in pairs], bbox=table.bbox),
+                [cells for _, cells in pairs],
+            ))
+    ending = _statement_ending(marker, lines, top, bottom, region_table_data)
     if ending is not None:
         clip.y1 = ending
     text = page.get_text(clip=clip, sort=True).strip()
@@ -550,12 +624,14 @@ def _collect_statement_region(page, page_number: int, lines, active: Statement |
             result.balance_sheet_reporting_date = dates[0]
     for table, extracted in table_data:
         for source_row, cells in zip(table.rows, extracted):
-            if ending is None or source_row.bbox[1] < ending:
+            if (top <= source_row.bbox[1] < bottom
+                    and (ending is None or source_row.bbox[1] < ending)):
                 active.source_rows.append({"page_number": page_number,
                     "bbox": normalized_bbox(page, source_row.bbox),
                     "cells": [cell or "" for cell in cells]})
         retained = [cells for row, cells in zip(table.rows, extracted)
-                    if ending is None or row.bbox[1] < ending]
+                    if top <= row.bbox[1] < bottom
+                    and (ending is None or row.bbox[1] < ending)]
         statement_width = len(active.rows[0]) if active.rows else None
         active.rows.extend(clean_rows(
             retained,
