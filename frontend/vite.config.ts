@@ -19,6 +19,7 @@ export default defineConfig({
         main: "index.html",
         reportsAdmin: "reports-admin.html",
         reportDigestion: "report-digestion.html",
+        stockReports: "stock-reports.html",
       },
     },
   },

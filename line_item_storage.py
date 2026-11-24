@@ -52,12 +52,14 @@ def _normalize_pdf_creation_date(value: str | datetime | None) -> str | datetime
     """Convert PyMuPDF's compact creation timestamp to a database datetime."""
     if not isinstance(value, str):
         return value
-    match = re.fullmatch(r"D:?(\d{14})([+-]\d{2}'?\d{2}'?)?", value)
+    match = re.fullmatch(r"D:?(\d{14})(Z|[+-]\d{2}'?\d{2}'?)?", value)
     if not match:
         return value or None
     created = datetime.strptime(match.group(1), "%Y%m%d%H%M%S")
     offset = match.group(2)
-    if offset:
+    if offset == "Z":
+        created = created.replace(tzinfo=timezone.utc)
+    elif offset:
         sign = 1 if offset[0] == "+" else -1
         hours, minutes = map(int, re.findall(r"\d{2}", offset))
         created = created.replace(tzinfo=timezone(sign * timedelta(hours=hours, minutes=minutes)))

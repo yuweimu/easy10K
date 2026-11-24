@@ -7,11 +7,17 @@ from datetime import date
 from decimal import Decimal
 from unittest import mock
 
-from line_item_storage import LineItemStorage
+from line_item_storage import LineItemStorage, _normalize_pdf_creation_date
 import line_item_storage
 
 
 class LineItemStorageTests(unittest.TestCase):
+    def test_normalizes_pdf_creation_date_with_utc_suffix(self):
+        self.assertEqual(
+            _normalize_pdf_creation_date("D:20181026075333Z").isoformat(),
+            "2018-10-26T07:53:33+00:00",
+        )
+
     def test_statement_reads_preserve_units_and_use_parameters_without_writes(self):
         for statement in ("income_statement", "cash_flow_statement"):
             self.cursor.fetchall.return_value = [(date(2025, 12, 31), 5901, Decimal("0.1256"), "created", "元/股")]
