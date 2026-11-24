@@ -256,6 +256,13 @@ npm run dev
 
 Open [the dashboard](http://localhost:5173/) and search for a stock code. Vite proxies `/api/...` to the backend on port 8000, removing the `/api` prefix.
 
+Public, server-rendered statement pages are available at URLs such as
+`http://localhost:5173/stocks/300750/balance-sheet`,
+`/stocks/300750/income-statement`, and `/stocks/300750/cash-flow`. These pages
+include crawlable statement tables, metadata, canonical URLs, and Dataset
+structured data. In production, route `/stocks/*` to the FastAPI service and
+keep the frontend's static assets separately served.
+
 The report API serves `preprocessed/{stock_code}/{reporting_date}.md` as HTML. For example:
 
 - [Direct report endpoint](http://localhost:8000/reports/300750/2025-12-31)

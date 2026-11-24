@@ -613,6 +613,42 @@ function App() {
     return () => { reportRequest.current += 1; };
   }, [statementEndpoint]);
 
+  useEffect(() => {
+    const selectedStock = availableStockCodes.find(({ stock_code }) => stock_code === reportStockCode);
+    const stockLabel = selectedStock?.stock_name
+      ? `${selectedStock.stock_name} (${reportStockCode})`
+      : reportStockCode;
+    const statementLabel = TAB_LABELS[language][activeTab];
+    const title = reportStockCode
+      ? `${stockLabel} ${statementLabel} | Easy10K`
+      : "Easy10K Financial Reports";
+    const description = reportStockCode
+      ? `${statementLabel} and reporting-period data for ${stockLabel}.`
+      : "Explore balance sheets, income statements, and cash-flow statements for Chinese listed companies.";
+
+    document.title = title;
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    for (const [property, content] of [
+      ["og:title", title],
+      ["og:description", description],
+    ] as const) {
+      let meta = document.head.querySelector<HTMLMetaElement>(`meta[property="${property}"]`);
+      if (!meta) {
+        meta = document.createElement("meta");
+        meta.setAttribute("property", property);
+        document.head.appendChild(meta);
+      }
+      meta.content = content;
+    }
+    let descriptionMeta = document.head.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!descriptionMeta) {
+      descriptionMeta = document.createElement("meta");
+      descriptionMeta.name = "description";
+      document.head.appendChild(descriptionMeta);
+    }
+    descriptionMeta.content = description;
+  }, [activeTab, availableStockCodes, language, reportStockCode]);
+
   return (
     <main className="page-shell">
       <header className="page-header">

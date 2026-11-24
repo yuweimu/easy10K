@@ -13,6 +13,52 @@ from fastapi import HTTPException
 
 
 class ReportPageTests(unittest.TestCase):
+    @patch("main.LineItemStorage")
+    def test_public_statement_page_is_server_rendered(self, storage_class):
+        storage = storage_class.return_value.__enter__.return_value
+        storage.database_url = "postgresql://test"
+        storage.get_statement_items.return_value = [
+            {"reporting_date": "2025-12-31", "item_id": 311004, "amount": "1234.50",
+             "report_creation_time": "created", "amount_unit": "元"},
+            {"reporting_date": "2024-12-31", "item_id": 311004, "amount": "1000.00",
+             "report_creation_time": "created", "amount_unit": "元"},
+        ]
+        storage.get_statement_stock_codes.return_value = [
+            {"stock_code": "300750", "stock_name": "宁德时代"},
+        ]
+
+        response = main.get_public_statement_page("300750", "balance-sheet")
+
+        html = response.body.decode()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("宁德时代 (300750) · 资产负债表", html)
+        self.assertIn("资本公积", html)
+        self.assertNotIn("Capital Reserves</span>", html)
+        self.assertIn("2025-12-31", html)
+        self.assertIn('class="amount-column"', html)
+        self.assertIn('<select id="amount-unit">', html)
+        self.assertIn('<option value="百万元" selected>百万元</option>', html)
+        self.assertIn('<input id="show-decimals" type="checkbox" checked>', html)
+        self.assertIn('data-amount="1234.50"', html)
+        self.assertIn('0.00</td>', html)
+        self.assertIn("function renderAmounts()", html)
+        self.assertIn('class="statement-tabs"', html)
+        self.assertIn('href="/stocks/300750/balance-sheet?lang=zh"', html)
+        self.assertIn('href="/stocks/300750/income-statement?lang=zh"', html)
+        self.assertIn('href="/stocks/300750/cash-flow-statement?lang=zh"', html)
+        self.assertIn('class="active" href="/stocks/300750/balance-sheet?lang=zh"', html)
+        self.assertIn('background: #30364d', html)
+        self.assertIn('lang="zh-CN"', html)
+        self.assertIn('href="/stocks/300750/balance-sheet?lang=en"', html)
+        self.assertIn('name="description"', html)
+        self.assertIn('application/ld+json', html)
+
+        english = main.get_public_statement_page("300750", "balance-sheet", "en").body.decode()
+        self.assertIn("Balance Sheet", english)
+        self.assertIn("Capital Reserves", english)
+        self.assertNotIn("资本公积</span>", english)
+        self.assertIn('lang="en"', english)
+
     def render_report(self, content: str) -> str:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

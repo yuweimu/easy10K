@@ -11,7 +11,7 @@ from types import TracebackType
 from typing import Literal, Self, get_args
 
 from dotenv import load_dotenv
-from item_ids import UNMAPPED_ITEM_ID
+from item_ids import EPS_DILUTED_ID, EPS_ID, UNMAPPED_ITEM_ID
 
 
 # Resolve beside the program, independently of the working directory.
@@ -70,6 +70,7 @@ class LineItemStorage:
     def __init__(self, database_url: str | None = None) -> None:
         self.database_url = database_url if database_url is not None else os.getenv("DATABASE_URL")
         self._connection = None
+        self._schema_ready = False
         self._table_ready = False
         self._report_registry_ready = False
         self._report_digestion_ready = False
@@ -88,9 +89,8 @@ class LineItemStorage:
             print("database_url unspecified")
             return
         connection = self._connect()
+        self._ensure_schema()
         with connection.cursor() as cursor:
-            if not self._report_digestion_ready:
-                cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
             cursor.execute(
                 """
                 INSERT INTO report_digestion (
@@ -127,9 +127,8 @@ class LineItemStorage:
         if not self.database_url:
             return
         connection = self._connect()
+        self._ensure_schema()
         with connection.cursor() as cursor:
-            if not self._report_digestion_ready:
-                cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
             cursor.execute(
                 """
                 INSERT INTO report_digestion (
@@ -173,61 +172,26 @@ class LineItemStorage:
     def _ensure_table(self) -> None:
         if self._table_ready:
             return
-        connection = self._connect()
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS balance_sheet_items (
-                    stock_code VARCHAR(6) NOT NULL,
-                    reporting_date DATE NOT NULL,
-                    item_id INTEGER NOT NULL,
-                    report_creation_time TEXT NOT NULL,
-                    amount NUMERIC(20, 2) NOT NULL,
-                    UNIQUE (stock_code, reporting_date, item_id, report_creation_time)
-                )
-                """
-            )
-            cursor.execute("ALTER TABLE balance_sheet_items DROP COLUMN IF EXISTS item_english_name")
-        connection.commit()
+        self._ensure_schema()
         self._table_ready = True
 
     def ensure_report_registry(self) -> None:
-        """Create the registry and remove the obsolete digestion timestamp field."""
+        """Ensure the schema file has initialized the report registry."""
         if self._report_registry_ready:
+            return
+        self._ensure_schema()
+        self._report_registry_ready = True
+
+    def _ensure_schema(self) -> None:
+        """Apply the idempotent database schema and migrations from schema.sql."""
+        if self._schema_ready:
             return
         connection = self._connect()
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS report_registry (
-                    pdf_hash TEXT NOT NULL,
-                    pdf_creation_time TEXT NOT NULL,
-                    stock_code VARCHAR(12),
-                    reporting_date DATE,
-                    pdf_download_url TEXT,
-                    pdf_local_path TEXT,
-                    markdown_file TEXT,
-                    preprocessed_file TEXT,
-                    digestion_status TEXT NOT NULL DEFAULT 'PENDING',
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (pdf_hash, pdf_creation_time)
-                )
-                """
-            )
-            cursor.execute(
-                "DROP TRIGGER IF EXISTS report_registry_digestion_status_changed ON report_registry"
-            )
-            cursor.execute(
-                "ALTER TABLE report_registry DROP COLUMN IF EXISTS digestion_time"
-            )
-            cursor.execute(
-                "DROP FUNCTION IF EXISTS report_registry_set_digestion_time()"
-            )
-            cursor.execute(
-                "ALTER TABLE report_registry DROP CONSTRAINT IF EXISTS report_registry_digestion_status_check"
-            )
+            cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
         connection.commit()
-        self._report_registry_ready = True
+        self._schema_ready = True
+        self._report_digestion_ready = True
 
     def store_report_profile(
         self,
@@ -541,12 +505,12 @@ class LineItemStorage:
                     if not all(row.get(field) for field in ("stock_code", "reporting_date", "pdf_creation_date")):
                         raise ValueError("Missing metadata for statement item storage")
                     cursor.executemany(
-                        f"INSERT INTO {table} (stock_code, reporting_date, item_id, report_creation_time, amount, amount_unit) "
-                        "VALUES (%s, %s, %s, %s, %s, %s) "
+                        f"INSERT INTO {table} (stock_code, reporting_date, item_id, report_creation_time, amount) "
+                        "VALUES (%s, %s, %s, %s, %s) "
                         "ON CONFLICT (stock_code, reporting_date, item_id, report_creation_time) "
-                        "DO UPDATE SET amount = EXCLUDED.amount, amount_unit = EXCLUDED.amount_unit",
+                        "DO UPDATE SET amount = EXCLUDED.amount",
                         [(row["stock_code"], row["reporting_date"], item["item_id"], row["pdf_creation_date"],
-                          item["amount"], item.get("amount_unit", "元")) for item in report["items"]],
+                          item["amount"]) for item in report["items"]],
                     )
                 cursor.execute(f"UPDATE report_digestion SET {report_field} = %s, digestion_stage = %s, "
                                "updated_at = CURRENT_TIMESTAMP WHERE pdf_hash = %s", (payload, success if passed else failure, pdf_hash))
@@ -693,13 +657,19 @@ class LineItemStorage:
     def get_statement_items(self, statement: str, stock_code: str) -> list[dict]:
         """Read statement values, preserving EPS units and exact report versions."""
         table = self._statement_table(statement)
-        fields = ("reporting_date", "item_id", "amount", "report_creation_time", "amount_unit")
+        fields = ("reporting_date", "item_id", "amount", "report_creation_time")
         with self._connect().cursor() as cursor:
             cursor.execute(
                 f"SELECT {', '.join(fields)} FROM {table} WHERE stock_code = %s "
                 "ORDER BY reporting_date, item_id, report_creation_time", (stock_code,),
             )
-            return [dict(zip(fields, row)) for row in cursor.fetchall()]
+            records = [dict(zip(fields, row)) for row in cursor.fetchall()]
+        for record in records:
+            record["amount_unit"] = (
+                "元/股" if statement == "income_statement"
+                and record["item_id"] in {EPS_ID, EPS_DILUTED_ID} else "元"
+            )
+        return records
 
     def get_balance_sheet_items(self, stock_code: str) -> list[dict]:
         """Return the same ordered fields used by the balance-sheet API."""
@@ -740,6 +710,7 @@ class LineItemStorage:
         if self._connection is not None:
             self._connection.close()
             self._connection = None
+        self._schema_ready = False
         self._table_ready = False
         self._report_registry_ready = False
         self._report_digestion_ready = False

@@ -1,6 +1,9 @@
 # main.py
 import logging
+import json
 import re
+from html import escape
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -8,6 +11,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
+from item_ids import EPS_DILUTED_ID, EPS_ID
 from line_item_chart import LineItemChart
 from line_item_storage import LineItemStorage, ReportDigestionStage
 from report_renderer import render_report
@@ -20,6 +24,13 @@ line_item_chart = LineItemChart()
 REPORTS_DIR = Path(__file__).resolve().parent / "preprocessed"
 PROJECT_DIR = Path(__file__).resolve().parent
 SOURCE_CACHE_DIR = PROJECT_DIR / "reports" / ".source-cache"
+PUBLIC_STATEMENTS = {
+    "balance-sheet": ("balance_sheet", "Balance Sheet", "资产负债表"),
+    "income-statement": ("income_statement", "Income Statement", "利润表"),
+    "cash-flow": ("cash_flow_statement", "Cash Flow Statement", "现金流量表"),
+    "cash-flow-statement": ("cash_flow_statement", "Cash Flow Statement", "现金流量表"),
+}
+PUBLIC_AMOUNT_UNITS = {"元": 1, "千元": 1_000, "万元": 10_000, "百万元": 1_000_000, "亿元": 100_000_000}
 
 # 2. Define the structure of the data we expect (Pydantic Model)
 class WordInput(BaseModel):
@@ -161,6 +172,217 @@ def get_report(stock_code: str, reporting_date: str) -> HTMLResponse:
         report_path.read_text(encoding="utf-8"),
         title=f"{stock_code} · {reporting_date}",
     )
+
+
+@app.get("/stocks/{stock_code}/{statement_slug}", response_class=HTMLResponse)
+def get_public_statement_page(
+    stock_code: str,
+    statement_slug: str,
+    language: Literal["zh", "en"] = Query(default="zh", alias="lang"),
+) -> HTMLResponse:
+    """Render an indexable HTML statement page for one stock and statement."""
+    # When called directly in tests, FastAPI's Query default is not resolved.
+    if language not in ("zh", "en"):
+        language = "zh"
+    if not re.fullmatch(r"\d{6}", stock_code):
+        raise HTTPException(status_code=404, detail="Stock not found")
+    statement_info = PUBLIC_STATEMENTS.get(statement_slug)
+    if statement_info is None:
+        raise HTTPException(status_code=404, detail="Statement not found")
+
+    statement, title_en, title_zh = statement_info
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            items = storage.get_statement_items(statement, stock_code)
+            stock = next(
+                (entry for entry in storage.get_statement_stock_codes(statement)
+                 if entry["stock_code"] == stock_code),
+                None,
+            )
+        except Exception as exc:
+            logger.warning("Unable to render public statement page", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to render statement") from exc
+
+    if not items:
+        raise HTTPException(status_code=404, detail="Statement not found")
+
+    stock_name = (stock or {}).get("stock_name") or stock_code
+    dates = sorted({str(item["reporting_date"]) for item in items}, reverse=True)
+    latest_items: dict[tuple[str, int], dict] = {}
+    for item in items:
+        latest_items[(str(item["reporting_date"]), int(item["item_id"]))] = item
+    item_ids = sorted({item_id for _, item_id in latest_items})
+    chart_items = {item.item_id: item for item in line_item_chart._items_by_id.values()}
+
+    def amount_text(value: object, *, per_share: bool) -> str:
+        if value is None or str(value).strip() == "":
+            return "—"
+        try:
+            number = Decimal(str(value))
+            if not per_share:
+                number /= Decimal(PUBLIC_AMOUNT_UNITS["百万元"])
+            formatted = f"{number:,.4f}" if per_share else f"{number:,.2f}"
+            if per_share:
+                integer, _, fraction = formatted.partition(".")
+                fraction = fraction.rstrip("0")
+                fraction += "0" * max(0, 2 - len(fraction))
+                formatted = f"{integer}.{fraction}"
+            return escape(formatted)
+        except (InvalidOperation, ValueError):
+            return escape(str(value))
+
+    rows = []
+    for item_id in item_ids:
+        chart_item = chart_items.get(item_id)
+        label_cn = chart_item.name if chart_item else f"Item {item_id}"
+        label_en = chart_item.english_name if chart_item else f"Item {item_id}"
+        item_label = label_cn if language == "zh" else label_en
+        item_language = "zh-CN" if language == "zh" else "en"
+        per_share = statement == "income_statement" and item_id in {EPS_ID, EPS_DILUTED_ID}
+        cells = "".join(
+            f"<td class=\"amount-column\" data-amount=\"{escape(str(latest_items.get((date, item_id), {}).get('amount') if latest_items.get((date, item_id), {}).get('amount') is not None else ''), quote=True)}\" data-per-share=\"{'true' if per_share else 'false'}\">"
+            f"{amount_text(latest_items.get((date, item_id), {}).get('amount'), per_share=per_share)}</td>"
+            for date in dates
+        )
+        rows.append(
+            f"<tr class=\"item-row\"><th scope=\"row\" class=\"item-name\"><span lang=\"{item_language}\">{escape(item_label)}</span>"
+            f"</th>{cells}</tr>"
+        )
+
+    page_url = f"/stocks/{stock_code}/{statement_slug}"
+    localized_title = title_zh if language == "zh" else title_en
+    localized_description = (
+        f"{title_zh}及{stock_name}（{stock_code}）各报告期数据。"
+        if language == "zh" else
+        f"{title_en} and reporting-period data for {stock_name} ({stock_code})."
+    )
+    title = f"{stock_name} ({stock_code}) {localized_title} | Easy10K"
+    description = localized_description
+    table_item_label = "财务项目" if language == "zh" else "Financial item"
+    reporting_periods_label = "个报告期" if language == "zh" else "reporting periods"
+    language_label = "语言" if language == "zh" else "Language"
+    amount_unit_label = "金额单位" if language == "zh" else "Amount unit"
+    show_decimals_label = "显示小数" if language == "zh" else "Show decimals"
+    amount_unit_options = "".join(
+        f"<option value=\"{unit}\"{' selected' if unit == '百万元' else ''}>{unit if language == 'zh' else unit + ' CNY'}</option>"
+        for unit in PUBLIC_AMOUNT_UNITS
+    )
+    statement_tabs = (
+        ("balance-sheet", "资产负债表", "Balance Sheet"),
+        ("income-statement", "利润表", "Income Statement"),
+        ("cash-flow-statement", "现金流量表", "Cash Flow Statement"),
+    )
+    statement_tabs_label = "财务报表" if language == "zh" else "Financial statements"
+    statement_tab_links = "".join(
+        f'<a class="{"active" if current_slug == statement_slug else ""}" href="/stocks/{escape(stock_code)}/{current_slug}?lang={language}" aria-current="{"page" if current_slug == statement_slug else "false"}">{escape(label_zh if language == "zh" else label_en)}</a>'
+        for current_slug, label_zh, label_en in statement_tabs
+    )
+    structured_data = json.dumps({
+        "@context": "https://schema.org",
+        "@type": "Dataset",
+        "name": title,
+        "description": description,
+        "url": page_url,
+        "temporalCoverage": f"{dates[-1]}/{dates[0]}",
+    }, ensure_ascii=False).replace("<", "\\u003c")
+    html = f"""<!doctype html>
+<html lang="{'zh-CN' if language == 'zh' else 'en'}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{escape(title)}</title>
+  <meta name="description" content="{escape(description)}">
+  <link rel="canonical" href="{page_url}">
+  <script type="application/ld+json">{structured_data}</script>
+  <style>
+    body {{ margin: 0; color: #20283b; background: #f5f6fa; font: 16px system-ui, sans-serif; }}
+    main {{ max-width: 1400px; margin: 0 auto; padding: 32px 20px 64px; }}
+    h1 {{ margin: 0 0 8px; font-size: 1.8rem; }}
+    p {{ color: #5f687b; }}
+    .page-header {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }}
+    .page-tools {{ display: flex; align-items: flex-end; flex-direction: column; gap: 12px; flex-shrink: 0; }}
+    .language-switcher {{ display: flex; align-items: center; gap: 8px; flex-shrink: 0; }}
+    .language-switcher span {{ color: #737c8e; font-size: .78rem; }}
+    .language-toggle {{ display: flex; gap: 2px; padding: 3px; background: #fff; border: 1px solid #e0e3ec; border-radius: 9px; box-shadow: 0 1px 2px #20283b05; }}
+    .language-toggle a {{ padding: 6px 10px; border-radius: 6px; color: #6860ad; font-size: .72rem; font-weight: 700; text-decoration: none; }}
+    .language-toggle a.active {{ background: #6860ad; color: #fff; }}
+    .report-tools {{ display: flex; align-items: center; justify-content: flex-end; gap: 8px; }}
+    .report-tools label {{ margin: 0; color: #555970; font-size: .78rem; font-weight: 700; white-space: nowrap; }}
+    .statement-tabs {{ display: flex; gap: 8px; margin: 0 0 16px; padding: 0 0 4px; border-bottom: 1px solid #e0e3ec; }}
+    .statement-tabs a {{ padding: 9px 16px; border-radius: 9px 9px 0 0; color: #6860ad; font-size: .86rem; font-weight: 700; text-decoration: none; }}
+    .statement-tabs a:hover {{ background: #f0eef9; }}
+    .statement-tabs a.active {{ color: #fff; background: #6860ad; }}
+    .amount-unit-control {{ display: flex; align-items: center; gap: 6px; }}
+    select {{ height: 30px; padding: 0 28px 0 9px; border: 1px solid #dce0e9; border-radius: 8px; background: #fafbfe; color: #24283d; font: inherit; font-size: .8rem; }}
+    .decimal-toggle {{ display: flex; align-items: center; gap: 5px; }}
+    .decimal-toggle input {{ accent-color: #6860ad; }}
+    .table-wrap {{ overflow-x: auto; background: #fff; border: 1px solid #e0e3ec; border-radius: 14px; box-shadow: 0 2px 6px #20283b04, 0 12px 32px #20283b03; }}
+    table {{ border-collapse: collapse; min-width: 720px; width: 100%; }}
+    th, td {{ border-top: 1px solid #eceef4; padding: 11px 20px; text-align: left; white-space: nowrap; }}
+    th {{ background: #30364d; color: #f4f2fc; border-top-color: #3e455f; font-size: .72rem; font-weight: 550; letter-spacing: .04em; text-transform: uppercase; }}
+    td {{ color: #505a70; font-size: .84rem; }}
+    .item-name {{ color: #fff; font-weight: 700; }}
+    .item-row {{ transition: background-color 120ms ease; }}
+    .item-row:hover {{ background: #f0eef9; }}
+    thead th:first-child, td.item-name {{ border-right: 1px solid #d6d3e4; }}
+    thead th:first-child {{ border-right-color: #504d70; }}
+    .amount-column {{ font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; text-align: right; }}
+    @media (max-width: 600px) {{ .page-header {{ flex-direction: column; gap: 12px; }} .page-tools {{ align-items: stretch; width: 100%; }} .language-switcher {{ align-self: flex-end; }} .report-tools {{ justify-content: flex-start; flex-wrap: wrap; }} }}
+  </style>
+</head>
+<body><main>
+  <div class="page-header">
+    <div>
+      <h1>{escape(stock_name)} ({escape(stock_code)}) · {escape(localized_title)}</h1>
+      <p lang="{'zh-CN' if language == 'zh' else 'en'}">{escape(title_zh if language == 'zh' else title_en)} · {len(dates)} {reporting_periods_label}</p>
+    </div>
+    <div class="page-tools">
+      <nav class="language-switcher" aria-label="{escape(language_label)}">
+        <span>{escape(language_label)}</span>
+        <div class="language-toggle">
+          <a class="{'active' if language == 'zh' else ''}" href="{page_url}?lang=zh" lang="zh-CN" aria-current="{'page' if language == 'zh' else 'false'}">中文</a>
+          <a class="{'active' if language == 'en' else ''}" href="{page_url}?lang=en" lang="en" aria-current="{'page' if language == 'en' else 'false'}">EN</a>
+        </div>
+      </nav>
+      <div class="report-tools">
+        <label class="amount-unit-control" for="amount-unit"><span>{escape(amount_unit_label)}</span>
+          <select id="amount-unit">{amount_unit_options}</select>
+        </label>
+        <label class="decimal-toggle"><input id="show-decimals" type="checkbox" checked> {escape(show_decimals_label)}</label>
+      </div>
+    </div>
+  </div>
+  <nav class="statement-tabs" aria-label="{escape(statement_tabs_label)}">{statement_tab_links}</nav>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">{table_item_label}</th>{''.join(f'<th scope="col">{escape(date)}</th>' for date in dates)}</tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table></div>
+</main>
+<script>
+  const units = {json.dumps(PUBLIC_AMOUNT_UNITS, ensure_ascii=False)};
+  const unitSelect = document.getElementById('amount-unit');
+  const decimalsToggle = document.getElementById('show-decimals');
+  function renderAmounts() {{
+    const unit = unitSelect.value;
+    const showDecimals = decimalsToggle.checked;
+    document.querySelectorAll('[data-amount]').forEach((cell) => {{
+      const raw = Number(cell.dataset.amount);
+      if (!Number.isFinite(raw)) return;
+      const perShare = cell.dataset.perShare === 'true';
+      const value = raw / (perShare ? 1 : units[unit]);
+      cell.textContent = value.toLocaleString(undefined, {{
+        minimumFractionDigits: showDecimals ? 2 : 0,
+        maximumFractionDigits: perShare ? 4 : showDecimals ? 2 : 0,
+      }});
+    }});
+  }}
+  unitSelect.addEventListener('change', renderAmounts);
+  decimalsToggle.addEventListener('change', renderAmounts);
+</script>
+</body></html>"""
+    return HTMLResponse(html, headers={"X-Content-Type-Options": "nosniff"})
 
 @app.get("/line-item-chart")
 def get_line_item_chart() -> list[dict[str, int | str | None]]:
