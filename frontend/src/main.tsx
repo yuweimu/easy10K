@@ -26,6 +26,7 @@ type StockReportCount = {
   stock_code: string;
   stock_name: string | null;
   report_count: number;
+  enrollment: "InProgress" | "Error" | "Done" | null;
   has_missing_reporting_dates: boolean;
 };
 
@@ -323,7 +324,7 @@ function App() {
     setStockCodesStatus("loading");
     getJson<StockReportCount[]>(statementEndpoint).then((codes) => {
       if (cancelled) return;
-      setAvailableStockCodes(codes);
+      setAvailableStockCodes(codes.filter(({ enrollment }) => enrollment === "Done"));
       setStockCodesStatus("ready");
     }).catch(() => {
       if (!cancelled) setStockCodesStatus("error");
@@ -794,7 +795,7 @@ function App() {
                 onClick={() => {
                   setStockCode(code);
                   void loadReport(code);
-                }}>{name || code} <span className="stock-report-count">({count.toLocaleString()} {text.reports})</span></button>
+                }}>{code}{name && ` · ${name}`} <span className="stock-report-count">({count.toLocaleString()} {text.reports})</span></button>
             ))}
           </div>
         ) : <p>{text.noAvailableStocks}</p>)}

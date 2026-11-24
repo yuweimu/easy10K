@@ -22,7 +22,7 @@ class LineItemStorageTests(unittest.TestCase):
             self.assertEqual(parameters, ("300750",))
             self.assertEqual(result[0]["amount_unit"], "元/股")
             self.assertEqual(result[0]["amount"], Decimal("0.1256"))
-            self.cursor.fetchall.return_value = [("300750", 2, "宁德时代", [date(2025, 12, 31)])]
+            self.cursor.fetchall.return_value = [("300750", 2, "宁德时代", "Done", [date(2025, 12, 31)])]
             with LineItemStorage("postgresql://test") as storage:
                 self.assertEqual(storage.get_statement_stock_codes(statement)[0]["report_count"], 2)
             self.assertIn(f"FROM {statement}_items", self.cursor.execute.call_args.args[0])
@@ -705,13 +705,13 @@ class LineItemStorageTests(unittest.TestCase):
 
     def test_stock_directory_reads_distinct_codes_without_writes(self) -> None:
         self.cursor.fetchall.return_value = [
-            ("000001", 3, "平安银行", [date(2025, 3, 31), date(2025, 9, 30)]),
-            ("300750", 7, None, [date(2025, 3, 31), date(2025, 6, 30), date(2025, 9, 30)]),
+            ("000001", 3, "平安银行", "Done", [date(2025, 3, 31), date(2025, 9, 30)]),
+            ("300750", 7, None, "InProgress", [date(2025, 3, 31), date(2025, 6, 30), date(2025, 9, 30)]),
         ]
         with LineItemStorage("postgresql://test") as storage:
             self.assertEqual(storage.get_balance_sheet_stock_codes(), [
-                {"stock_code": "000001", "report_count": 3, "stock_name": "平安银行", "has_missing_reporting_dates": True},
-                {"stock_code": "300750", "report_count": 7, "stock_name": None, "has_missing_reporting_dates": False},
+                {"stock_code": "000001", "report_count": 3, "stock_name": "平安银行", "enrollment": "Done", "has_missing_reporting_dates": True},
+                {"stock_code": "300750", "report_count": 7, "stock_name": None, "enrollment": "InProgress", "has_missing_reporting_dates": False},
             ])
         query = self.cursor.execute.call_args.args[0]
         self.assertIn("COUNT(DISTINCT (reporting_date, report_creation_time))", query)

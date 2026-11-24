@@ -60,6 +60,7 @@ def get_report_digestion(
                           "ManualPass", "Deprecated", "Search"] | None = None,
     pdf_hash: str | None = Query(default=None, max_length=128),
     stock_code: str | None = Query(default=None, max_length=12),
+    reporting_date: str | None = Query(default=None, max_length=10),
     digestion_stage: ReportDigestionStage | None = None,
 ) -> dict:
     """Return a paginated, read-only view of report digestion records."""
@@ -70,7 +71,7 @@ def get_report_digestion(
             return storage.get_report_digestion(
                 page, page_size, show_passed=show_passed, only_manual_pass=only_manual_pass,
                 report_group=report_group, pdf_hash=pdf_hash, stock_code=stock_code,
-                digestion_stage=digestion_stage)
+                reporting_date=reporting_date, digestion_stage=digestion_stage)
         except Exception as exc:
             logger.warning("Unable to fetch report digestion", exc_info=True)
             raise HTTPException(status_code=503, detail="Unable to fetch report digestion") from exc

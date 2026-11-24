@@ -172,23 +172,23 @@ class ReportDigestionTests(unittest.TestCase):
         with patch("main.LineItemStorage") as factory:
             storage = factory.return_value.__enter__.return_value
             storage.get_report_digestion.return_value = {"items": [], "page": 2}
-            self.assertEqual(get_report_digestion(2, 10, pdf_hash=None, stock_code=None), {"items": [], "page": 2})
+            self.assertEqual(get_report_digestion(2, 10, pdf_hash=None, stock_code=None, reporting_date=None), {"items": [], "page": 2})
             storage.get_report_digestion.assert_called_once_with(
                 2, 10, show_passed=False, only_manual_pass=False, report_group=None,
-                pdf_hash=None, stock_code=None, digestion_stage=None)
-            get_report_digestion(1, 25, show_passed=True, pdf_hash=None, stock_code=None)
+                pdf_hash=None, stock_code=None, reporting_date=None, digestion_stage=None)
+            get_report_digestion(1, 25, show_passed=True, pdf_hash=None, stock_code=None, reporting_date=None)
             storage.get_report_digestion.assert_called_with(
                 1, 25, show_passed=True, only_manual_pass=False, report_group=None,
-                pdf_hash=None, stock_code=None, digestion_stage=None)
-            get_report_digestion(1, 25, only_manual_pass=True, pdf_hash=None, stock_code=None)
+                pdf_hash=None, stock_code=None, reporting_date=None, digestion_stage=None)
+            get_report_digestion(1, 25, only_manual_pass=True, pdf_hash=None, stock_code=None, reporting_date=None)
             storage.get_report_digestion.assert_called_with(
                 1, 25, show_passed=False, only_manual_pass=True, report_group=None,
-                pdf_hash=None, stock_code=None, digestion_stage=None)
+                pdf_hash=None, stock_code=None, reporting_date=None, digestion_stage=None)
             for group in ("InProgress", "AuditPass", "ManualPass"):
-                get_report_digestion(1, 25, report_group=group, pdf_hash=None, stock_code=None)
+                get_report_digestion(1, 25, report_group=group, pdf_hash=None, stock_code=None, reporting_date=None)
                 storage.get_report_digestion.assert_called_with(
                     1, 25, show_passed=False, only_manual_pass=False, report_group=group,
-                    pdf_hash=None, stock_code=None, digestion_stage=None)
+                    pdf_hash=None, stock_code=None, reporting_date=None, digestion_stage=None)
 
     def test_report_tabs_filter_counts_and_rows_consistently(self):
         for group in ("InProgress", "FileErr", "ExtractErr", "AuditIssues", "BalanceErr",

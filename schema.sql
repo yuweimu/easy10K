@@ -180,7 +180,13 @@ CREATE TABLE IF NOT EXISTS cash_flow_statement_items (
 CREATE TABLE IF NOT EXISTS stock_metadata (
     stock_code VARCHAR(12) PRIMARY KEY CHECK (btrim(stock_code) <> ''),
     stock_name VARCHAR(16) NOT NULL CHECK (btrim(stock_name) <> ''),
+    enrollment TEXT NOT NULL DEFAULT 'InProgress'
+        CHECK (enrollment IN ('InProgress', 'Error', 'Done')),
     company_name TEXT,
     company_homepage TEXT,
     company_profile TEXT
 );
+
+ALTER TABLE stock_metadata
+    ADD COLUMN IF NOT EXISTS enrollment TEXT NOT NULL DEFAULT 'InProgress'
+        CHECK (enrollment IN ('InProgress', 'Error', 'Done'));

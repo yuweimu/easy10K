@@ -14,6 +14,7 @@ const searchForm = document.querySelector<HTMLFormElement>("#report-search")!;
 const searchFields = document.querySelector<HTMLFieldSetElement>("#search-fields")!;
 const searchHash = document.querySelector<HTMLInputElement>("#search-pdf-hash")!;
 const searchStock = document.querySelector<HTMLInputElement>("#search-stock-code")!;
+const searchReportingDate = document.querySelector<HTMLInputElement>("#search-reporting-date")!;
 const searchStage = document.querySelector<HTMLSelectElement>("#search-stage")!;
 let searchFilters: Record<string, string> = {};
 let reportGroup = "InProgress";
@@ -467,7 +468,12 @@ size.addEventListener("change", () => void load(1));
 searchForm.addEventListener("submit", event => {
   event.preventDefault();
   if (loading || reportGroup !== "Search") return;
-  searchFilters = {pdf_hash: searchHash.value.trim(), stock_code: searchStock.value.trim(), digestion_stage: searchStage.value};
+  searchFilters = {
+    pdf_hash: searchHash.value.trim(),
+    stock_code: searchStock.value.trim(),
+    reporting_date: searchReportingDate.value,
+    digestion_stage: searchStage.value,
+  };
   void load(1);
 });
 document.querySelector<HTMLButtonElement>("#clear-search")!.addEventListener("click", () => {

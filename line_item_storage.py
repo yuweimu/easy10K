@@ -610,6 +610,7 @@ class LineItemStorage:
     def get_report_digestion(self, page: int = 1, page_size: int = 25, *, show_passed: bool = False,
                              only_manual_pass: bool = False, report_group: str | None = None,
                              pdf_hash: str | None = None, stock_code: str | None = None,
+                             reporting_date: str | None = None,
                              digestion_stage: str | None = None) -> dict:
         """Read a filtered, newest-first page without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:
@@ -643,7 +644,8 @@ class LineItemStorage:
                                                         "ManualPass", "Deprecated") else ()
         if report_group == "Search":
             where = ""
-        for column, value in (("pdf_hash", pdf_hash), ("stock_code", stock_code), ("digestion_stage", digestion_stage)):
+        for column, value in (("pdf_hash", pdf_hash), ("stock_code", stock_code),
+                              ("reporting_date", reporting_date), ("digestion_stage", digestion_stage)):
             if value and value.strip():
                 where += ("AND " if where else "WHERE ") + column + " = %s "
                 parameters += (value.strip(),)
@@ -674,7 +676,7 @@ class LineItemStorage:
         table = self._statement_table(statement)
         with self._connect().cursor() as cursor:
             cursor.execute(
-                "SELECT stocks.stock_code, stocks.report_count, metadata.stock_name, stocks.reporting_dates FROM ("
+                "SELECT stocks.stock_code, stocks.report_count, metadata.stock_name, metadata.enrollment, stocks.reporting_dates FROM ("
                 "SELECT stock_code, COUNT(DISTINCT (reporting_date, report_creation_time)) "
                 f"AS report_count, ARRAY_AGG(DISTINCT reporting_date) AS reporting_dates FROM {table} "
                 "WHERE stock_code IS NOT NULL AND stock_code <> '' "
@@ -683,7 +685,7 @@ class LineItemStorage:
                 "ORDER BY stocks.stock_code"
             )
             return [{"stock_code": row[0], "report_count": row[1], "stock_name": row[2],
-                     "has_missing_reporting_dates": _has_missing_quarters(row[3])}
+                     "enrollment": row[3], "has_missing_reporting_dates": _has_missing_quarters(row[4])}
                     for row in cursor.fetchall()]
 
     def get_statement_items(self, statement: str, stock_code: str) -> list[dict]:
