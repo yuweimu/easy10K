@@ -19,7 +19,7 @@ load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 
 ReportDigestionStage = Literal[
     "FileOK", "FileErr", "ExtractOK", "ExtractErr",
-    "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "BalanceOK", "BalanceErr",
+    "AuditOK", "AuditErr", "ManualPass", "Deprecated", "NoStatements", "BalanceOK", "BalanceErr",
     "IncomeOK", "IncomeErr", "CashFlowOK", "CashFlowErr",
 ]
 
@@ -418,7 +418,7 @@ class LineItemStorage:
     def get_extracted_reports(self, pdf_hash: str | None = None,
                               stock_code: str | None = None,
                               *, retry: bool = False) -> list[dict]:
-        """Read extraction inputs, optionally retrying AuditIssues reports."""
+        """Read extraction inputs, optionally retrying AuditErr reports."""
         fields = ("pdf_hash", "local_path", "extraction_report")
         with self._connect().cursor() as cursor:
             conditions = []
@@ -428,7 +428,7 @@ class LineItemStorage:
                 parameters.append(pdf_hash)
             else:
                 conditions.append("digestion_stage = %s")
-                parameters.append("AuditIssues" if retry else "ExtractOK")
+                parameters.append("AuditErr" if retry else "ExtractOK")
             if stock_code:
                 conditions.append("stock_code = %s")
                 parameters.append(stock_code)
@@ -442,7 +442,7 @@ class LineItemStorage:
         """Read queued balance sheets, retrying BalanceErr reports when requested."""
         fields = ("pdf_hash", "balance_sheet", "stock_code", "reporting_date", "pdf_creation_date")
         conditions = ["digestion_stage = %s"]
-        parameters = ["BalanceErr" if retry else "AuditPass"]
+        parameters = ["BalanceErr" if retry else "AuditOK"]
         if pdf_hash is not None:
             conditions = ["pdf_hash = %s"]
             parameters = [pdf_hash]
@@ -476,8 +476,8 @@ class LineItemStorage:
                 current = cursor.fetchone()
                 if current is None:
                     raise ValueError(f"Report {pdf_hash} not found")
-                if not allow_any_stage and current[0] != "AuditPass":
-                    raise ValueError(f"Report {pdf_hash} is no longer at AuditPass")
+                if not allow_any_stage and current[0] != "AuditOK":
+                    raise ValueError(f"Report {pdf_hash} is no longer at AuditOK")
                 if passed:
                     cursor.executemany(
                         "INSERT INTO balance_sheet_items "
@@ -596,7 +596,7 @@ class LineItemStorage:
         if not isinstance(pdf_hash, str) or not pdf_hash.strip():
             raise ValueError("PDF hash must be a nonblank string")
         payload = json.dumps({"issues": issues, "statements": statements}, ensure_ascii=False)
-        stage = "AuditIssues" if issues else "AuditPass"
+        stage = "AuditErr" if issues else "AuditOK"
         connection = self._connect()
         with connection.cursor() as cursor:
             if not self._report_digestion_ready:
@@ -617,7 +617,7 @@ class LineItemStorage:
         """Read a filtered, newest-first page without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("Page must be positive and page_size must be between 1 and 100")
-        if report_group not in (None, "InProgress", "FileErr", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+        if report_group not in (None, "InProgress", "FileErr", "ExtractOK", "ExtractErr", "AuditOK", "AuditErr",
                                 "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                                 "ManualPass", "Deprecated", "Search"):
             raise ValueError("Unknown report group")
@@ -630,18 +630,18 @@ class LineItemStorage:
             "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit",
             "bs_digestion_report", "is_digestion_report", "cfs_digestion_report", "updated_at",
         )
-        where = "" if show_passed else "WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass') "
+        where = "" if show_passed else "WHERE digestion_stage NOT IN ('ManualPass', 'AuditOK') "
         if only_manual_pass:
             where = "WHERE digestion_stage = 'ManualPass' "
         if report_group == "InProgress":
-            where = ("WHERE digestion_stage NOT IN ('ManualPass', 'Deprecated', 'FileErr', 'ExtractErr', 'AuditIssues', "
+            where = ("WHERE digestion_stage NOT IN ('ManualPass', 'Deprecated', 'FileErr', 'ExtractErr', 'AuditErr', "
                      "'BalanceErr', 'IncomeErr', 'CashFlowErr', "
                      "'CashFlowOK') ")
-        elif report_group in ("FileErr", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+        elif report_group in ("FileErr", "ExtractOK", "ExtractErr", "AuditOK", "AuditErr",
                               "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                               "ManualPass", "Deprecated"):
             where = "WHERE digestion_stage = %s "
-        parameters = (report_group,) if report_group in ("FileErr", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+        parameters = (report_group,) if report_group in ("FileErr", "ExtractOK", "ExtractErr", "AuditOK", "AuditErr",
                                                         "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                                                         "ManualPass", "Deprecated") else ()
         if report_group == "Search":

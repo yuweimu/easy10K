@@ -198,7 +198,7 @@ class LineItemStorageTests(unittest.TestCase):
         count, rows = self.cursor.execute.call_args_list
         for query in (count.args[0], rows.args[0]):
             self.assertIn(
-                "WHERE digestion_stage NOT IN ('ManualPass', 'Deprecated', 'FileErr', 'ExtractErr', 'AuditIssues', "
+                "WHERE digestion_stage NOT IN ('ManualPass', 'Deprecated', 'FileErr', 'ExtractErr', 'AuditErr', "
                 "'BalanceErr', 'IncomeErr', "
                 "'CashFlowErr', 'CashFlowOK')",
                 query,
@@ -212,7 +212,7 @@ class LineItemStorageTests(unittest.TestCase):
             rows = storage.get_audit_pass_reports()
         query, parameters = self.cursor.execute.call_args.args
         self.assertIn("WHERE digestion_stage = %s ORDER BY pdf_hash", query)
-        self.assertEqual(parameters, ("AuditPass",))
+        self.assertEqual(parameters, ("AuditOK",))
         self.assertEqual(rows[0], {"pdf_hash": "hash", "balance_sheet": "markdown", "stock_code": "600519",
                                    "reporting_date": "2025-12-31", "pdf_creation_date": "created"})
         self.connection.commit.assert_not_called()
@@ -242,7 +242,7 @@ class LineItemStorageTests(unittest.TestCase):
                "pdf_creation_date": "created"}
         report = {"passed": True, "issues": [], "items": [
             {"item_id": 110101, "amount": "123.45", "english_name": "Cash"}]}
-        self.cursor.fetchone.return_value = ("AuditPass",)
+        self.cursor.fetchone.return_value = ("AuditOK",)
         with LineItemStorage("postgresql://test") as storage:
             storage._table_ready = storage._report_digestion_ready = True
             storage.store_line_item_digestion(row, report)
@@ -260,7 +260,7 @@ class LineItemStorageTests(unittest.TestCase):
         self.connection.rollback.assert_not_called()
 
     def test_failed_line_item_checks_save_report_without_inserting_items(self):
-        self.cursor.fetchone.return_value = ("AuditPass",)
+        self.cursor.fetchone.return_value = ("AuditOK",)
         report = {"passed": False, "issues": ["missing required item"], "items": []}
         with LineItemStorage("postgresql://test") as storage:
             storage._report_digestion_ready = True
@@ -272,7 +272,7 @@ class LineItemStorageTests(unittest.TestCase):
         self.connection.commit.assert_called_once()
 
     def test_line_item_digestion_rolls_back_partial_inserts(self):
-        self.cursor.fetchone.return_value = ("AuditPass",)
+        self.cursor.fetchone.return_value = ("AuditOK",)
         self.cursor.executemany.side_effect = RuntimeError("insert failed")
         row = {"pdf_hash": "hash", "stock_code": "600519", "reporting_date": "2025-12-31",
                "pdf_creation_date": "created"}
@@ -289,7 +289,7 @@ class LineItemStorageTests(unittest.TestCase):
         self.cursor.fetchone.return_value = ("ManualPass",)
         with LineItemStorage("postgresql://test") as storage:
             storage._report_digestion_ready = True
-            with self.assertRaisesRegex(ValueError, "no longer at AuditPass"):
+            with self.assertRaisesRegex(ValueError, "no longer at AuditOK"):
                 storage.store_line_item_digestion({"pdf_hash": "hash"}, {"passed": False, "issues": []})
         self.cursor.executemany.assert_not_called()
         self.connection.commit.assert_not_called()
@@ -300,8 +300,8 @@ class LineItemStorageTests(unittest.TestCase):
             ({"pdf_hash": "  abc123  "}, ("abc123",)),
             ({"stock_code": "600519"}, ("600519",)),
             ({"digestion_stage": "NoStatements"}, ("NoStatements",)),
-            ({"pdf_hash": "abc123", "stock_code": "600519", "digestion_stage": "AuditPass"},
-             ("abc123", "600519", "AuditPass")),
+            ({"pdf_hash": "abc123", "stock_code": "600519", "digestion_stage": "AuditOK"},
+             ("abc123", "600519", "AuditOK")),
         ):
             with self.subTest(filters=filters):
                 self.cursor.execute.reset_mock()
@@ -369,7 +369,7 @@ class LineItemStorageTests(unittest.TestCase):
 
     def test_get_report_digestion_stage_by_hash(self):
         with LineItemStorage("postgresql://test") as storage:
-            for stage in ("AuditPass", "AuditIssues", "ManualPass", "ExtractOK", None):
+            for stage in ("AuditOK", "AuditErr", "ManualPass", "ExtractOK", None):
                 self.cursor.fetchone.return_value = (stage,) if stage else None
                 self.assertEqual(storage.get_report_digestion_stage("hash"), stage)
                 self.cursor.execute.assert_called_with(
@@ -418,7 +418,7 @@ class LineItemStorageTests(unittest.TestCase):
             storage._report_digestion_ready = True
             self.cursor.execute.side_effect = RuntimeError("write failed")
             with self.assertRaises(RuntimeError):
-                storage.update_report_digestion_stage("hash", "AuditIssues")
+                storage.update_report_digestion_stage("hash", "AuditErr")
             self.connection.commit.assert_not_called()
 
     def test_store_extraction_audit_saves_json_and_stage_atomically(self):
@@ -432,8 +432,8 @@ class LineItemStorageTests(unittest.TestCase):
         self.assertIn("DROP CONSTRAINT IF EXISTS report_digestion_digestion_stage_check", schema)
         self.assertIn("ADD CONSTRAINT report_digestion_digestion_stage_check", schema)
         for call, pdf_hash, issues, details, stage in (
-            (calls[1], "passed", [], statements, "AuditPass"),
-            (calls[2], "flagged", ["missing stock_code"], {}, "AuditIssues"),
+            (calls[1], "passed", [], statements, "AuditOK"),
+            (calls[2], "flagged", ["missing stock_code"], {}, "AuditErr"),
         ):
             query, values = call.args
             self.assertIn("SET extraction_audit = %s, digestion_stage = %s", query)

@@ -32,7 +32,7 @@ class ReportDigestionTests(unittest.TestCase):
             storage.update_report_digestion_stage.assert_called_once_with("hash", "ExtractOK")
 
     def test_api_stage_update_validates_stage(self):
-        for value in ("invalid", "", "HandPass", "AuditPass'; DROP TABLE report_digestion", None):
+        for value in ("invalid", "", "HandPass", "AuditOK'; DROP TABLE report_digestion", None):
             with self.subTest(value=value), self.assertRaises(ValidationError):
                 ReportStageUpdate(digestion_stage=value)
 
@@ -123,7 +123,7 @@ class ReportDigestionTests(unittest.TestCase):
         self.assertIn("ORDER BY updated_at DESC NULLS LAST, pdf_hash", sql)
         self.assertEqual(parameters, (25, 25))
         for call in cursor.execute.call_args_list:
-            self.assertIn("WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass')", call.args[0])
+            self.assertIn("WHERE digestion_stage NOT IN ('ManualPass', 'AuditOK')", call.args[0])
         connection.commit.assert_not_called()
 
     def test_storage_can_include_passed_reports(self):
@@ -184,16 +184,16 @@ class ReportDigestionTests(unittest.TestCase):
             storage.get_report_digestion.assert_called_with(
                 1, 25, show_passed=False, only_manual_pass=True, report_group=None,
                 pdf_hash=None, stock_code=None, reporting_date=None, digestion_stage=None)
-            for group in ("InProgress", "AuditPass", "ManualPass"):
+            for group in ("InProgress", "AuditOK", "ManualPass"):
                 get_report_digestion(1, 25, report_group=group, pdf_hash=None, stock_code=None, reporting_date=None)
                 storage.get_report_digestion.assert_called_with(
                     1, 25, show_passed=False, only_manual_pass=False, report_group=group,
                     pdf_hash=None, stock_code=None, reporting_date=None, digestion_stage=None)
 
     def test_report_tabs_filter_counts_and_rows_consistently(self):
-        for group in ("InProgress", "FileErr", "ExtractErr", "AuditIssues", "BalanceErr",
+        for group in ("InProgress", "FileErr", "ExtractErr", "AuditErr", "BalanceErr",
                       "IncomeErr", "CashFlowErr", "CashFlowOK",
-                      "AuditPass", "ManualPass"):
+                      "AuditOK", "ManualPass"):
             with self.subTest(group=group):
                 connection = MagicMock()
                 cursor = connection.cursor.return_value.__enter__.return_value
@@ -207,7 +207,7 @@ class ReportDigestionTests(unittest.TestCase):
                 for call in cursor.execute.call_args_list:
                     if group == "InProgress":
                         self.assertIn("WHERE digestion_stage NOT IN (", call.args[0])
-                        for stage in ("ManualPass", "Deprecated", "FileErr", "ExtractErr", "AuditIssues", "BalanceErr",
+                        for stage in ("ManualPass", "Deprecated", "FileErr", "ExtractErr", "AuditErr", "BalanceErr",
                                       "IncomeErr", "CashFlowErr", "CashFlowOK"):
                             self.assertIn(f"'{stage}'", call.args[0])
                     else:

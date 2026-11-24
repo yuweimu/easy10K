@@ -14,9 +14,8 @@ CREATE TABLE IF NOT EXISTS report_digestion (
             'FileErr',
             'ExtractOK',
             'ExtractErr',
-            'AuditPass',
-            'AuditIssues',
-            'ManualPass',
+            'AuditOK',
+            'AuditErr',
             'Deprecated',
             'NoStatements',
             'BalanceOK',
@@ -107,8 +106,12 @@ UPDATE report_digestion SET digestion_stage = 'FileOK'
     WHERE digestion_stage IN ('Downloaded', 'PreviewSuccess');
 UPDATE report_digestion SET digestion_stage = 'FileErr'
     WHERE digestion_stage = 'PreviewError';
-UPDATE report_digestion SET digestion_stage = 'ManualPass'
-    WHERE digestion_stage = 'HandPass';
+UPDATE report_digestion SET digestion_stage = 'AuditPass'
+    WHERE digestion_stage IN ('HandPass', 'ManualPass');
+UPDATE report_digestion SET digestion_stage = 'AuditOK'
+    WHERE digestion_stage = 'AuditPass';
+UPDATE report_digestion SET digestion_stage = 'AuditErr'
+    WHERE digestion_stage = 'AuditIssues';
 UPDATE report_digestion SET digestion_stage = CASE digestion_stage
         WHEN 'DigestionSuccess' THEN 'BalanceOK'
         WHEN 'DigestionError' THEN 'BalanceErr'
@@ -132,7 +135,7 @@ ALTER TABLE report_digestion ADD CONSTRAINT report_digestion_digestion_stage_che
     CHECK (digestion_stage IN (
         'FileOK', 'FileErr',
         'ExtractOK', 'ExtractErr',
-        'AuditPass', 'AuditIssues', 'ManualPass',
+        'AuditOK', 'AuditErr',
         'Deprecated', 'NoStatements',
         'BalanceOK', 'BalanceErr',
         'IncomeOK', 'IncomeErr',

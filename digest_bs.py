@@ -1,4 +1,4 @@
-"""Validate and digest the first amount column of AuditPass balance sheets.
+"""Validate and digest the first amount column of AuditOK balance sheets.
 
 Run: python digest_bs.py [--hash PDF_HASH] [--retry]
 Amounts are checked in statement units, then converted to yuan for storage.

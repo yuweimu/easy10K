@@ -62,8 +62,8 @@ function fullPath(path: string | null): string | null {
 }
 
 function stageClass(stage: string): string {
-  if (stage.endsWith("Err") || stage === "AuditIssues") return "stage-error";
-  if (stage.endsWith("OK") || stage === "AuditPass" || stage === "ManualPass") return "stage-done";
+  if (stage.endsWith("Err") || stage === "AuditErr") return "stage-error";
+  if (stage.endsWith("OK") || stage === "AuditOK" || stage === "ManualPass") return "stage-done";
   return "stage-pending";
 }
 

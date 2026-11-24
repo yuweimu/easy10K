@@ -23,7 +23,7 @@ const label = document.querySelector<HTMLElement>("#page-label")!;
 const error = document.querySelector<HTMLElement>("#error")!;
 let page = 1, totalPages = 1, loading = false;
 const stages = ["FileOK", "FileErr", "ExtractOK", "ExtractErr",
-  "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "BalanceOK", "BalanceErr",
+  "AuditOK", "AuditErr", "ManualPass", "Deprecated", "NoStatements", "BalanceOK", "BalanceErr",
   "IncomeOK", "IncomeErr", "CashFlowOK", "CashFlowErr"];
 for (const stage of stages) {
   searchStage.add(new Option(stage, stage));
@@ -153,10 +153,10 @@ function render(items: Report[]): void {
     const stage = cell(report.digestion_stage);
     const badge = document.createElement("button");
     badge.type = "button";
-    const hasIssues = report.digestion_stage.endsWith("Error") || report.digestion_stage === "AuditIssues"
+    const hasIssues = report.digestion_stage.endsWith("Error") || report.digestion_stage === "AuditErr"
       || report.digestion_stage.endsWith("Err");
     const passed = report.digestion_stage.endsWith("Success") || report.digestion_stage.endsWith("OK")
-      || ["AuditPass", "ManualPass"].includes(report.digestion_stage);
+      || ["AuditOK", "ManualPass"].includes(report.digestion_stage);
     badge.className = `badge ${hasIssues ? "error" : passed ? "done" : "pending"}`;
     badge.textContent = report.digestion_stage;
     if (report.digestion_stage === "ManualPass") badge.title = "Manually marked as passed";
