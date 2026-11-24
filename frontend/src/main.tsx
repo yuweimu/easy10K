@@ -77,6 +77,9 @@ const PERIOD_FILTERS = [
   { label: "三季报", ending: "09-30" },
 ] as const;
 type PeriodEnding = typeof PERIOD_FILTERS[number]["ending"];
+const AMOUNT_UNIT_PREFERENCE_KEY = "easy10k.amountUnit";
+const SHOW_DECIMALS_PREFERENCE_KEY = "easy10k.showDecimals";
+const PERIOD_ENDING_PREFERENCE_KEY = "easy10k.periodEnding";
 const TAB_LABELS = {
   en: {
     "Balance Sheet": "Balance Sheet",
@@ -95,7 +98,7 @@ type Language = "en" | "zh";
 // costs as item 4227. Keep that storage identity for digestion, but render it
 // under the established item 49 in the dashboard.
 const DISPLAY_ITEM_ID_ALIASES: Record<number, number> = { 4227: 49 };
-const HIDDEN_DISPLAY_ITEM_IDS = new Set([5201, 5301]);
+const HIDDEN_DISPLAY_ITEM_IDS = new Set([5201, 5301, 110110, 210108]);
 
 function displayItemId(itemId: number): number {
   return DISPLAY_ITEM_ID_ALIASES[itemId] ?? itemId;
@@ -192,6 +195,16 @@ function formatAmount(
         maximumFractionDigits: unit === "元/股" ? 4 : showDecimals ? 2 : 0,
       })
     : String(amount);
+}
+
+function formatReportingDate(date: string, language: Language): string {
+  const match = /^(\d{4})-(03|06|09|12)-(30|31)$/.exec(date);
+  if (!match) return date;
+  const [, year, month] = match;
+  const labels = language === "zh"
+    ? { "03": "一季报", "06": "半年报", "09": "三季报", "12": "年报" }
+    : { "03": "Q1", "06": "Semiannual", "09": "Q3", "12": "Annual" };
+  return language === "zh" ? `${year}年${labels[month as keyof typeof labels]}` : `${labels[month as keyof typeof labels]} ${year}`;
 }
 
 function getIndentLevel(itemId: number, chartById: Map<number, ChartItem>): number {
@@ -421,11 +434,23 @@ function App() {
   }, [previewDate, language]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [amountUnit, setAmountUnit] = useState<AmountUnit>("百万元");
-  const [showDecimals, setShowDecimals] = useState(true);
-  const [periodEnding, setPeriodEnding] = useState<PeriodEnding>("");
+  const [amountUnit, setAmountUnit] = useState<AmountUnit>(() => {
+    const stored = localStorage.getItem(AMOUNT_UNIT_PREFERENCE_KEY);
+    return stored && Object.prototype.hasOwnProperty.call(AMOUNT_UNITS, stored)
+      ? stored as AmountUnit
+      : "百万元";
+  });
+  const [showDecimals, setShowDecimals] = useState(() => {
+    const stored = localStorage.getItem(SHOW_DECIMALS_PREFERENCE_KEY);
+    return stored === null ? true : stored === "true";
+  });
+  const [periodEnding, setPeriodEnding] = useState<PeriodEnding>(() => {
+    const stored = localStorage.getItem(PERIOD_ENDING_PREFERENCE_KEY);
+    return PERIOD_FILTERS.some(({ ending }) => ending === stored) ? stored as PeriodEnding : "";
+  });
   const [expandedTrendId, setExpandedTrendId] = useState<number | null>(null);
   const [sourceSelection, setSourceSelection] = useState<SourceSelection | null>(null);
+  const statementTableRef = useRef<HTMLTableElement>(null);
   useEffect(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(RECENT_SEARCHES_KEY) || "null");
@@ -456,6 +481,27 @@ function App() {
     [allReportingDates, periodEnding],
   );
   const trendDates = useMemo(() => [...reportingDates].sort(), [reportingDates]);
+  useEffect(() => {
+    const table = statementTableRef.current;
+    const wrapper = table?.parentElement;
+    if (!table || !wrapper || reportingDates.length === 0) return;
+    const minimumDateWidth = showDecimals && amountUnit === "元"
+      ? 140
+      : amountUnit === "百万元" || amountUnit === "亿元" ? 110 : 120;
+    const resizeDateColumns = () => {
+      const availableWidth = Math.max(wrapper.clientWidth, 260 + reportingDates.length * minimumDateWidth);
+      const dateColumnWidth = (availableWidth - 260) / reportingDates.length;
+      table.style.width = "100%";
+      table.style.minWidth = `${availableWidth}px`;
+      table.querySelectorAll<HTMLElement>("col.amount-column").forEach((column) => {
+        column.style.width = `${dateColumnWidth}px`;
+      });
+    };
+    resizeDateColumns();
+    const observer = new ResizeObserver(resizeDateColumns);
+    observer.observe(wrapper);
+    return () => observer.disconnect();
+  }, [amountUnit, reportingDates.length, showDecimals]);
   const groupedReport = useMemo(() => {
     const grouped = new Map<number, GroupedReportItem>();
 
@@ -777,7 +823,11 @@ function App() {
                 <select
                   id="amount-unit"
                   value={amountUnit}
-                  onChange={(event) => setAmountUnit(event.target.value as AmountUnit)}
+                  onChange={(event) => {
+                    const nextUnit = event.target.value as AmountUnit;
+                    setAmountUnit(nextUnit);
+                    localStorage.setItem(AMOUNT_UNIT_PREFERENCE_KEY, nextUnit);
+                  }}
                 >
                   {Object.keys(AMOUNT_UNITS).map((unit) => (
                     <option value={unit} key={unit}>{language === "zh" ? unit : `${unit} CNY`}</option>
@@ -788,7 +838,11 @@ function App() {
                 <input
                   type="checkbox"
                   checked={showDecimals}
-                  onChange={(event) => setShowDecimals(event.target.checked)}
+                  onChange={(event) => {
+                    const nextValue = event.target.checked;
+                    setShowDecimals(nextValue);
+                    localStorage.setItem(SHOW_DECIMALS_PREFERENCE_KEY, String(nextValue));
+                  }}
                 />
                 {text.showDecimals}
               </label>
@@ -801,6 +855,7 @@ function App() {
                 <button type="button" key={label} aria-pressed={periodEnding === ending}
                   onClick={() => {
                     setPeriodEnding(ending);
+                    localStorage.setItem(PERIOD_ENDING_PREFERENCE_KEY, ending);
                     setPreviewDate(null);
                   }}>{label}</button>
               ))}
@@ -825,13 +880,17 @@ function App() {
           </div>
         ) : (
           <div className="table-wrap">
-            <table>
+            <table ref={statementTableRef}>
+              <colgroup>
+                <col className="item-name-column" />
+                {reportingDates.map((date) => <col className="amount-column" data-reporting-date={date} key={`column-${date}`} />)}
+              </colgroup>
               <thead>
                 <tr>
                   <th>{text.financialItem}</th>
                   {reportingDates.map((date) => (
                     <th className="amount-column" key={date}>
-                      {date}
+                      {formatReportingDate(date, language)}
                       <a className="report-link"
                         id={`report-link-${date}`}
                         href={`/api/reports/${encodeURIComponent(reportStockCode)}/${encodeURIComponent(date)}`}

@@ -18,6 +18,14 @@ class ReportPageTests(unittest.TestCase):
         storage = storage_class.return_value.__enter__.return_value
         storage.database_url = "postgresql://test"
         storage.get_statement_items.return_value = [
+            {"reporting_date": "2025-12-31", "item_id": 3110, "amount": "2000.00",
+             "report_creation_time": "created", "amount_unit": "元"},
+            {"reporting_date": "2025-12-31", "item_id": 311001, "amount": "100.00",
+             "report_creation_time": "created", "amount_unit": "元"},
+            {"reporting_date": "2025-12-31", "item_id": 110110, "amount": "50.00",
+             "report_creation_time": "created", "amount_unit": "元"},
+            {"reporting_date": "2025-12-31", "item_id": 210108, "amount": "60.00",
+             "report_creation_time": "created", "amount_unit": "元"},
             {"reporting_date": "2025-12-31", "item_id": 311004, "amount": "1234.50",
              "report_creation_time": "created", "amount_unit": "元"},
             {"reporting_date": "2024-12-31", "item_id": 311004, "amount": "1000.00",
@@ -32,13 +40,30 @@ class ReportPageTests(unittest.TestCase):
         html = response.body.decode()
         self.assertEqual(response.status_code, 200)
         self.assertIn("宁德时代 (300750) · 资产负债表", html)
+        self.assertIn('class="site-logo"', html)
+        self.assertIn("ValuePaper", html)
+        self.assertIn("上市公司财报助手", html)
+        self.assertIn('class="brand-icon"', html)
+        self.assertIn('class="breadcrumb"', html)
+        self.assertIn('class="recommendation-panel"', html)
+        self.assertIn("最近访问", html)
+        self.assertIn("recentStocks", html)
+        self.assertIn("宁德时代</span>", html)
+        self.assertIn("资产负债表</span>", html)
+        self.assertIn('class="home-link" href="/"', html)
+        self.assertIn("首页", html)
         self.assertIn("资本公积", html)
+        self.assertNotIn("应收票据及应收账款", html)
+        self.assertNotIn("以公允价值计量且其变动计入当期损益的金融负债", html)
         self.assertNotIn("Capital Reserves</span>", html)
         self.assertIn("2025-12-31", html)
         self.assertIn('class="amount-column"', html)
         self.assertIn('<select id="amount-unit">', html)
         self.assertIn('<option value="百万元" selected>百万元</option>', html)
         self.assertIn('<input id="show-decimals" type="checkbox" checked>', html)
+        self.assertIn('aria-controls="stock-search-suggestions"', html)
+        self.assertIn('<div class="stock-suggestions" id="stock-search-suggestions" role="listbox" hidden>', html)
+        self.assertIn('data-stock-code="300750" data-stock-name="宁德时代"', html)
         self.assertIn('data-amount="1234.50"', html)
         self.assertIn('0.00</td>', html)
         self.assertIn("function renderAmounts()", html)
@@ -47,6 +72,24 @@ class ReportPageTests(unittest.TestCase):
         self.assertIn('href="/stocks/300750/income-statement?lang=zh"', html)
         self.assertIn('href="/stocks/300750/cash-flow-statement?lang=zh"', html)
         self.assertIn('class="active" href="/stocks/300750/balance-sheet?lang=zh"', html)
+        self.assertIn('class="period-filters"', html)
+        self.assertIn('data-period-ending="" aria-pressed="true">全部</button>', html)
+        self.assertIn('data-period-ending="12-31" aria-pressed="false">年报</button>', html)
+        self.assertIn('data-period-ending="06-30" aria-pressed="false">半年报</button>', html)
+        self.assertIn('data-period-ending="03-31" aria-pressed="false">一季报</button>', html)
+        self.assertIn('data-period-ending="09-30" aria-pressed="false">三季报</button>', html)
+        self.assertIn('function renderPeriods(ending)', html)
+        self.assertIn('data-item-id="3110"', html)
+        self.assertIn('data-item-toggle="3110"', html)
+        self.assertIn('style="padding-left: 34px"', html)
+        self.assertIn("function renderItemHierarchy()", html)
+        self.assertIn("easy10k.amountUnit", html)
+        self.assertIn("easy10k.periodEnding", html)
+        self.assertIn("easy10k.showDecimals", html)
+        self.assertIn("@view-transition { navigation: auto; }", html)
+        self.assertIn("prefetch.rel = 'prefetch'", html)
+        self.assertIn("sessionStorage.setItem(statementScrollPreferenceKey, String(window.scrollY))", html)
+        self.assertIn("window.scrollTo(0, scrollY)", html)
         self.assertIn('background: #30364d', html)
         self.assertIn('lang="zh-CN"', html)
         self.assertIn('href="/stocks/300750/balance-sheet?lang=en"', html)
@@ -57,6 +100,8 @@ class ReportPageTests(unittest.TestCase):
         self.assertIn("Balance Sheet", english)
         self.assertIn("Capital Reserves", english)
         self.assertNotIn("资本公积</span>", english)
+        self.assertIn('class="home-link" href="/"', english)
+        self.assertIn("Dashboard", english)
         self.assertIn('lang="en"', english)
 
     def render_report(self, content: str) -> str:
