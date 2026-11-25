@@ -44,12 +44,20 @@ class ReportPageTests(unittest.TestCase):
         self.assertIn("ValuePaper", html)
         self.assertIn("上市公司财报助手", html)
         self.assertIn('class="brand-icon"', html)
-        self.assertIn('class="breadcrumb"', html)
+        self.assertNotIn('class="breadcrumb"', html)
         self.assertIn('class="recommendation-panel"', html)
+        self.assertIn('role="tablist"', html)
+        self.assertIn('class="recommendation-tab active"', html)
+        self.assertNotIn("相关财报", html)
+        self.assertIn("我的收藏", html)
         self.assertIn("最近访问", html)
+        self.assertNotIn("recommendation-toggle", html)
+        self.assertIn("高ROE企业", html)
+        self.assertIn("低负债企业", html)
+        self.assertIn("高现金流企业", html)
+        self.assertIn("营收高增长企业", html)
         self.assertIn("recentStocks", html)
         self.assertIn("宁德时代</span>", html)
-        self.assertIn("资产负债表</span>", html)
         self.assertIn('class="home-link" href="/"', html)
         self.assertIn("首页", html)
         self.assertIn("资本公积", html)
@@ -81,7 +89,15 @@ class ReportPageTests(unittest.TestCase):
         self.assertIn('function renderPeriods(ending)', html)
         self.assertIn('data-item-id="3110"', html)
         self.assertIn('data-item-toggle="3110"', html)
-        self.assertIn('style="padding-left: 34px"', html)
+        self.assertIn('data-trend-toggle="3110"', html)
+        self.assertIn('class="trend-detail-row"', html)
+        self.assertIn('data-trend-chart="3110"', html)
+        self.assertIn("function renderTrendChart(itemId)", html)
+        self.assertIn("filter((cell) => !cell.hidden)", html)
+        self.assertIn(".filter((cell) => !cell.hidden).reverse()", html)
+        self.assertIn("renderExpandedTrendCharts()", html)
+        self.assertIn("target.closest('.trend-chart-wrap')", html)
+        self.assertIn('style="padding-left: 28px"', html)
         self.assertIn("function renderItemHierarchy()", html)
         self.assertIn("easy10k.amountUnit", html)
         self.assertIn("easy10k.periodEnding", html)
@@ -90,7 +106,7 @@ class ReportPageTests(unittest.TestCase):
         self.assertIn("prefetch.rel = 'prefetch'", html)
         self.assertIn("sessionStorage.setItem(statementScrollPreferenceKey, String(window.scrollY))", html)
         self.assertIn("window.scrollTo(0, scrollY)", html)
-        self.assertIn('background: #30364d', html)
+        self.assertIn('background: #2f3a57', html)
         self.assertIn('lang="zh-CN"', html)
         self.assertIn('href="/stocks/300750/balance-sheet?lang=en"', html)
         self.assertIn('name="description"', html)
@@ -103,6 +119,29 @@ class ReportPageTests(unittest.TestCase):
         self.assertIn('class="home-link" href="/"', english)
         self.assertIn("Dashboard", english)
         self.assertIn('lang="en"', english)
+
+    @patch("main.LineItemStorage")
+    def test_public_home_page_is_rendered(self, storage_class):
+        storage = storage_class.return_value.__enter__.return_value
+        storage.database_url = "postgresql://test"
+        storage.get_statement_stock_codes.return_value = [
+            {"stock_code": "300750", "stock_name": "宁德时代"},
+            {"stock_code": "600519", "stock_name": "贵州茅台"},
+        ]
+
+        response = main.read_root()
+
+        html = response.body.decode()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("ValuePaper", html)
+        self.assertIn("读懂企业", html)
+        self.assertIn('id="home-stock-search-form"', html)
+        self.assertIn("资产负债表", html)
+        self.assertIn("利润表", html)
+        self.assertIn("现金流量表", html)
+        self.assertIn("宁德时代", html)
+        self.assertIn('href="/stocks/300750/balance-sheet"', html)
+        self.assertIn('id="home-stock-suggestions"', html)
 
     def render_report(self, content: str) -> str:
         with tempfile.TemporaryDirectory() as directory:
