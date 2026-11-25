@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stock Reports · Easy10K</title>
+  </head>
+  <body>
+    <main class="stock-reports-page">
+      <header class="stock-reports-header">
+        <div>
+          <a class="back-link" href="/">← Financial dashboard</a>
+          <h1>Stock Reports</h1>
+          <p>Browse downloaded financial reports and reporting periods by stock code.</p>
+        </div>
+        <button id="refresh" type="button">↻ Refresh</button>
+      </header>
+
+      <section class="stock-directory-card" aria-labelledby="stock-directory-title">
+        <h2 id="stock-directory-title">Available stocks <span id="stock-count" class="count-badge">—</span>
+          <span id="report-total" class="muted-summary">Total reports: —</span>
+        </h2>
+        <div id="stocks" class="stock-chips" aria-live="polite"></div>
+      </section>
+
+      <section class="stock-report-card" aria-labelledby="selected-stock-title" aria-busy="true">
+        <div class="stock-report-heading">
+          <div>
+            <p class="eyebrow">Report list</p>
+            <h2 id="selected-stock-title">Select a stock</h2>
+          </div>
+          <div id="selected-summary" class="selected-summary"></div>
+        </div>
+        <div id="error" class="error-message" role="alert" hidden></div>
+        <div id="statement-tabs" class="statement-tabs" role="tablist" aria-label="Financial statements">
+          <button type="button" role="tab" aria-selected="true" data-statement="all">All Reports</button>
+          <button type="button" role="tab" aria-selected="false" data-statement="balance_sheet">Balance Sheet</button>
+          <button type="button" role="tab" aria-selected="false" data-statement="income_statement">Income Statement</button>
+          <button type="button" role="tab" aria-selected="false" data-statement="cash_flow_statement">Cash Flow Statement</button>
+        </div>
+        <div id="report-dates" class="report-dates" hidden>
+          <h3>Reporting dates (earliest through 2026-09-30)</h3>
+          <div id="date-chips" class="date-chips"></div>
+        </div>
+        <div class="reports-table-wrap">
+          <table>
+            <thead><tr><th>Reporting date</th><th>Stage</th><th>PDF file</th><th>Hash</th></tr></thead>
+            <tbody id="reports"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/src/stock-reports.ts"></script>
+  </body>
+</html>

@@ -16,9 +16,10 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        main: "index.html",
+        main: "my.html",
         reportsAdmin: "reports-admin.html",
         reportDigestion: "report-digestion.html",
+        stockReports: "stock-reports.html",
       },
     },
   },
@@ -32,6 +33,15 @@ export default defineConfig({
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+      "/stocks": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
+      "/": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+        bypass: (request) => request.url === "/" ? undefined : request.url,
       },
     },
   },

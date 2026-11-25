@@ -7,11 +7,17 @@ from datetime import date
 from decimal import Decimal
 from unittest import mock
 
-from line_item_storage import LineItemStorage
+from line_item_storage import LineItemStorage, _normalize_pdf_creation_date
 import line_item_storage
 
 
 class LineItemStorageTests(unittest.TestCase):
+    def test_normalizes_pdf_creation_date_with_utc_suffix(self):
+        self.assertEqual(
+            _normalize_pdf_creation_date("D:20181026075333Z").isoformat(),
+            "2018-10-26T07:53:33+00:00",
+        )
+
     def test_statement_reads_preserve_units_and_use_parameters_without_writes(self):
         for statement in ("income_statement", "cash_flow_statement"):
             self.cursor.fetchall.return_value = [(date(2025, 12, 31), 5901, Decimal("0.1256"), "created", "元/股")]
@@ -20,9 +26,9 @@ class LineItemStorageTests(unittest.TestCase):
             query, parameters = self.cursor.execute.call_args.args
             self.assertIn(f"FROM {statement}_items", query)
             self.assertEqual(parameters, ("300750",))
-            self.assertEqual(result[0]["amount_unit"], "元/股")
+            self.assertEqual(result[0]["amount_unit"], "元/股" if statement == "income_statement" else "元")
             self.assertEqual(result[0]["amount"], Decimal("0.1256"))
-            self.cursor.fetchall.return_value = [("300750", 2, "宁德时代", [date(2025, 12, 31)])]
+            self.cursor.fetchall.return_value = [("300750", 2, "宁德时代", "Done", [date(2025, 12, 31)])]
             with LineItemStorage("postgresql://test") as storage:
                 self.assertEqual(storage.get_statement_stock_codes(statement)[0]["report_count"], 2)
             self.assertIn(f"FROM {statement}_items", self.cursor.execute.call_args.args[0])
@@ -69,8 +75,8 @@ class LineItemStorageTests(unittest.TestCase):
                     if passed:
                         insert, values = self.cursor.executemany.call_args.args
                         self.assertIn(f"INSERT INTO {table}", insert)
-                        self.assertIn("amount_unit", insert)
-                        self.assertEqual(values[0][-2:], ("0.1256", "元/股"))
+                        self.assertNotIn("amount_unit", insert)
+                        self.assertEqual(values[0][-1], "0.1256")
                     else:
                         self.cursor.executemany.assert_not_called()
 
@@ -192,7 +198,7 @@ class LineItemStorageTests(unittest.TestCase):
         count, rows = self.cursor.execute.call_args_list
         for query in (count.args[0], rows.args[0]):
             self.assertIn(
-                "WHERE digestion_stage NOT IN ('ManualPass', 'Deprecated', 'FileErr', 'ExtractErr', 'AuditIssues', "
+                "WHERE digestion_stage NOT IN ('ManualPass', 'Deprecated', 'FileErr', 'ExtractErr', 'AuditErr', "
                 "'BalanceErr', 'IncomeErr', "
                 "'CashFlowErr', 'CashFlowOK')",
                 query,
@@ -206,7 +212,7 @@ class LineItemStorageTests(unittest.TestCase):
             rows = storage.get_audit_pass_reports()
         query, parameters = self.cursor.execute.call_args.args
         self.assertIn("WHERE digestion_stage = %s ORDER BY pdf_hash", query)
-        self.assertEqual(parameters, ("AuditPass",))
+        self.assertEqual(parameters, ("AuditOK",))
         self.assertEqual(rows[0], {"pdf_hash": "hash", "balance_sheet": "markdown", "stock_code": "600519",
                                    "reporting_date": "2025-12-31", "pdf_creation_date": "created"})
         self.connection.commit.assert_not_called()
@@ -236,7 +242,7 @@ class LineItemStorageTests(unittest.TestCase):
                "pdf_creation_date": "created"}
         report = {"passed": True, "issues": [], "items": [
             {"item_id": 110101, "amount": "123.45", "english_name": "Cash"}]}
-        self.cursor.fetchone.return_value = ("AuditPass",)
+        self.cursor.fetchone.return_value = ("AuditOK",)
         with LineItemStorage("postgresql://test") as storage:
             storage._table_ready = storage._report_digestion_ready = True
             storage.store_line_item_digestion(row, report)
@@ -254,7 +260,7 @@ class LineItemStorageTests(unittest.TestCase):
         self.connection.rollback.assert_not_called()
 
     def test_failed_line_item_checks_save_report_without_inserting_items(self):
-        self.cursor.fetchone.return_value = ("AuditPass",)
+        self.cursor.fetchone.return_value = ("AuditOK",)
         report = {"passed": False, "issues": ["missing required item"], "items": []}
         with LineItemStorage("postgresql://test") as storage:
             storage._report_digestion_ready = True
@@ -266,7 +272,7 @@ class LineItemStorageTests(unittest.TestCase):
         self.connection.commit.assert_called_once()
 
     def test_line_item_digestion_rolls_back_partial_inserts(self):
-        self.cursor.fetchone.return_value = ("AuditPass",)
+        self.cursor.fetchone.return_value = ("AuditOK",)
         self.cursor.executemany.side_effect = RuntimeError("insert failed")
         row = {"pdf_hash": "hash", "stock_code": "600519", "reporting_date": "2025-12-31",
                "pdf_creation_date": "created"}
@@ -283,7 +289,7 @@ class LineItemStorageTests(unittest.TestCase):
         self.cursor.fetchone.return_value = ("ManualPass",)
         with LineItemStorage("postgresql://test") as storage:
             storage._report_digestion_ready = True
-            with self.assertRaisesRegex(ValueError, "no longer at AuditPass"):
+            with self.assertRaisesRegex(ValueError, "no longer at AuditOK"):
                 storage.store_line_item_digestion({"pdf_hash": "hash"}, {"passed": False, "issues": []})
         self.cursor.executemany.assert_not_called()
         self.connection.commit.assert_not_called()
@@ -294,8 +300,8 @@ class LineItemStorageTests(unittest.TestCase):
             ({"pdf_hash": "  abc123  "}, ("abc123",)),
             ({"stock_code": "600519"}, ("600519",)),
             ({"digestion_stage": "NoStatements"}, ("NoStatements",)),
-            ({"pdf_hash": "abc123", "stock_code": "600519", "digestion_stage": "AuditPass"},
-             ("abc123", "600519", "AuditPass")),
+            ({"pdf_hash": "abc123", "stock_code": "600519", "digestion_stage": "AuditOK"},
+             ("abc123", "600519", "AuditOK")),
         ):
             with self.subTest(filters=filters):
                 self.cursor.execute.reset_mock()
@@ -363,7 +369,7 @@ class LineItemStorageTests(unittest.TestCase):
 
     def test_get_report_digestion_stage_by_hash(self):
         with LineItemStorage("postgresql://test") as storage:
-            for stage in ("AuditPass", "AuditIssues", "ManualPass", "ExtractOK", None):
+            for stage in ("AuditOK", "AuditErr", "ManualPass", "ExtractOK", None):
                 self.cursor.fetchone.return_value = (stage,) if stage else None
                 self.assertEqual(storage.get_report_digestion_stage("hash"), stage)
                 self.cursor.execute.assert_called_with(
@@ -412,7 +418,7 @@ class LineItemStorageTests(unittest.TestCase):
             storage._report_digestion_ready = True
             self.cursor.execute.side_effect = RuntimeError("write failed")
             with self.assertRaises(RuntimeError):
-                storage.update_report_digestion_stage("hash", "AuditIssues")
+                storage.update_report_digestion_stage("hash", "AuditErr")
             self.connection.commit.assert_not_called()
 
     def test_store_extraction_audit_saves_json_and_stage_atomically(self):
@@ -426,8 +432,8 @@ class LineItemStorageTests(unittest.TestCase):
         self.assertIn("DROP CONSTRAINT IF EXISTS report_digestion_digestion_stage_check", schema)
         self.assertIn("ADD CONSTRAINT report_digestion_digestion_stage_check", schema)
         for call, pdf_hash, issues, details, stage in (
-            (calls[1], "passed", [], statements, "AuditPass"),
-            (calls[2], "flagged", ["missing stock_code"], {}, "AuditIssues"),
+            (calls[1], "passed", [], statements, "AuditOK"),
+            (calls[2], "flagged", ["missing stock_code"], {}, "AuditErr"),
         ):
             query, values = call.args
             self.assertIn("SET extraction_audit = %s, digestion_stage = %s", query)
@@ -459,7 +465,7 @@ class LineItemStorageTests(unittest.TestCase):
         self.assertNotIn("extraction_audit =", query)
         self.assertEqual(values, ("hash", '{"stock_code":"600519"}', "balance", "income", "cash",
                                   "reports/report.pdf", "600519", "2025-12-31", "created"))
-        self.connection.commit.assert_called_once()
+        self.assertEqual(self.connection.commit.call_count, 2)
 
     def test_store_extracted_report_without_database(self):
         with LineItemStorage("") as storage:
@@ -478,7 +484,7 @@ class LineItemStorageTests(unittest.TestCase):
         with LineItemStorage("postgresql://test") as storage:
             storage.ensure_report_registry()
             storage.ensure_report_registry()
-        self.assertEqual(self.cursor.execute.call_count, 5)
+        self.assertEqual(self.cursor.execute.call_count, 1)
         query = self.cursor.execute.call_args_list[0].args[0]
         self.assertIn("CREATE TABLE IF NOT EXISTS report_registry", query)
         self.assertIn("PRIMARY KEY (pdf_hash, pdf_creation_time)", query)
@@ -489,16 +495,12 @@ class LineItemStorageTests(unittest.TestCase):
             self.assertIn(f"{field} TEXT,", query)
             self.assertNotIn(f"{field} TEXT NOT NULL", query)
         self.assertIn("updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP", query)
-        for sql in (query,):
-            self.assertIn("digestion_status TEXT NOT NULL DEFAULT 'PENDING'", sql)
-            self.assertNotIn("CHECK (digestion_status", sql)
-        self.assertNotIn("digestion_time", query)
-        self.assertIn("DROP TRIGGER IF EXISTS", self.cursor.execute.call_args_list[1].args[0])
-        self.assertEqual(self.cursor.execute.call_args_list[2].args[0],
-                         "ALTER TABLE report_registry DROP COLUMN IF EXISTS digestion_time")
-        self.assertIn("DROP FUNCTION IF EXISTS", self.cursor.execute.call_args_list[3].args[0])
-        self.assertEqual(self.cursor.execute.call_args_list[4].args[0],
-                         "ALTER TABLE report_registry DROP CONSTRAINT IF EXISTS report_registry_digestion_status_check")
+        self.assertIn("digestion_status TEXT NOT NULL DEFAULT 'PENDING'", query)
+        self.assertNotIn("CHECK (digestion_status", query)
+        self.assertIn("DROP TRIGGER IF EXISTS", query)
+        self.assertIn("ALTER TABLE report_registry DROP COLUMN IF EXISTS digestion_time", query)
+        self.assertIn("DROP FUNCTION IF EXISTS", query)
+        self.assertIn("DROP CONSTRAINT IF EXISTS report_registry_digestion_status_check", query)
         self.connection.commit.assert_called_once()
         self.assertFalse(storage._report_registry_ready)
 
@@ -520,7 +522,7 @@ class LineItemStorageTests(unittest.TestCase):
             self.assertIn("stock_code = COALESCE(EXCLUDED.stock_code, report_digestion.stock_code)", query)
             self.assertIn("digestion_stage = 'FileOK'", query)
             self.assertEqual(parameters, ("hash", url, "reports/report.pdf", None, "300750", "2025-12-31", None))
-        self.assertEqual(self.connection.commit.call_count, 2)
+        self.assertEqual(self.connection.commit.call_count, 3)
         self.assertFalse(storage._report_digestion_ready)
 
     def test_downloaded_report_without_database_does_not_connect(self):
@@ -540,8 +542,8 @@ class LineItemStorageTests(unittest.TestCase):
                                              stock_code="300750", reporting_date="2025-12-31",
                                              pdf_download_url="https://example.com/report.pdf", pdf_local_path="report.pdf")
         calls = self.cursor.execute.call_args_list
-        self.assertEqual(len(calls), 7)
-        for call, output in zip(calls[5:], ("preprocessed/first.md", "preprocessed/updated.md")):
+        self.assertEqual(len(calls), 3)
+        for call, output in zip(calls[1:], ("preprocessed/first.md", "preprocessed/updated.md")):
             query, parameters = call.args
             self.assertIn("INSERT INTO report_registry", query)
             self.assertIn("ON CONFLICT (pdf_hash, pdf_creation_time)", query)
@@ -662,16 +664,15 @@ class LineItemStorageTests(unittest.TestCase):
                 storage.store_item("300750", "2025-12-31", 101, "created", amount)
         self.driver.connect.assert_called_once_with("postgresql://test")
         calls = self.cursor.execute.call_args_list
-        self.assertEqual(len(calls), 4)
-        self.assertIn("CREATE TABLE IF NOT EXISTS", calls[0].args[0])
-        self.assertNotIn("item_english_name", calls[0].args[0])
-        self.assertEqual(calls[1].args[0], "ALTER TABLE balance_sheet_items DROP COLUMN IF EXISTS item_english_name")
-        self.assertIn("ON CONFLICT", calls[2].args[0])
-        self.assertNotIn("item_english_name", calls[2].args[0])
-        self.assertEqual(calls[2].args[1], (
+        self.assertEqual(len(calls), 3)
+        self.assertIn("CREATE TABLE IF NOT EXISTS balance_sheet_items", calls[0].args[0])
+        self.assertIn("DROP COLUMN IF EXISTS item_english_name", calls[0].args[0])
+        self.assertIn("ON CONFLICT", calls[1].args[0])
+        self.assertNotIn("item_english_name", calls[1].args[0])
+        self.assertEqual(calls[1].args[1], (
             "300750", "2025-12-31", 101, "created", "1234.50",
         ))
-        self.assertEqual(calls[3].args[1][4], "99.25")
+        self.assertEqual(calls[2].args[1][4], "99.25")
         self.assertEqual(self.connection.commit.call_count, 3)
         self.connection.close.assert_called_once()
 
@@ -705,13 +706,13 @@ class LineItemStorageTests(unittest.TestCase):
 
     def test_stock_directory_reads_distinct_codes_without_writes(self) -> None:
         self.cursor.fetchall.return_value = [
-            ("000001", 3, "平安银行", [date(2025, 3, 31), date(2025, 9, 30)]),
-            ("300750", 7, None, [date(2025, 3, 31), date(2025, 6, 30), date(2025, 9, 30)]),
+            ("000001", 3, "平安银行", "Done", [date(2025, 3, 31), date(2025, 9, 30)]),
+            ("300750", 7, None, "InProgress", [date(2025, 3, 31), date(2025, 6, 30), date(2025, 9, 30)]),
         ]
         with LineItemStorage("postgresql://test") as storage:
             self.assertEqual(storage.get_balance_sheet_stock_codes(), [
-                {"stock_code": "000001", "report_count": 3, "stock_name": "平安银行", "has_missing_reporting_dates": True},
-                {"stock_code": "300750", "report_count": 7, "stock_name": None, "has_missing_reporting_dates": False},
+                {"stock_code": "000001", "report_count": 3, "stock_name": "平安银行", "enrollment": "Done", "has_missing_reporting_dates": True},
+                {"stock_code": "300750", "report_count": 7, "stock_name": None, "enrollment": "InProgress", "has_missing_reporting_dates": False},
             ])
         query = self.cursor.execute.call_args.args[0]
         self.assertIn("COUNT(DISTINCT (reporting_date, report_creation_time))", query)

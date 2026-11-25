@@ -26,6 +26,7 @@ type StockReportCount = {
   stock_code: string;
   stock_name: string | null;
   report_count: number;
+  enrollment: "InProgress" | "Error" | "Done" | null;
   has_missing_reporting_dates: boolean;
 };
 
@@ -76,6 +77,9 @@ const PERIOD_FILTERS = [
   { label: "三季报", ending: "09-30" },
 ] as const;
 type PeriodEnding = typeof PERIOD_FILTERS[number]["ending"];
+const AMOUNT_UNIT_PREFERENCE_KEY = "easy10k.amountUnit";
+const SHOW_DECIMALS_PREFERENCE_KEY = "easy10k.showDecimals";
+const PERIOD_ENDING_PREFERENCE_KEY = "easy10k.periodEnding";
 const TAB_LABELS = {
   en: {
     "Balance Sheet": "Balance Sheet",
@@ -94,7 +98,7 @@ type Language = "en" | "zh";
 // costs as item 4227. Keep that storage identity for digestion, but render it
 // under the established item 49 in the dashboard.
 const DISPLAY_ITEM_ID_ALIASES: Record<number, number> = { 4227: 49 };
-const HIDDEN_DISPLAY_ITEM_IDS = new Set([5201, 5301]);
+const HIDDEN_DISPLAY_ITEM_IDS = new Set([5201, 5301, 110110, 210108]);
 
 function displayItemId(itemId: number): number {
   return DISPLAY_ITEM_ID_ALIASES[itemId] ?? itemId;
@@ -116,8 +120,6 @@ const UI_TEXT = {
     recentSearches: "Recent searches",
     availableStocks: "Stocks with data",
     totalReports: "Total reports",
-    reportingDates: "Reporting dates (earliest to latest)",
-    missingReport: "Missing quarterly report",
     reports: "reports",
     noAvailableStocks: "No stocks have data for this statement yet.",
     stockCodesFailed: "Unable to load stock codes.",
@@ -129,9 +131,6 @@ const UI_TEXT = {
     showTrend: "Show amount trend",
     hideTrend: "Hide amount trend",
     amountTrendFor: "amount trend for",
-    copyRow: "Copy row as JSON",
-    copied: "Copied",
-    copyFailed: "Copy failed. Please try again.",
     unknownItem: "Unknown item",
     loadFailed: "Unable to load the financial report",
     language: "Language",
@@ -153,8 +152,6 @@ const UI_TEXT = {
     recentSearches: "最近搜索",
     availableStocks: "已有数据的股票",
     totalReports: "报告总数",
-    reportingDates: "报告日期（从早到晚）",
-    missingReport: "缺少季度报告",
     reports: "份报告",
     noAvailableStocks: "暂无股票的该类报表数据。",
     stockCodesFailed: "无法加载股票代码。",
@@ -166,9 +163,6 @@ const UI_TEXT = {
     showTrend: "显示金额趋势",
     hideTrend: "隐藏金额趋势",
     amountTrendFor: "的金额趋势",
-    copyRow: "复制此行 JSON",
-    copied: "已复制",
-    copyFailed: "复制失败，请重试。",
     unknownItem: "未知项目",
     loadFailed: "无法加载财务报告",
     language: "语言",
@@ -201,6 +195,16 @@ function formatAmount(
         maximumFractionDigits: unit === "元/股" ? 4 : showDecimals ? 2 : 0,
       })
     : String(amount);
+}
+
+function formatReportingDate(date: string, language: Language): string {
+  const match = /^(\d{4})-(03|06|09|12)-(30|31)$/.exec(date);
+  if (!match) return date;
+  const [, year, month] = match;
+  const labels = language === "zh"
+    ? { "03": "一季报", "06": "半年报", "09": "三季报", "12": "年报" }
+    : { "03": "Q1", "06": "Semiannual", "09": "Q3", "12": "Annual" };
+  return language === "zh" ? `${year}年${labels[month as keyof typeof labels]}` : `${labels[month as keyof typeof labels]} ${year}`;
 }
 
 function getIndentLevel(itemId: number, chartById: Map<number, ChartItem>): number {
@@ -323,7 +327,7 @@ function App() {
     setStockCodesStatus("loading");
     getJson<StockReportCount[]>(statementEndpoint).then((codes) => {
       if (cancelled) return;
-      setAvailableStockCodes(codes);
+      setAvailableStockCodes(codes.filter(({ enrollment }) => enrollment === "Done"));
       setStockCodesStatus("ready");
     }).catch(() => {
       if (!cancelled) setStockCodesStatus("error");
@@ -430,12 +434,23 @@ function App() {
   }, [previewDate, language]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [amountUnit, setAmountUnit] = useState<AmountUnit>("百万元");
-  const [showDecimals, setShowDecimals] = useState(true);
-  const [periodEnding, setPeriodEnding] = useState<PeriodEnding>("");
+  const [amountUnit, setAmountUnit] = useState<AmountUnit>(() => {
+    const stored = localStorage.getItem(AMOUNT_UNIT_PREFERENCE_KEY);
+    return stored && Object.prototype.hasOwnProperty.call(AMOUNT_UNITS, stored)
+      ? stored as AmountUnit
+      : "百万元";
+  });
+  const [showDecimals, setShowDecimals] = useState(() => {
+    const stored = localStorage.getItem(SHOW_DECIMALS_PREFERENCE_KEY);
+    return stored === null ? true : stored === "true";
+  });
+  const [periodEnding, setPeriodEnding] = useState<PeriodEnding>(() => {
+    const stored = localStorage.getItem(PERIOD_ENDING_PREFERENCE_KEY);
+    return PERIOD_FILTERS.some(({ ending }) => ending === stored) ? stored as PeriodEnding : "";
+  });
   const [expandedTrendId, setExpandedTrendId] = useState<number | null>(null);
-  const [copyStatus, setCopyStatus] = useState<{ itemId: number; message: string } | null>(null);
   const [sourceSelection, setSourceSelection] = useState<SourceSelection | null>(null);
+  const statementTableRef = useRef<HTMLTableElement>(null);
   useEffect(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(RECENT_SEARCHES_KEY) || "null");
@@ -450,11 +465,6 @@ function App() {
     const query = stockCode.trim();
     return recentSearches.filter((value) => !query || value.includes(query));
   }, [recentSearches, stockCode]);
-  useEffect(() => {
-    if (copyStatus?.message !== text.copied) return;
-    const timeout = window.setTimeout(() => setCopyStatus(null), 2_000);
-    return () => window.clearTimeout(timeout);
-  }, [copyStatus, text.copied]);
   const [collapsedItemIds, setCollapsedItemIds] = useState<Set<number>>(
     () => new Set(),
   );
@@ -471,21 +481,27 @@ function App() {
     [allReportingDates, periodEnding],
   );
   const trendDates = useMemo(() => [...reportingDates].sort(), [reportingDates]);
-  const reportingDateEntries = useMemo(() => {
-    if (!allReportingDates.length) return [];
-    const first = allReportingDates[allReportingDates.length - 1];
-    const last = allReportingDates[0];
-    const available = new Set(allReportingDates);
-    const dates = new Set(allReportingDates);
-    for (let year = Number(first.slice(0, 4)); year <= Number(last.slice(0, 4)); year += 1) {
-      for (const quarterEnd of ["03-31", "06-30", "09-30", "12-31"]) {
-        const date = `${year}-${quarterEnd}`;
-        if (date >= first && date <= last) dates.add(date);
-      }
-    }
-    return [...dates].sort().filter((date) => date.endsWith(periodEnding))
-      .map((date) => ({ date, missing: !available.has(date) }));
-  }, [allReportingDates, periodEnding]);
+  useEffect(() => {
+    const table = statementTableRef.current;
+    const wrapper = table?.parentElement;
+    if (!table || !wrapper || reportingDates.length === 0) return;
+    const minimumDateWidth = showDecimals && amountUnit === "元"
+      ? 140
+      : amountUnit === "百万元" || amountUnit === "亿元" ? 110 : 120;
+    const resizeDateColumns = () => {
+      const availableWidth = Math.max(wrapper.clientWidth, 260 + reportingDates.length * minimumDateWidth);
+      const dateColumnWidth = (availableWidth - 260) / reportingDates.length;
+      table.style.width = "100%";
+      table.style.minWidth = `${availableWidth}px`;
+      table.querySelectorAll<HTMLElement>("col.amount-column").forEach((column) => {
+        column.style.width = `${dateColumnWidth}px`;
+      });
+    };
+    resizeDateColumns();
+    const observer = new ResizeObserver(resizeDateColumns);
+    observer.observe(wrapper);
+    return () => observer.disconnect();
+  }, [amountUnit, reportingDates.length, showDecimals]);
   const groupedReport = useMemo(() => {
     const grouped = new Map<number, GroupedReportItem>();
 
@@ -554,22 +570,6 @@ function App() {
     [groupedReport],
   );
 
-  async function copyItem(item: GroupedReportItem) {
-    try {
-      await navigator.clipboard.writeText(JSON.stringify({
-        stock_code: reportStockCode,
-        label: item.label,
-        amount_unit: item.amountUnit,
-        amounts_by_date: Object.fromEntries(reportingDates.map((date) => [
-          date, item.amountsByDate.get(date) ?? null,
-        ])),
-      }, null, 2));
-      setCopyStatus({ itemId: item.item_id, message: text.copied });
-    } catch {
-      setCopyStatus({ itemId: item.item_id, message: text.copyFailed });
-    }
-  }
-
   function toggleItem(itemId: number) {
     setCollapsedItemIds((current) => {
       const next = new Set(current);
@@ -601,7 +601,6 @@ function App() {
     setCollapsedItemIds(new Set());
     setSourceSelection(null);
     setExpandedTrendId(null);
-    setCopyStatus(null);
     setError(null);
     try {
       const [chart, statementItems] = await Promise.all([
@@ -659,6 +658,42 @@ function App() {
     if (requestedStock.current) void loadReport(requestedStock.current);
     return () => { reportRequest.current += 1; };
   }, [statementEndpoint]);
+
+  useEffect(() => {
+    const selectedStock = availableStockCodes.find(({ stock_code }) => stock_code === reportStockCode);
+    const stockLabel = selectedStock?.stock_name
+      ? `${selectedStock.stock_name} (${reportStockCode})`
+      : reportStockCode;
+    const statementLabel = TAB_LABELS[language][activeTab];
+    const title = reportStockCode
+      ? `${stockLabel} ${statementLabel} | Easy10K`
+      : "Easy10K Financial Reports";
+    const description = reportStockCode
+      ? `${statementLabel} and reporting-period data for ${stockLabel}.`
+      : "Explore balance sheets, income statements, and cash-flow statements for Chinese listed companies.";
+
+    document.title = title;
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    for (const [property, content] of [
+      ["og:title", title],
+      ["og:description", description],
+    ] as const) {
+      let meta = document.head.querySelector<HTMLMetaElement>(`meta[property="${property}"]`);
+      if (!meta) {
+        meta = document.createElement("meta");
+        meta.setAttribute("property", property);
+        document.head.appendChild(meta);
+      }
+      meta.content = content;
+    }
+    let descriptionMeta = document.head.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!descriptionMeta) {
+      descriptionMeta = document.createElement("meta");
+      descriptionMeta.name = "description";
+      document.head.appendChild(descriptionMeta);
+    }
+    descriptionMeta.content = description;
+  }, [activeTab, availableStockCodes, language, reportStockCode]);
 
   return (
     <main className="page-shell">
@@ -754,51 +789,7 @@ function App() {
             {!loading && <span aria-hidden="true">→</span>}
           </button>
         </div>
-          <div className="report-tools">
-            <label htmlFor="amount-unit">{text.amountUnit}</label>
-            <select
-              id="amount-unit"
-              value={amountUnit}
-              onChange={(event) => setAmountUnit(event.target.value as AmountUnit)}
-            >
-              {Object.keys(AMOUNT_UNITS).map((unit) => (
-                <option value={unit} key={unit}>{language === "zh" ? unit : `${unit} CNY`}</option>
-              ))}
-            </select>
-            <label className="decimal-toggle">
-              <input
-                type="checkbox"
-                checked={showDecimals}
-                onChange={(event) => setShowDecimals(event.target.checked)}
-              />
-              {text.showDecimals}
-            </label>
-          </div>
       </form>
-
-      <section className="stock-directory" aria-labelledby="stock-directory-title" aria-busy={stockCodesStatus === "loading"}>
-        <h2 id="stock-directory-title">{text.availableStocks}
-          {stockCodesStatus === "ready" && <>
-            <span className="item-count">{availableStockCodes.length}</span>
-            <span className="stock-report-total">{text.totalReports}: {totalReports.toLocaleString()}</span>
-          </>}
-        </h2>
-        {stockCodesStatus === "loading" && <p role="status">{text.loading}</p>}
-        {stockCodesStatus === "error" && <p role="alert">{text.stockCodesFailed}</p>}
-        {stockCodesStatus === "ready" && (availableStockCodes.length ? (
-          <div className="stock-code-list">
-            {availableStockCodes.map(({ stock_code: code, stock_name: name, report_count: count, has_missing_reporting_dates: missing }) => (
-              <button type="button" key={code} disabled={loading} title={code}
-                className={missing === false ? "stock-complete" : undefined}
-                aria-pressed={reportStockCode === code}
-                onClick={() => {
-                  setStockCode(code);
-                  void loadReport(code);
-                }}>{name || code} <span className="stock-report-count">({count.toLocaleString()} {text.reports})</span></button>
-            ))}
-          </div>
-        ) : <p>{text.noAvailableStocks}</p>)}
-      </section>
 
       {error && <p className="error-message">{error}</p>}
 
@@ -824,46 +815,53 @@ function App() {
           ))}
         </div>
         <div id="report-panel" role="tabpanel" aria-labelledby={`report-tab-${REPORT_TABS.indexOf(activeTab)}`} tabIndex={0}>
-        <div className="report-heading">
-          <div>
-            <p className="eyebrow">{TAB_LABELS[language][activeTab]}</p>
-            <h2>{reportStockCode || text.companyReport}</h2>
+        <div className="report-controls-row">
+          <div className="report-heading">
+            <div className="report-tools">
+              <label className="amount-unit-control" htmlFor="amount-unit">
+                <span>{text.amountUnit}</span>
+                <select
+                  id="amount-unit"
+                  value={amountUnit}
+                  onChange={(event) => {
+                    const nextUnit = event.target.value as AmountUnit;
+                    setAmountUnit(nextUnit);
+                    localStorage.setItem(AMOUNT_UNIT_PREFERENCE_KEY, nextUnit);
+                  }}
+                >
+                  {Object.keys(AMOUNT_UNITS).map((unit) => (
+                    <option value={unit} key={unit}>{language === "zh" ? unit : `${unit} CNY`}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="decimal-toggle">
+                <input
+                  type="checkbox"
+                  checked={showDecimals}
+                  onChange={(event) => {
+                    const nextValue = event.target.checked;
+                    setShowDecimals(nextValue);
+                    localStorage.setItem(SHOW_DECIMALS_PREFERENCE_KEY, String(nextValue));
+                  }}
+                />
+                {text.showDecimals}
+              </label>
+            </div>
           </div>
-          {groupedReport.length > 0 && (
-            <div className="report-summary">
-              <span className="report-data-badge"><span aria-hidden="true" />{language === "zh" ? "已加载" : "Report loaded"}</span>
-              <span>{groupedReport.length} {language === "zh" ? "个项目" : "items"}</span>
-              <span>{reportingDates.length} {language === "zh" ? "个报告期" : "periods"}</span>
+
+          {allReportingDates.length > 0 && (
+            <div className="period-filters" role="group" aria-label={language === "zh" ? "报告期筛选" : "Reporting period filter"}>
+              {PERIOD_FILTERS.map(({ label, ending }) => (
+                <button type="button" key={label} aria-pressed={periodEnding === ending}
+                  onClick={() => {
+                    setPeriodEnding(ending);
+                    localStorage.setItem(PERIOD_ENDING_PREFERENCE_KEY, ending);
+                    setPreviewDate(null);
+                  }}>{label}</button>
+              ))}
             </div>
           )}
         </div>
-
-        {allReportingDates.length > 0 && (
-          <div className="period-filters" role="group" aria-label={language === "zh" ? "报告期筛选" : "Reporting period filter"}>
-            {PERIOD_FILTERS.map(({ label, ending }) => (
-              <button type="button" key={label} aria-pressed={periodEnding === ending}
-                onClick={() => {
-                  setPeriodEnding(ending);
-                  setPreviewDate(null);
-                  setCopyStatus(null);
-                }}>{label}</button>
-            ))}
-          </div>
-        )}
-
-        {reportingDateEntries.length > 0 && (
-          <section className="reporting-dates" aria-labelledby="reporting-dates-title">
-            <h3 id="reporting-dates-title">{text.reportingDates}</h3>
-            <ol>
-              {reportingDateEntries.map(({ date, missing }) => (
-                <li key={date} className={missing ? "reporting-date-missing" : undefined}
-                  title={missing ? text.missingReport : undefined}>
-                  <time dateTime={date} aria-label={missing ? `${date}: ${text.missingReport}` : undefined}>{date}</time>
-                </li>
-              ))}
-            </ol>
-          </section>
-        )}
 
         {groupedReport.length === 0 ? (
           <div className="empty-state">
@@ -882,13 +880,17 @@ function App() {
           </div>
         ) : (
           <div className="table-wrap">
-            <table>
+            <table ref={statementTableRef}>
+              <colgroup>
+                <col className="item-name-column" />
+                {reportingDates.map((date) => <col className="amount-column" data-reporting-date={date} key={`column-${date}`} />)}
+              </colgroup>
               <thead>
                 <tr>
                   <th>{text.financialItem}</th>
                   {reportingDates.map((date) => (
                     <th className="amount-column" key={date}>
-                      {date}
+                      {formatReportingDate(date, language)}
                       <a className="report-link"
                         id={`report-link-${date}`}
                         href={`/api/reports/${encodeURIComponent(reportStockCode)}/${encodeURIComponent(date)}`}
@@ -958,17 +960,6 @@ function App() {
                           <path d="M5 11V8m4 3V5m4 6V3" stroke="currentColor" strokeWidth="2" />
                         </svg>
                       </button>
-                      <span className="copy-action">
-                      <button type="button" className="trend-toggle"
-                        title={text.copyRow} aria-label={`${text.copyRow}: ${item.label}`}
-                        onClick={() => void copyItem(item)}>
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                          <rect x="5" y="5" width="8" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" />
-                          <path d="M10 5V2H2v9h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                        </svg>
-                      </button>
-                      {copyStatus?.itemId === item.item_id && <span className="copy-status" role="status">{copyStatus.message}</span>}
-                      </span>
                     </td>
                     {reportingDates.map((date) => (
                       <td className="amount-column" key={date}>
@@ -1060,6 +1051,29 @@ function App() {
         </div>
       )}
       </div>
+      <section className="stock-directory" aria-labelledby="stock-directory-title" aria-busy={stockCodesStatus === "loading"}>
+        <h2 id="stock-directory-title">{text.availableStocks}
+          {stockCodesStatus === "ready" && <>
+            <span className="item-count">{availableStockCodes.length}</span>
+            <span className="stock-report-total">{text.totalReports}: {totalReports.toLocaleString()}</span>
+          </>}
+        </h2>
+        {stockCodesStatus === "loading" && <p role="status">{text.loading}</p>}
+        {stockCodesStatus === "error" && <p role="alert">{text.stockCodesFailed}</p>}
+        {stockCodesStatus === "ready" && (availableStockCodes.length ? (
+          <div className="stock-code-list">
+            {availableStockCodes.map(({ stock_code: code, stock_name: name, report_count: count, has_missing_reporting_dates: missing }) => (
+              <button type="button" key={code} disabled={loading} title={code}
+                className={missing === false ? "stock-complete" : undefined}
+                aria-pressed={reportStockCode === code}
+                onClick={() => {
+                  setStockCode(code);
+                  void loadReport(code);
+                }}>{code}{name && ` · ${name}`} <span className="stock-report-count">({count.toLocaleString()} {text.reports})</span></button>
+            ))}
+          </div>
+        ) : <p>{text.noAvailableStocks}</p>)}
+      </section>
       {sourceSelection && <SourcePreview selection={sourceSelection} apiBase={API_BASE_URL}
         language={language} onClose={() => setSourceSelection(null)} />}
     </main>

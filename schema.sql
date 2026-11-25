@@ -1,5 +1,4 @@
 -- PostgreSQL schema for the report download, extraction, and digestion pipeline.
--- This creates a separate table; it does not migrate or modify report_registry.
 CREATE TABLE IF NOT EXISTS report_digestion (
     pdf_hash TEXT PRIMARY KEY CHECK (btrim(pdf_hash) <> ''),
     -- Normalized PDF metadata creation timestamp.
@@ -14,9 +13,8 @@ CREATE TABLE IF NOT EXISTS report_digestion (
             'FileErr',
             'ExtractOK',
             'ExtractErr',
-            'AuditPass',
-            'AuditIssues',
-            'ManualPass',
+            'AuditOK',
+            'AuditErr',
             'Deprecated',
             'NoStatements',
             'BalanceOK',
@@ -101,14 +99,49 @@ ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS is_digestion_report TEXT;
 ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS cfs_digestion_report TEXT;
 ALTER TABLE report_digestion DROP COLUMN IF EXISTS stock_name;
 
+-- Extracted balance-sheet line items. Monetary values are stored in yuan.
+CREATE TABLE IF NOT EXISTS balance_sheet_items (
+    stock_code VARCHAR(12) NOT NULL,
+    reporting_date DATE NOT NULL,
+    item_id INTEGER NOT NULL,
+    report_creation_time TEXT NOT NULL,
+    amount NUMERIC(20, 2) NOT NULL,
+    UNIQUE (stock_code, reporting_date, item_id, report_creation_time)
+);
+ALTER TABLE balance_sheet_items DROP COLUMN IF EXISTS item_english_name;
+ALTER TABLE balance_sheet_items DROP COLUMN IF EXISTS amount_unit;
+
+-- Registered source files and their digestion status.
+CREATE TABLE IF NOT EXISTS report_registry (
+    pdf_hash TEXT NOT NULL,
+    pdf_creation_time TEXT NOT NULL,
+    stock_code VARCHAR(12),
+    reporting_date DATE,
+    pdf_download_url TEXT,
+    pdf_local_path TEXT,
+    markdown_file TEXT,
+    preprocessed_file TEXT,
+    digestion_status TEXT NOT NULL DEFAULT 'PENDING',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (pdf_hash, pdf_creation_time)
+);
+DROP TRIGGER IF EXISTS report_registry_digestion_status_changed ON report_registry;
+ALTER TABLE report_registry DROP COLUMN IF EXISTS digestion_time;
+DROP FUNCTION IF EXISTS report_registry_set_digestion_time();
+ALTER TABLE report_registry DROP CONSTRAINT IF EXISTS report_registry_digestion_status_check;
+
 -- Rename legacy stages before enforcing the new allowed values.
 ALTER TABLE report_digestion DROP CONSTRAINT IF EXISTS report_digestion_digestion_stage_check;
 UPDATE report_digestion SET digestion_stage = 'FileOK'
     WHERE digestion_stage IN ('Downloaded', 'PreviewSuccess');
 UPDATE report_digestion SET digestion_stage = 'FileErr'
     WHERE digestion_stage = 'PreviewError';
-UPDATE report_digestion SET digestion_stage = 'ManualPass'
-    WHERE digestion_stage = 'HandPass';
+UPDATE report_digestion SET digestion_stage = 'AuditPass'
+    WHERE digestion_stage IN ('HandPass', 'ManualPass');
+UPDATE report_digestion SET digestion_stage = 'AuditOK'
+    WHERE digestion_stage = 'AuditPass';
+UPDATE report_digestion SET digestion_stage = 'AuditErr'
+    WHERE digestion_stage = 'AuditIssues';
 UPDATE report_digestion SET digestion_stage = CASE digestion_stage
         WHEN 'DigestionSuccess' THEN 'BalanceOK'
         WHEN 'DigestionError' THEN 'BalanceErr'
@@ -132,7 +165,7 @@ ALTER TABLE report_digestion ADD CONSTRAINT report_digestion_digestion_stage_che
     CHECK (digestion_stage IN (
         'FileOK', 'FileErr',
         'ExtractOK', 'ExtractErr',
-        'AuditPass', 'AuditIssues', 'ManualPass',
+        'AuditOK', 'AuditErr',
         'Deprecated', 'NoStatements',
         'BalanceOK', 'BalanceErr',
         'IncomeOK', 'IncomeErr',
@@ -162,9 +195,9 @@ CREATE TABLE IF NOT EXISTS income_statement_items (
     item_id INTEGER NOT NULL,
     report_creation_time TEXT NOT NULL,
     amount NUMERIC(28, 8) NOT NULL,
-    amount_unit TEXT NOT NULL CHECK (amount_unit IN ('元', '元/股')),
     UNIQUE (stock_code, reporting_date, item_id, report_creation_time)
 );
+ALTER TABLE income_statement_items DROP COLUMN IF EXISTS amount_unit;
 
 CREATE TABLE IF NOT EXISTS cash_flow_statement_items (
     stock_code VARCHAR(12) NOT NULL,
@@ -172,15 +205,29 @@ CREATE TABLE IF NOT EXISTS cash_flow_statement_items (
     item_id INTEGER NOT NULL,
     report_creation_time TEXT NOT NULL,
     amount NUMERIC(28, 8) NOT NULL,
-    amount_unit TEXT NOT NULL DEFAULT '元' CHECK (amount_unit = '元'),
     UNIQUE (stock_code, reporting_date, item_id, report_creation_time)
 );
+ALTER TABLE cash_flow_statement_items DROP COLUMN IF EXISTS amount_unit;
 
 -- Company details keyed by stock code; metadata may be filled in incrementally.
 CREATE TABLE IF NOT EXISTS stock_metadata (
     stock_code VARCHAR(12) PRIMARY KEY CHECK (btrim(stock_code) <> ''),
     stock_name VARCHAR(16) NOT NULL CHECK (btrim(stock_name) <> ''),
+    enrollment TEXT NOT NULL DEFAULT 'Pending'
+        CHECK (enrollment IN ('Pending', 'InProgress', 'Error', 'Done')),
     company_name TEXT,
     company_homepage TEXT,
     company_profile TEXT
 );
+
+ALTER TABLE stock_metadata
+    ADD COLUMN IF NOT EXISTS enrollment TEXT NOT NULL DEFAULT 'Pending'
+        CHECK (enrollment IN ('Pending', 'InProgress', 'Error', 'Done'));
+
+ALTER TABLE stock_metadata
+    ALTER COLUMN enrollment SET DEFAULT 'Pending';
+
+ALTER TABLE stock_metadata
+    DROP CONSTRAINT IF EXISTS stock_metadata_enrollment_check,
+    ADD CONSTRAINT stock_metadata_enrollment_check
+        CHECK (enrollment IN ('Pending', 'InProgress', 'Error', 'Done'));

@@ -99,7 +99,7 @@ The runner exits nonzero if any stock fails or a stock-code field is invalid.
 ### Digest audited balance-sheet line items
 
 Run `python digest_bs.py` with `DATABASE_URL` configured to process reports
-at `AuditPass`. To digest one report regardless of its current stage, run
+at `AuditOK`. To digest one report regardless of its current stage, run
 `python digest_bs.py --hash 007b7f4055bbfeedac1e0742338e0f00`.
 It reads the first amount column of `balance_sheet` Markdown
 (skipping a notes column), validates required nonzero items and parent totals,
@@ -199,17 +199,17 @@ structure, page spans, and decimal-value coverage. By default it reads
 `DATABASE_URL` from the environment or `.env`. It audits the stored
 `extraction_report` JSON without opening PDFs. For each report it saves the
 `issues` and `statements` fields as JSON in `extraction_audit`, and sets
-`digestion_stage` to `AuditPass` when issues are empty or `AuditIssues` otherwise.
+`digestion_stage` to `AuditOK` when issues are empty or `AuditErr` otherwise.
 These updates are committed together per report. Previously audited rows are
 excluded from subsequent runs unless their stage returns to `ExtractOK`.
 On the report digestion page, select a stage beneath the current stage badge
 and click **Save** to update it manually. Setting `ExtractOK` makes the
 report eligible for another audit. Stage changes preserve extraction and audit
-content; the audit is displayed only at `AuditPass` or `AuditIssues`.
+content; the audit is displayed only at `AuditOK` or `AuditErr`.
 Use `ManualPass` to record a human's manual pass decision; it has a success badge
 and is preserved during extraction reruns.
 The table has six tabs: **InProgress** (all stages except `ExtractOK`,
-`AuditPass`, `ManualPass`, and `Deprecated`), **ExtractOK**, **AuditPass**,
+`AuditOK`, `ManualPass`, and `Deprecated`), **ExtractOK**, **AuditOK**,
 **ManualPass**, **Deprecated**, and **Search**. Search covers all stages and lets
 you filter by full PDF hash, exact stock code, and/or stage. Combined filters must
 all match. Clear resets the filters. It opens on **InProgress**;
@@ -255,6 +255,13 @@ npm run dev
 ```
 
 Open [the dashboard](http://localhost:5173/) and search for a stock code. Vite proxies `/api/...` to the backend on port 8000, removing the `/api` prefix.
+
+Public, server-rendered statement pages are available at URLs such as
+`http://localhost:5173/stocks/300750/balance-sheet`,
+`/stocks/300750/income-statement`, and `/stocks/300750/cash-flow`. These pages
+include crawlable statement tables, metadata, canonical URLs, and Dataset
+structured data. In production, route `/stocks/*` to the FastAPI service and
+keep the frontend's static assets separately served.
 
 The report API serves `preprocessed/{stock_code}/{reporting_date}.md` as HTML. For example:
 

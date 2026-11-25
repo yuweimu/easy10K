@@ -11,7 +11,7 @@ from types import TracebackType
 from typing import Literal, Self, get_args
 
 from dotenv import load_dotenv
-from item_ids import UNMAPPED_ITEM_ID
+from item_ids import EPS_DILUTED_ID, EPS_ID, UNMAPPED_ITEM_ID
 
 
 # Resolve beside the program, independently of the working directory.
@@ -19,7 +19,7 @@ load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 
 ReportDigestionStage = Literal[
     "FileOK", "FileErr", "ExtractOK", "ExtractErr",
-    "AuditPass", "AuditIssues", "ManualPass", "Deprecated", "NoStatements", "BalanceOK", "BalanceErr",
+    "AuditOK", "AuditErr", "ManualPass", "Deprecated", "NoStatements", "BalanceOK", "BalanceErr",
     "IncomeOK", "IncomeErr", "CashFlowOK", "CashFlowErr",
 ]
 
@@ -52,12 +52,14 @@ def _normalize_pdf_creation_date(value: str | datetime | None) -> str | datetime
     """Convert PyMuPDF's compact creation timestamp to a database datetime."""
     if not isinstance(value, str):
         return value
-    match = re.fullmatch(r"D:?(\d{14})([+-]\d{2}'?\d{2}'?)?", value)
+    match = re.fullmatch(r"D:?(\d{14})(Z|[+-]\d{2}'?\d{2}'?)?", value)
     if not match:
         return value or None
     created = datetime.strptime(match.group(1), "%Y%m%d%H%M%S")
     offset = match.group(2)
-    if offset:
+    if offset == "Z":
+        created = created.replace(tzinfo=timezone.utc)
+    elif offset:
         sign = 1 if offset[0] == "+" else -1
         hours, minutes = map(int, re.findall(r"\d{2}", offset))
         created = created.replace(tzinfo=timezone(sign * timedelta(hours=hours, minutes=minutes)))
@@ -68,6 +70,7 @@ class LineItemStorage:
     def __init__(self, database_url: str | None = None) -> None:
         self.database_url = database_url if database_url is not None else os.getenv("DATABASE_URL")
         self._connection = None
+        self._schema_ready = False
         self._table_ready = False
         self._report_registry_ready = False
         self._report_digestion_ready = False
@@ -86,9 +89,8 @@ class LineItemStorage:
             print("database_url unspecified")
             return
         connection = self._connect()
+        self._ensure_schema()
         with connection.cursor() as cursor:
-            if not self._report_digestion_ready:
-                cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
             cursor.execute(
                 """
                 INSERT INTO report_digestion (
@@ -125,9 +127,8 @@ class LineItemStorage:
         if not self.database_url:
             return
         connection = self._connect()
+        self._ensure_schema()
         with connection.cursor() as cursor:
-            if not self._report_digestion_ready:
-                cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
             cursor.execute(
                 """
                 INSERT INTO report_digestion (
@@ -171,61 +172,26 @@ class LineItemStorage:
     def _ensure_table(self) -> None:
         if self._table_ready:
             return
-        connection = self._connect()
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS balance_sheet_items (
-                    stock_code VARCHAR(6) NOT NULL,
-                    reporting_date DATE NOT NULL,
-                    item_id INTEGER NOT NULL,
-                    report_creation_time TEXT NOT NULL,
-                    amount NUMERIC(20, 2) NOT NULL,
-                    UNIQUE (stock_code, reporting_date, item_id, report_creation_time)
-                )
-                """
-            )
-            cursor.execute("ALTER TABLE balance_sheet_items DROP COLUMN IF EXISTS item_english_name")
-        connection.commit()
+        self._ensure_schema()
         self._table_ready = True
 
     def ensure_report_registry(self) -> None:
-        """Create the registry and remove the obsolete digestion timestamp field."""
+        """Ensure the schema file has initialized the report registry."""
         if self._report_registry_ready:
+            return
+        self._ensure_schema()
+        self._report_registry_ready = True
+
+    def _ensure_schema(self) -> None:
+        """Apply the idempotent database schema and migrations from schema.sql."""
+        if self._schema_ready:
             return
         connection = self._connect()
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS report_registry (
-                    pdf_hash TEXT NOT NULL,
-                    pdf_creation_time TEXT NOT NULL,
-                    stock_code VARCHAR(12),
-                    reporting_date DATE,
-                    pdf_download_url TEXT,
-                    pdf_local_path TEXT,
-                    markdown_file TEXT,
-                    preprocessed_file TEXT,
-                    digestion_status TEXT NOT NULL DEFAULT 'PENDING',
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (pdf_hash, pdf_creation_time)
-                )
-                """
-            )
-            cursor.execute(
-                "DROP TRIGGER IF EXISTS report_registry_digestion_status_changed ON report_registry"
-            )
-            cursor.execute(
-                "ALTER TABLE report_registry DROP COLUMN IF EXISTS digestion_time"
-            )
-            cursor.execute(
-                "DROP FUNCTION IF EXISTS report_registry_set_digestion_time()"
-            )
-            cursor.execute(
-                "ALTER TABLE report_registry DROP CONSTRAINT IF EXISTS report_registry_digestion_status_check"
-            )
+            cursor.execute(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
         connection.commit()
-        self._report_registry_ready = True
+        self._schema_ready = True
+        self._report_digestion_ready = True
 
     def store_report_profile(
         self,
@@ -416,7 +382,7 @@ class LineItemStorage:
     def get_extracted_reports(self, pdf_hash: str | None = None,
                               stock_code: str | None = None,
                               *, retry: bool = False) -> list[dict]:
-        """Read extraction inputs, optionally retrying AuditIssues reports."""
+        """Read extraction inputs, optionally retrying AuditErr reports."""
         fields = ("pdf_hash", "local_path", "extraction_report")
         with self._connect().cursor() as cursor:
             conditions = []
@@ -426,7 +392,7 @@ class LineItemStorage:
                 parameters.append(pdf_hash)
             else:
                 conditions.append("digestion_stage = %s")
-                parameters.append("AuditIssues" if retry else "ExtractOK")
+                parameters.append("AuditErr" if retry else "ExtractOK")
             if stock_code:
                 conditions.append("stock_code = %s")
                 parameters.append(stock_code)
@@ -440,7 +406,7 @@ class LineItemStorage:
         """Read queued balance sheets, retrying BalanceErr reports when requested."""
         fields = ("pdf_hash", "balance_sheet", "stock_code", "reporting_date", "pdf_creation_date")
         conditions = ["digestion_stage = %s"]
-        parameters = ["BalanceErr" if retry else "AuditPass"]
+        parameters = ["BalanceErr" if retry else "AuditOK"]
         if pdf_hash is not None:
             conditions = ["pdf_hash = %s"]
             parameters = [pdf_hash]
@@ -474,8 +440,8 @@ class LineItemStorage:
                 current = cursor.fetchone()
                 if current is None:
                     raise ValueError(f"Report {pdf_hash} not found")
-                if not allow_any_stage and current[0] != "AuditPass":
-                    raise ValueError(f"Report {pdf_hash} is no longer at AuditPass")
+                if not allow_any_stage and current[0] != "AuditOK":
+                    raise ValueError(f"Report {pdf_hash} is no longer at AuditOK")
                 if passed:
                     cursor.executemany(
                         "INSERT INTO balance_sheet_items "
@@ -539,12 +505,12 @@ class LineItemStorage:
                     if not all(row.get(field) for field in ("stock_code", "reporting_date", "pdf_creation_date")):
                         raise ValueError("Missing metadata for statement item storage")
                     cursor.executemany(
-                        f"INSERT INTO {table} (stock_code, reporting_date, item_id, report_creation_time, amount, amount_unit) "
-                        "VALUES (%s, %s, %s, %s, %s, %s) "
+                        f"INSERT INTO {table} (stock_code, reporting_date, item_id, report_creation_time, amount) "
+                        "VALUES (%s, %s, %s, %s, %s) "
                         "ON CONFLICT (stock_code, reporting_date, item_id, report_creation_time) "
-                        "DO UPDATE SET amount = EXCLUDED.amount, amount_unit = EXCLUDED.amount_unit",
+                        "DO UPDATE SET amount = EXCLUDED.amount",
                         [(row["stock_code"], row["reporting_date"], item["item_id"], row["pdf_creation_date"],
-                          item["amount"], item.get("amount_unit", "元")) for item in report["items"]],
+                          item["amount"]) for item in report["items"]],
                     )
                 cursor.execute(f"UPDATE report_digestion SET {report_field} = %s, digestion_stage = %s, "
                                "updated_at = CURRENT_TIMESTAMP WHERE pdf_hash = %s", (payload, success if passed else failure, pdf_hash))
@@ -594,7 +560,7 @@ class LineItemStorage:
         if not isinstance(pdf_hash, str) or not pdf_hash.strip():
             raise ValueError("PDF hash must be a nonblank string")
         payload = json.dumps({"issues": issues, "statements": statements}, ensure_ascii=False)
-        stage = "AuditIssues" if issues else "AuditPass"
+        stage = "AuditErr" if issues else "AuditOK"
         connection = self._connect()
         with connection.cursor() as cursor:
             if not self._report_digestion_ready:
@@ -610,11 +576,12 @@ class LineItemStorage:
     def get_report_digestion(self, page: int = 1, page_size: int = 25, *, show_passed: bool = False,
                              only_manual_pass: bool = False, report_group: str | None = None,
                              pdf_hash: str | None = None, stock_code: str | None = None,
+                             reporting_date: str | None = None,
                              digestion_stage: str | None = None) -> dict:
         """Read a filtered, newest-first page without schema writes."""
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("Page must be positive and page_size must be between 1 and 100")
-        if report_group not in (None, "InProgress", "FileErr", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+        if report_group not in (None, "InProgress", "FileErr", "ExtractOK", "ExtractErr", "AuditOK", "AuditErr",
                                 "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                                 "ManualPass", "Deprecated", "Search"):
             raise ValueError("Unknown report group")
@@ -627,23 +594,24 @@ class LineItemStorage:
             "cash_flow_statement", "cash_flow_statement_ex", "extraction_audit",
             "bs_digestion_report", "is_digestion_report", "cfs_digestion_report", "updated_at",
         )
-        where = "" if show_passed else "WHERE digestion_stage NOT IN ('ManualPass', 'AuditPass') "
+        where = "" if show_passed else "WHERE digestion_stage NOT IN ('ManualPass', 'AuditOK') "
         if only_manual_pass:
             where = "WHERE digestion_stage = 'ManualPass' "
         if report_group == "InProgress":
-            where = ("WHERE digestion_stage NOT IN ('ManualPass', 'Deprecated', 'FileErr', 'ExtractErr', 'AuditIssues', "
+            where = ("WHERE digestion_stage NOT IN ('ManualPass', 'Deprecated', 'FileErr', 'ExtractErr', 'AuditErr', "
                      "'BalanceErr', 'IncomeErr', 'CashFlowErr', "
                      "'CashFlowOK') ")
-        elif report_group in ("FileErr", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+        elif report_group in ("FileErr", "ExtractOK", "ExtractErr", "AuditOK", "AuditErr",
                               "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                               "ManualPass", "Deprecated"):
             where = "WHERE digestion_stage = %s "
-        parameters = (report_group,) if report_group in ("FileErr", "ExtractOK", "ExtractErr", "AuditPass", "AuditIssues",
+        parameters = (report_group,) if report_group in ("FileErr", "ExtractOK", "ExtractErr", "AuditOK", "AuditErr",
                                                         "BalanceErr", "IncomeErr", "CashFlowErr", "CashFlowOK",
                                                         "ManualPass", "Deprecated") else ()
         if report_group == "Search":
             where = ""
-        for column, value in (("pdf_hash", pdf_hash), ("stock_code", stock_code), ("digestion_stage", digestion_stage)):
+        for column, value in (("pdf_hash", pdf_hash), ("stock_code", stock_code),
+                              ("reporting_date", reporting_date), ("digestion_stage", digestion_stage)):
             if value and value.strip():
                 where += ("AND " if where else "WHERE ") + column + " = %s "
                 parameters += (value.strip(),)
@@ -674,7 +642,7 @@ class LineItemStorage:
         table = self._statement_table(statement)
         with self._connect().cursor() as cursor:
             cursor.execute(
-                "SELECT stocks.stock_code, stocks.report_count, metadata.stock_name, stocks.reporting_dates FROM ("
+                "SELECT stocks.stock_code, stocks.report_count, metadata.stock_name, metadata.enrollment, stocks.reporting_dates FROM ("
                 "SELECT stock_code, COUNT(DISTINCT (reporting_date, report_creation_time)) "
                 f"AS report_count, ARRAY_AGG(DISTINCT reporting_date) AS reporting_dates FROM {table} "
                 "WHERE stock_code IS NOT NULL AND stock_code <> '' "
@@ -683,19 +651,25 @@ class LineItemStorage:
                 "ORDER BY stocks.stock_code"
             )
             return [{"stock_code": row[0], "report_count": row[1], "stock_name": row[2],
-                     "has_missing_reporting_dates": _has_missing_quarters(row[3])}
+                     "enrollment": row[3], "has_missing_reporting_dates": _has_missing_quarters(row[4])}
                     for row in cursor.fetchall()]
 
     def get_statement_items(self, statement: str, stock_code: str) -> list[dict]:
         """Read statement values, preserving EPS units and exact report versions."""
         table = self._statement_table(statement)
-        fields = ("reporting_date", "item_id", "amount", "report_creation_time", "amount_unit")
+        fields = ("reporting_date", "item_id", "amount", "report_creation_time")
         with self._connect().cursor() as cursor:
             cursor.execute(
                 f"SELECT {', '.join(fields)} FROM {table} WHERE stock_code = %s "
                 "ORDER BY reporting_date, item_id, report_creation_time", (stock_code,),
             )
-            return [dict(zip(fields, row)) for row in cursor.fetchall()]
+            records = [dict(zip(fields, row)) for row in cursor.fetchall()]
+        for record in records:
+            record["amount_unit"] = (
+                "元/股" if statement == "income_statement"
+                and record["item_id"] in {EPS_ID, EPS_DILUTED_ID} else "元"
+            )
+        return records
 
     def get_balance_sheet_items(self, stock_code: str) -> list[dict]:
         """Return the same ordered fields used by the balance-sheet API."""
@@ -736,6 +710,7 @@ class LineItemStorage:
         if self._connection is not None:
             self._connection.close()
             self._connection = None
+        self._schema_ready = False
         self._table_ready = False
         self._report_registry_ready = False
         self._report_digestion_ready = False
