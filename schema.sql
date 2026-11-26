@@ -22,13 +22,25 @@ CREATE TABLE IF NOT EXISTS report_digestion (
             'IncomeOK',
             'IncomeErr',
             'CashFlowOK',
-            'CashFlowErr'
+            'CashFlowErr',
+            
+            'ExExtractOK',
+            'ExExtractErr',
+            'ExAuditOK',
+            'ExAuditErr',
+            'ExBalanceOK',
+            'ExBalanceErr',
+            'ExIncomeOK',
+            'ExIncomeErr',
+            'ExCashFlowOK',
+            'ExCashFlowErr'
         )),
 
     stock_code VARCHAR(12),
     reporting_date DATE,
 
     extraction_report TEXT,
+    extraction_report_ex TEXT,
     balance_sheet TEXT,
     balance_sheet_ex TEXT,
     income_statement TEXT,
@@ -52,6 +64,7 @@ CREATE INDEX IF NOT EXISTS report_digestion_stock_code_idx
 -- Upgrade existing tables while preserving parseable PDF metadata.
 ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS extraction_audit TEXT;
 ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS download_report TEXT;
+ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS extraction_report_ex TEXT;
 DO $$
 BEGIN
     IF EXISTS (
@@ -136,6 +149,10 @@ UPDATE report_digestion SET digestion_stage = 'FileOK'
     WHERE digestion_stage IN ('Downloaded', 'PreviewSuccess');
 UPDATE report_digestion SET digestion_stage = 'FileErr'
     WHERE digestion_stage = 'PreviewError';
+UPDATE report_digestion SET digestion_stage = 'FileOK'
+    WHERE digestion_stage = 'ExFileOK';
+UPDATE report_digestion SET digestion_stage = 'FileErr'
+    WHERE digestion_stage = 'ExFileErr';
 UPDATE report_digestion SET digestion_stage = 'AuditPass'
     WHERE digestion_stage IN ('HandPass', 'ManualPass');
 UPDATE report_digestion SET digestion_stage = 'AuditOK'
@@ -169,6 +186,11 @@ ALTER TABLE report_digestion ADD CONSTRAINT report_digestion_digestion_stage_che
         'Deprecated', 'NoStatements',
         'BalanceOK', 'BalanceErr',
         'IncomeOK', 'IncomeErr',
+        'ExExtractOK', 'ExExtractErr',
+        'ExAuditOK', 'ExAuditErr',
+        'ExBalanceOK', 'ExBalanceErr',
+        'ExIncomeOK', 'ExIncomeErr',
+        'ExCashFlowOK', 'ExCashFlowErr',
         'CashFlowOK', 'CashFlowErr'
     ));
 

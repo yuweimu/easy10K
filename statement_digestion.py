@@ -51,7 +51,7 @@ def normalize_label(text):
     label = re.sub(r"（减少）", "", label)
     label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*）$", "", label)
     label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*$", "", label)
-    label = re.sub(r"（(?:人民币)?元(?:/股)?）", "", label)
+    label = re.sub(r"（(?:人民币)?元(?:[/／]股)?）", "", label)
     return label.rstrip("：:")
 
 
@@ -72,6 +72,7 @@ def parse_statement(markdown, chart, statement):
         return item
 
     aliases = {"归属于母公司所有者的净利润": NET_PROFIT_OWNERSHIP_CURRENT_ID,
+               "营业税金及附加": 4217,
                "归属于母公司所有者的其他综合收益的税后净额": OTHER_COMPREHENSIVE_INCOME_ID,
                "归属于母公司股东的其他综合收益的税后净额": OTHER_COMPREHENSIVE_INCOME_ID,
                "归属于母公司股东的综合收益总额": COMPREHENSIVE_INCOME_OWNERS_ID,
@@ -257,7 +258,8 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
                     required_numeric_ids=()):
     result = {"pdf_hash": row["pdf_hash"], "statement": statement, "passed": False, "issues": [],
               "checks": [], "unmapped_rows": [], "items": [],
-              "tolerance": {"absolute_statement_units": str(absolute_tolerance), "relative": str(relative_tolerance)}}
+              "tolerance": {"absolute_statement_units": str(absolute_tolerance), "relative": str(relative_tolerance)},
+              "_stock_code": row.get("stock_code")}
     markdown, multiplier = check_report_metadata({**row, "balance_sheet": row.get(statement)}, result)
     result["issues"] = [issue.replace("balance_sheet", statement) for issue in result["issues"]]
     if row.get("stock_code") and not re.fullmatch(r"\d{6}", str(row["stock_code"])):
@@ -303,18 +305,23 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
                                     "statement_amount": str(amount), "amount_unit": "元/股" if item_id in per_share_ids else "元",
                                     "amount": str(amount if item_id in per_share_ids else amount * multiplier) if multiplier else None})
     result["passed"] = not result["issues"]
+    result.pop("_stock_code", None)
     return result
 
 
 def run_cli(statement, check_report, argv=None):
     def load_rows(storage, args):
         options = {"pdf_hash": args.pdf_hash, "retry": args.retry}
+        if args.ex:
+            options["ex"] = True
         if args.stock_code:
             options["stock_code"] = args.stock_code
         return storage.get_statement_reports(statement, **options)
 
     def save_row(storage, row, result, args, retry_failure=False):
         options = {"allow_any_stage": True} if args.pdf_hash or (args.retry and not retry_failure) else {}
+        if args.ex:
+            options["ex"] = True
         storage.store_statement_digestion(statement, row, result, **options)
 
     return run_digest_cli(

@@ -61,6 +61,18 @@ class StatementDigestionTests(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertEqual(normalize_label(label), label[1:])
 
+    def test_eps_labels_with_full_width_slash_map_to_per_share_items(self):
+        markdown = "\n".join((
+            "| 项目 | 附注 | 本期 | 上期 |",
+            "| --- | --- | --- | --- |",
+            "| （一）基本每股收益（元／股） | | 0.41 | 0.72 |",
+            "| （二）稀释每股收益（元／股） | | 0.41 | 0.71 |",
+        ))
+        state = parse_statement(markdown, self.chart, "income_statement")
+        self.assertEqual(state.amounts[5901], Decimal("0.41"))
+        self.assertEqual(state.amounts[5903], Decimal("0.41"))
+        self.assertEqual(state.unmapped_rows, [])
+
     def test_other_comprehensive_income_legacy_labels_are_mapped(self):
         markdown = "\n".join((
             "| 项目 | 本期 | 上期 |",
@@ -78,6 +90,20 @@ class StatementDigestionTests(unittest.TestCase):
             with self.subTest(item_id=item_id):
                 result = self.check(income, "income_statement", {key: value for key, value in self.income.items() if key != item_id})
                 self.assertFalse(result["passed"])
+
+    def test_income_legacy_business_tax_label_maps_to_tax_surcharges(self):
+        markdown = "\n".join((
+            "| 项目 | 本期 | 上期 |",
+            "| --- | --- | --- |",
+            "| 二、营业总成本 | 600 |  |",
+            "| 其中：营业成本 | 500 |  |",
+            "| 营业税金及附加 | 50 |  |",
+            "| 销售费用 | 30 |  |",
+            "| 管理费用 | 20 |  |",
+        ))
+        state = parse_statement(markdown, self.chart, "income_statement")
+        self.assertEqual(state.amounts[4217], Decimal("50"))
+        self.assertEqual(state.unmapped_rows, [])
 
     def test_no_total_revenue_or_total_cost_row_uses_details_without_double_counting(self):
         values = {key: value for key, value in self.income.items() if key not in (41, 42, 4103)}
@@ -132,6 +158,15 @@ class StatementDigestionTests(unittest.TestCase):
             result = self.check(cash, "cash_flow_statement", {**self.cash, 83010101: "31"})
             self.assertFalse(result["passed"])
             self.assertTrue(any("minority-interest" in issue for issue in result["issues"]))
+
+    def test_600398_allows_source_report_minority_detail_exception(self):
+        values = {**self.cash, 830101: "125", 83010101: "250", 8301: "125",
+                  830203: "10", 83020301: "20", 8302: "10", 83: "115",
+                  85: "196", 87: "296"}
+        row = self.row("cash_flow_statement", values)
+        row["stock_code"] = "600398"
+        result = cash.check_report(row, self.chart)
+        self.assertTrue(result["passed"], result["issues"])
 
     def test_rows_with_wrong_table_width_are_reported(self):
         markdown = "\n".join((
@@ -290,6 +325,18 @@ class StatementDigestionTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(module.main(["--retry", "--dry-run"]), 0)
             storage.get_statement_reports.assert_called_with(field, pdf_hash=None, retry=True)
+
+    @patch("statement_digestion.LineItemStorage")
+    def test_cli_ex_forwards_external_source_for_both_statements(self, factory):
+        storage = factory.return_value.__enter__.return_value
+        for module, field, values in ((income, "income_statement", self.income),
+                                      (cash, "cash_flow_statement", self.cash)):
+            storage.reset_mock()
+            storage.get_statement_reports.return_value = [self.row(field, values)]
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(module.main(["--ex"]), 0)
+            storage.get_statement_reports.assert_called_once_with(field, pdf_hash=None, retry=False, ex=True)
+            self.assertTrue(storage.store_statement_digestion.call_args.kwargs["ex"])
 
     @patch("statement_digestion.LineItemStorage")
     def test_cli_saves_failure_and_continues_after_storage_error(self, factory):

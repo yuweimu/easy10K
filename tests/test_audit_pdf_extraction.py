@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from audit_extraction import audit_extracted_reports, audit_report, audit_reports, load_cached_report, main
+from audit_extraction import audit_external_report, audit_extracted_reports, audit_report, audit_reports, load_cached_report, main
 from extract import STATEMENTS, ReportExtraction, Statement
 
 
@@ -22,6 +22,25 @@ def sample_report():
 
 
 class AuditPDFExtractionTests(unittest.TestCase):
+    def test_external_audit_reads_imported_metadata_and_markdown(self):
+        markdown = "| 项目 | 本期 | 上期 |\n| --- | --- | --- |\n" + "| 货币资金 | 1.00 | 2.00 |\n" * 8
+        row = {"pdf_hash": "a" * 32, "local_path": "report.pdf", "stock_code": "600398",
+               "reporting_date": "2020-12-31",
+               "extraction_report": json.dumps({"pdf_md5": "a" * 32, "stock_code": "600398",
+                                                "reporting_date": "2020-12-31"}),
+               "balance_sheet_ex": markdown, "income_statement_ex": markdown,
+               "cash_flow_statement_ex": markdown}
+        self.assertEqual(audit_external_report(row)["issues"], [])
+        row["cash_flow_statement_ex"] = None
+        self.assertIn("missing cash_flow_statement_ex", audit_external_report(row)["issues"])
+        with tempfile.TemporaryDirectory() as directory, patch("audit_extraction.LineItemStorage") as factory, \
+                redirect_stdout(io.StringIO()):
+            storage = factory.return_value.__enter__.return_value
+            storage.get_extracted_reports.return_value = [row]
+            audit_extracted_reports(Path(directory), ex=True)
+            storage.get_extracted_reports.assert_called_once_with(pdf_hash=None, stock_code=None, retry=False, ex=True)
+            self.assertTrue(storage.store_extraction_audit.call_args.kwargs["ex"])
+
     def test_reporting_date_sources_disagreement_is_an_audit_issue(self):
         report = sample_report()
         report.title_reporting_date = "2025-09-30"

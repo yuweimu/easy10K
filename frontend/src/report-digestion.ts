@@ -24,7 +24,9 @@ const error = document.querySelector<HTMLElement>("#error")!;
 let page = 1, totalPages = 1, loading = false;
 const stages = ["FileOK", "FileErr", "ExtractOK", "ExtractErr",
   "AuditOK", "AuditErr", "ManualPass", "Deprecated", "NoStatements", "BalanceOK", "BalanceErr",
-  "IncomeOK", "IncomeErr", "CashFlowOK", "CashFlowErr"];
+  "IncomeOK", "IncomeErr", "CashFlowOK", "CashFlowErr",
+  "ExExtractOK", "ExExtractErr", "ExAuditOK", "ExAuditErr", "ExBalanceOK", "ExBalanceErr",
+  "ExIncomeOK", "ExIncomeErr", "ExCashFlowOK", "ExCashFlowErr"];
 for (const stage of stages) {
   searchStage.add(new Option(stage, stage));
 }

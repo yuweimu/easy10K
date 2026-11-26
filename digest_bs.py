@@ -366,12 +366,16 @@ def check_report(row: dict, chart: LineItemChart, *, absolute_tolerance: Decimal
 def main(argv: list[str] | None = None) -> int:
     def load_rows(storage, args):
         options = {"pdf_hash": args.pdf_hash, "retry": args.retry}
+        if args.ex:
+            options["ex"] = True
         if args.stock_code:
             options["stock_code"] = args.stock_code
         return storage.get_audit_pass_reports(**options)
 
     def save_row(storage, row, result, args, retry_failure=False):
         options = {"allow_any_stage": True} if args.pdf_hash or (args.retry and not retry_failure) else {}
+        if args.ex:
+            options["ex"] = True
         storage.store_line_item_digestion(row, result, **options)
 
     return run_digest_cli(

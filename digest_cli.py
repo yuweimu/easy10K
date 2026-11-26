@@ -55,6 +55,8 @@ def run_digest_cli(statement: str, check_report, load_rows, save_row, argv=None,
                         help="Process this hash regardless of stage")
     parser.add_argument("--stock_code", help="Process only reports for this stock code")
     parser.add_argument("--retry", action="store_true", help=retry_help)
+    parser.add_argument("--ex", action="store_true",
+                        help="Digest externally extracted *_ex Markdown through Ex* stages")
     parser.add_argument("--absolute-tolerance", type=nonnegative_decimal,
                         default=absolute_tolerance)
     parser.add_argument("--relative-tolerance", type=nonnegative_decimal,

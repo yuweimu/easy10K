@@ -139,7 +139,7 @@ function renderReports(reports: Report[]): void {
     const missing = !actualDates.has(date);
     const stages = activeStatement === "all"
       ? [...new Set(reports
-        .filter(report => report.reporting_date === date && report.digestion_stage !== "CashFlowOK")
+        .filter(report => report.reporting_date === date && !["CashFlowOK", "ExCashFlowOK"].includes(report.digestion_stage))
         .map(report => report.digestion_stage))]
       : [];
     chip.textContent = missing
@@ -149,7 +149,7 @@ function renderReports(reports: Report[]): void {
     if (stages.length) chip.classList.add("stage-date");
     chip.title = missing
       ? `${date} has no enrolled report`
-      : stages.length ? `${date}: ${stages.join(", ")}` : `${date} has a CashFlowOK report`;
+      : stages.length ? `${date}: ${stages.join(", ")}` : `${date} has a completed cash-flow report`;
     dateChips.append(chip);
   }
 

@@ -11,6 +11,14 @@ from line_item_chart import LineItemChart
 
 
 class DigestLineItemsTests(unittest.TestCase):
+    def test_cli_ex_uses_external_balance_sheet(self):
+        with patch("digest_bs.LineItemStorage") as factory, redirect_stdout(io.StringIO()):
+            storage = factory.return_value.__enter__.return_value
+            storage.get_audit_pass_reports.return_value = [self.row()]
+            self.assertEqual(main(["--ex"]), 0)
+            storage.get_audit_pass_reports.assert_called_once_with(pdf_hash=None, retry=False, ex=True)
+            self.assertTrue(storage.store_line_item_digestion.call_args.kwargs["ex"])
+
     def setUp(self):
         self.chart = LineItemChart()
         self.values = {11: "300", 1101: "100", 110101: "40", 110128: "10", 110150: "50",

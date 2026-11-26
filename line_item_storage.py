@@ -20,12 +20,18 @@ load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 ReportDigestionStage = Literal[
     "FileOK", "FileErr", "ExtractOK", "ExtractErr",
     "AuditOK", "AuditErr", "ManualPass", "Deprecated", "NoStatements", "BalanceOK", "BalanceErr",
-    "IncomeOK", "IncomeErr", "CashFlowOK", "CashFlowErr",
+    "IncomeOK", "IncomeErr", "ExExtractOK", "ExExtractErr",
+    "ExAuditOK", "ExAuditErr", "ExBalanceOK", "ExBalanceErr", "ExIncomeOK", "ExIncomeErr",
+    "ExCashFlowOK", "ExCashFlowErr", "CashFlowOK", "CashFlowErr",
 ]
 
 STATEMENT_DIGESTION = {
     "income_statement": ("BalanceOK", "IncomeOK", "IncomeErr", "is_digestion_report", "income_statement_items"),
     "cash_flow_statement": ("IncomeOK", "CashFlowOK", "CashFlowErr", "cfs_digestion_report", "cash_flow_statement_items"),
+}
+EX_STATEMENT_DIGESTION = {
+    "income_statement": ("ExBalanceOK", "ExIncomeOK", "ExIncomeErr", "is_digestion_report", "income_statement_items"),
+    "cash_flow_statement": ("ExIncomeOK", "ExCashFlowOK", "ExCashFlowErr", "cfs_digestion_report", "cash_flow_statement_items"),
 }
 
 
@@ -52,7 +58,7 @@ def _normalize_pdf_creation_date(value: str | datetime | None) -> str | datetime
     """Convert PyMuPDF's compact creation timestamp to a database datetime."""
     if not isinstance(value, str):
         return value
-    match = re.fullmatch(r"D:?(\d{14})(Z|[+-]\d{2}'?\d{2}'?)?", value)
+    match = re.fullmatch(r"(?:D:?)?(\d{14})(Z|[+-]\d{2}'?\d{2}'?)?", value)
     if not match:
         return value or None
     created = datetime.strptime(match.group(1), "%Y%m%d%H%M%S")
@@ -154,6 +160,41 @@ class LineItemStorage:
             )
         connection.commit()
         self._report_digestion_ready = True
+
+    def store_extracted_report_extras(
+        self, pdf_hash: str, *, extraction_report_ex: str | None = None,
+        balance_sheet_ex: str | None = None, income_statement_ex: str | None = None,
+        cash_flow_statement_ex: str | None = None, stock_code: str | None = None,
+        reporting_date: str | date | None = None,
+        pdf_creation_date: str | datetime | None = None,
+    ) -> bool:
+        """Store externally extracted metadata/Markdown without changing stage."""
+        if not self.database_url:
+            return False
+        self._ensure_schema()
+        connection = self._connect()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE report_digestion
+                SET extraction_report_ex = COALESCE(%s, extraction_report_ex),
+                    balance_sheet_ex = COALESCE(%s, balance_sheet_ex),
+                    income_statement_ex = COALESCE(%s, income_statement_ex),
+                    cash_flow_statement_ex = COALESCE(%s, cash_flow_statement_ex),
+                    stock_code = COALESCE(%s, stock_code),
+                    reporting_date = COALESCE(%s, reporting_date),
+                    pdf_creation_date = COALESCE(%s, pdf_creation_date),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE pdf_hash = %s AND digestion_stage NOT IN ('CashFlowOK', 'ExCashFlowOK')
+                """,
+                (extraction_report_ex, balance_sheet_ex, income_statement_ex,
+                 cash_flow_statement_ex, stock_code, reporting_date,
+                 _normalize_pdf_creation_date(pdf_creation_date), pdf_hash),
+            )
+            updated = cursor.rowcount > 0
+        connection.commit()
+        self._report_digestion_ready = True
+        return updated
 
     def _connect(self):
         if not self.database_url:
@@ -366,6 +407,22 @@ class LineItemStorage:
             row = cursor.fetchone()
         return dict(zip(fields, row)) if row else None
 
+    def get_report_pipeline_rows(self, stock_code: str) -> list[dict]:
+        """Return all non-deprecated reports for a stock for pipeline processing."""
+        fields = (
+            "pdf_hash", "local_path", "stock_code", "reporting_date",
+            "pdf_creation_date", "digestion_stage", "extraction_report",
+            "balance_sheet", "income_statement", "cash_flow_statement",
+        )
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                "SELECT " + ", ".join(fields) + " FROM report_digestion "
+                "WHERE stock_code = %s AND digestion_stage <> 'Deprecated' "
+                "ORDER BY reporting_date NULLS LAST, pdf_hash",
+                (stock_code,),
+            )
+            return [dict(zip(fields, row)) for row in cursor.fetchall()]
+
     def get_reports_at_FileOK(self, stock_code: str | None = None, *, retry: bool = False) -> list[dict]:
         """Read PDFs awaiting extraction, optionally retrying ExtractErr reports."""
         fields = ("pdf_hash", "local_path", "stock_code", "reporting_date")
@@ -381,9 +438,11 @@ class LineItemStorage:
 
     def get_extracted_reports(self, pdf_hash: str | None = None,
                               stock_code: str | None = None,
-                              *, retry: bool = False) -> list[dict]:
+                              *, retry: bool = False, ex: bool = False) -> list[dict]:
         """Read extraction inputs, optionally retrying AuditErr reports."""
         fields = ("pdf_hash", "local_path", "extraction_report")
+        source = "extraction_report_ex" if ex else "extraction_report"
+        extra = ", stock_code, reporting_date, balance_sheet_ex, income_statement_ex, cash_flow_statement_ex" if ex else ""
         with self._connect().cursor() as cursor:
             conditions = []
             parameters = []
@@ -392,21 +451,21 @@ class LineItemStorage:
                 parameters.append(pdf_hash)
             else:
                 conditions.append("digestion_stage = %s")
-                parameters.append("AuditErr" if retry else "ExtractOK")
+                parameters.append(("ExAuditErr" if retry else "ExExtractOK") if ex else ("AuditErr" if retry else "ExtractOK"))
             if stock_code:
                 conditions.append("stock_code = %s")
                 parameters.append(stock_code)
             cursor.execute(
-                "SELECT pdf_hash, local_path, extraction_report FROM report_digestion WHERE "
+                f"SELECT pdf_hash, local_path, {source}{extra} FROM report_digestion WHERE "
                 + " AND ".join(conditions) + " ORDER BY pdf_hash", tuple(parameters))
-            return [dict(zip(fields, row)) for row in cursor.fetchall()]
+            return [dict(zip(fields + (("stock_code", "reporting_date", "balance_sheet_ex", "income_statement_ex", "cash_flow_statement_ex") if ex else ()), row)) for row in cursor.fetchall()]
 
     def get_audit_pass_reports(self, pdf_hash: str | None = None, *, retry: bool = False,
-                               stock_code: str | None = None) -> list[dict]:
+                               stock_code: str | None = None, ex: bool = False) -> list[dict]:
         """Read queued balance sheets, retrying BalanceErr reports when requested."""
         fields = ("pdf_hash", "balance_sheet", "stock_code", "reporting_date", "pdf_creation_date")
         conditions = ["digestion_stage = %s"]
-        parameters = ["BalanceErr" if retry else "AuditOK"]
+        parameters = [("ExBalanceErr" if retry else "ExAuditOK") if ex else ("BalanceErr" if retry else "AuditOK")]
         if pdf_hash is not None:
             conditions = ["pdf_hash = %s"]
             parameters = [pdf_hash]
@@ -415,12 +474,12 @@ class LineItemStorage:
             parameters.append(stock_code)
         with self._connect().cursor() as cursor:
             cursor.execute(
-                "SELECT " + ", ".join(fields) + " FROM report_digestion " +
+                "SELECT pdf_hash, " + ("balance_sheet_ex AS balance_sheet" if ex else "balance_sheet") + ", stock_code, reporting_date, pdf_creation_date FROM report_digestion " +
                 "WHERE " + " AND ".join(conditions) + " ORDER BY pdf_hash", tuple(parameters),
             )
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
-    def store_line_item_digestion(self, row: dict, report: dict, *, allow_any_stage: bool = False) -> None:
+    def store_line_item_digestion(self, row: dict, report: dict, *, allow_any_stage: bool = False, ex: bool = False) -> None:
         """Commit validated items, the JSON check report, and the stage together."""
         pdf_hash = row["pdf_hash"]
         if not isinstance(pdf_hash, str) or not pdf_hash.strip():
@@ -440,8 +499,9 @@ class LineItemStorage:
                 current = cursor.fetchone()
                 if current is None:
                     raise ValueError(f"Report {pdf_hash} not found")
-                if not allow_any_stage and current[0] != "AuditOK":
-                    raise ValueError(f"Report {pdf_hash} is no longer at AuditOK")
+                queued = "ExAuditOK" if ex else "AuditOK"
+                if not allow_any_stage and current[0] != queued:
+                    raise ValueError(f"Report {pdf_hash} is no longer at {queued}")
                 if passed:
                     cursor.executemany(
                         "INSERT INTO balance_sheet_items "
@@ -455,7 +515,7 @@ class LineItemStorage:
                 cursor.execute(
                     "UPDATE report_digestion SET bs_digestion_report = %s, digestion_stage = %s, "
                     "updated_at = CURRENT_TIMESTAMP WHERE pdf_hash = %s",
-                    (payload, "BalanceOK" if passed else "BalanceErr", pdf_hash),
+                    (payload, ("ExBalanceOK" if passed else "ExBalanceErr") if ex else ("BalanceOK" if passed else "BalanceErr"), pdf_hash),
                 )
             connection.commit()
         except Exception:
@@ -464,27 +524,28 @@ class LineItemStorage:
         self._report_digestion_ready = True
 
     def get_statement_reports(self, statement: str, *, pdf_hash: str | None = None,
-                              retry: bool = False, stock_code: str | None = None) -> list[dict]:
+                              retry: bool = False, stock_code: str | None = None, ex: bool = False) -> list[dict]:
         """Read queued statements, retrying only the matching error stage when requested."""
         if statement not in STATEMENT_DIGESTION:
             raise ValueError("Unsupported statement")
         fields = ("pdf_hash", statement, "stock_code", "reporting_date", "pdf_creation_date")
-        stage = STATEMENT_DIGESTION[statement][2] if retry else STATEMENT_DIGESTION[statement][0]
+        stages = EX_STATEMENT_DIGESTION if ex else STATEMENT_DIGESTION
+        stage = stages[statement][2] if retry else stages[statement][0]
         conditions = ["pdf_hash = %s" if pdf_hash is not None else "digestion_stage = %s"]
         parameters = [pdf_hash if pdf_hash is not None else stage]
         if stock_code:
             conditions.append("stock_code = %s")
             parameters.append(stock_code)
         with self._connect().cursor() as cursor:
-            cursor.execute("SELECT " + ", ".join(fields) + " FROM report_digestion WHERE "
+            cursor.execute("SELECT pdf_hash, " + (f"{statement}_ex AS {statement}" if ex else statement) + ", stock_code, reporting_date, pdf_creation_date FROM report_digestion WHERE "
                            + " AND ".join(conditions) + " ORDER BY pdf_hash", tuple(parameters))
             return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
-    def store_statement_digestion(self, statement: str, row: dict, report: dict, *, allow_any_stage=False) -> None:
+    def store_statement_digestion(self, statement: str, row: dict, report: dict, *, allow_any_stage=False, ex: bool = False) -> None:
         """Commit one statement's items, validation JSON, and processing stage atomically."""
         if statement not in STATEMENT_DIGESTION:
             raise ValueError("Unsupported statement")
-        queued, success, failure, report_field, table = STATEMENT_DIGESTION[statement]
+        queued, success, failure, report_field, table = (EX_STATEMENT_DIGESTION if ex else STATEMENT_DIGESTION)[statement]
         pdf_hash = row["pdf_hash"]
         if not isinstance(pdf_hash, str) or not pdf_hash.strip():
             raise ValueError("PDF hash must be a nonblank string")
@@ -555,12 +616,12 @@ class LineItemStorage:
         self._report_digestion_ready = True
         return dict(zip(("pdf_hash", "digestion_stage", "updated_at"), row)) if row else None
 
-    def store_extraction_audit(self, pdf_hash: str, issues: list[str], statements: dict) -> None:
+    def store_extraction_audit(self, pdf_hash: str, issues: list[str], statements: dict, *, ex: bool = False) -> None:
         """Save audit details and the resulting stage together for one report."""
         if not isinstance(pdf_hash, str) or not pdf_hash.strip():
             raise ValueError("PDF hash must be a nonblank string")
         payload = json.dumps({"issues": issues, "statements": statements}, ensure_ascii=False)
-        stage = "AuditErr" if issues else "AuditOK"
+        stage = ("ExAuditErr" if issues else "ExAuditOK") if ex else ("AuditErr" if issues else "AuditOK")
         connection = self._connect()
         with connection.cursor() as cursor:
             if not self._report_digestion_ready:
