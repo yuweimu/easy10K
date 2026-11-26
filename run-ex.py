@@ -6,17 +6,24 @@ The importer reads ``reports/ai-extract/outputs`` files named like::
     600398.2020-12-31.<pdf-md5>.balance-sheet.md
 
 Reports already at ``CashFlowOK`` or ``ExCashFlowOK`` are left untouched.
+
+Usage: python run-ex.py 600398
 """
 
 import argparse
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
 import sys
+from typing import get_args
 
-from line_item_storage import LineItemStorage
+import audit_extraction
+import digest_bs
+import digest_cf
+import digest_is
+from line_item_storage import LineItemStorage, ReportDigestionStage
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -33,6 +40,10 @@ STATEMENT_FIELDS = {
     "cash-flow-statement": "cash_flow_statement_ex",
 }
 COMPLETED_STAGES = {"CashFlowOK", "ExCashFlowOK"}
+EX_DIGESTION_STAGES = {
+    "ExExtractOK", "ExAuditOK", "ExAuditErr", "ExBalanceOK", "ExBalanceErr",
+    "ExIncomeOK", "ExIncomeErr", "ExCashFlowErr",
+}
 
 
 @dataclass
@@ -125,9 +136,52 @@ def _mark_external_extraction_complete(storage: LineItemStorage, pdf_hash: str) 
     return storage.get_report_digestion_stage(pdf_hash) == "ExExtractOK"
 
 
+def _run_remaining_digestion(storage: LineItemStorage, group: ExtractedFiles, stage: str) -> str:
+    """Advance one imported report through Ex audit and all three Ex digesters."""
+    pdf_hash = group.pdf_hash
+    while True:
+        if stage == "ExCashFlowOK" or stage not in EX_DIGESTION_STAGES:
+            return stage
+        return_code = 0
+        if stage in {"ExExtractOK", "ExAuditErr"}:
+            print(f"{pdf_hash}: auditing external extraction", flush=True)
+            storage.close()  # Release the read transaction before the worker opens its connection.
+            audit_extraction.audit_extracted_reports(
+                PROJECT_DIR / "extracted" / "pdf", pdf_hash=pdf_hash,
+                stock_code=group.stock_code, ex=True,
+            )
+        else:
+            module = (digest_bs if stage in {"ExAuditOK", "ExBalanceErr"} else
+                      digest_is if stage in {"ExBalanceOK", "ExIncomeErr"} else digest_cf)
+            print(f"{pdf_hash}: digesting {module.__name__} --ex", flush=True)
+            storage.close()
+            return_code = module.main(["--hash", pdf_hash, "--ex"])
+        next_stage = storage.get_report_digestion_stage(pdf_hash)
+        if next_stage is None:
+            raise ValueError(f"Report {pdf_hash} disappeared from report_digestion")
+        if next_stage == stage or next_stage.endswith("Err") or return_code:
+            return next_stage
+        stage = next_stage
+
+
+def _print_stage_summary(stages: list[str], stock_code: str | None) -> None:
+    """Summarize final database stages for registered, non-deprecated output reports."""
+    counts = Counter(stage for stage in stages if stage != "Deprecated")
+    reset = "\033[0m"
+    print(f"Summary for {stock_code or 'external outputs'}:", flush=True)
+    print(f"\033[1;35m  Total non-deprecated reports: {sum(counts.values())}{reset}", flush=True)
+    for stage in get_args(ReportDigestionStage):
+        if stage == "Deprecated":
+            continue
+        count = counts[stage]
+        color = "\033[31m" if stage.endswith("Err") and count else (
+            "\033[32m" if stage in COMPLETED_STAGES else "")
+        print(f"{color}  {stage}: {count}{reset if color else ''}", flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stock_code", "--stock-code")
+    parser.add_argument("stock_code", help="Stock code whose extracted reports should be imported")
     parser.add_argument("--outputs-dir", type=Path, default=DEFAULT_OUTPUTS_DIR)
     args = parser.parse_args(argv)
 
@@ -146,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         groups = _collect_files(args.outputs_dir, args.stock_code)
         for group in groups:
             stage = storage.get_report_digestion_stage(group.pdf_hash)
-            if stage in COMPLETED_STAGES:
+            if stage in COMPLETED_STAGES or stage == "Deprecated":
                 counts["skipped"] += 1
                 print(f"{_report_label(group.pdf_hash, group.stock_code, group.reporting_date)}: "
                       f"skipped (already {stage})", flush=True)
@@ -186,13 +240,25 @@ def main(argv: list[str] | None = None) -> int:
                     "metadata", "balance-sheet", "income-statement", "cash-flow-statement",
                 }
                 if all_extraction_files:
-                    _mark_external_extraction_complete(storage, group.pdf_hash)
+                    if stage not in EX_DIGESTION_STAGES:
+                        _mark_external_extraction_complete(storage, group.pdf_hash)
                     actual_stage = storage.get_report_digestion_stage(group.pdf_hash)
                     print(
                         f"{label}: imported {len(group.files)} extracted file(s); "
                         f"stage={actual_stage or 'unknown'}",
                         flush=True,
                     )
+                    if actual_stage in EX_DIGESTION_STAGES:
+                        try:
+                            final_stage = _run_remaining_digestion(storage, group, actual_stage)
+                        except Exception as error:
+                            storage.close()
+                            counts["failed"] += 1
+                            print(f"{label}: external digestion failed: {error}", file=sys.stderr, flush=True)
+                            continue
+                        print(f"{label}: final stage={final_stage}", flush=True)
+                        if final_stage.endswith("Err"):
+                            counts["failed"] += 1
                 else:
                     actual_stage = storage.get_report_digestion_stage(group.pdf_hash)
                     print(
@@ -204,10 +270,14 @@ def main(argv: list[str] | None = None) -> int:
                 counts["skipped"] += 1
                 print(f"{label}: skipped (unregistered or CashFlowOK/ExCashFlowOK)", flush=True)
 
+        final_stages = [storage.get_report_digestion_stage(group.pdf_hash) for group in groups]
+
     print(f"Marked {deprecated_count} report(s) Deprecated.", flush=True)
     print(f"Found {len(groups)} extracted report group(s).", flush=True)
     print(f"Updated {counts['updated']}; skipped {counts['skipped']}.", flush=True)
-    return 0
+    print(f"Digestion failures: {counts['failed']}.", flush=True)
+    _print_stage_summary([stage for stage in final_stages if stage is not None], args.stock_code)
+    return int(counts["failed"] > 0)
 
 
 if __name__ == "__main__":

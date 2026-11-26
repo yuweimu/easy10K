@@ -1,7 +1,7 @@
 """Resume extraction and digestion for every registered report of one stock.
 
 Usage:
-    python run.py --stock_code 300750
+    python run.py 300750
 
 Each report is advanced from its current digestion stage. Deprecated reports are
 ignored. Reports ending at ExtractErr or AuditErr are copied to the AI review
@@ -181,7 +181,7 @@ def _print_stage_summary(stock_code: str, rows: list[dict]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stock_code", "--stock-code", required=True,
+    parser.add_argument("stock_code",
                         help="Process all registered reports for this stock code")
     parser.add_argument("--ai-extract-dir", type=Path, default=DEFAULT_AI_EXTRACT_DIR,
                         help=f"Directory for ExtractErr/AuditErr PDFs (default: {DEFAULT_AI_EXTRACT_DIR})")

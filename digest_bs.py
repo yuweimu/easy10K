@@ -44,6 +44,7 @@ def clean_cell(text: str) -> str:
 
 def parse_amount(text: str) -> Decimal | None:
     value = clean_cell(text)
+    value = re.sub(r"(?:<sup>\d+</sup>)+$", "", value, flags=re.I)
     if value in ("/", "-"):
         return Decimal(0)
     if value in ("", "--", "—", "–"):

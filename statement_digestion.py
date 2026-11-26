@@ -51,7 +51,7 @@ def normalize_label(text):
     label = re.sub(r"（减少）", "", label)
     label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*）$", "", label)
     label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*$", "", label)
-    label = re.sub(r"（(?:人民币)?元(?:[/／]股)?）", "", label)
+    label = re.sub(r"（(?:人民币)?元(?:[/／╱]股)?）", "", label)
     return label.rstrip("：:")
 
 

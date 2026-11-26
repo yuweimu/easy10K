@@ -26,6 +26,12 @@ MINORITY_INTEREST_DETAIL_EXCEPTIONS = {
     ("600398", MINORITY_INTEREST_OPERATING_ID, MINORITY_INTEREST_OPERATING_PARENT_ID),
     ("600398", MINORITY_INTEREST_FINANCING_ID, MINORITY_INTEREST_FINANCING_PARENT_ID),
 }
+# The source PDF for 300308's 2025 Q1 report prints 35,692,000.00 in the
+# minority-interest detail but only 611,745.51 in its parent receipt row.
+MINORITY_INTEREST_REPORT_EXCEPTIONS = {
+    ("e53644c29920cde9758664c310b60156", MINORITY_INTEREST_OPERATING_ID,
+     MINORITY_INTEREST_OPERATING_PARENT_ID),
+}
 
 
 def accounting_equations(state, result):
@@ -60,7 +66,9 @@ def accounting_equations(state, result):
                         Decimal(result["tolerance"]["relative"]) * max(amount, total))
         passed = (amount <= total + tolerance
                   or (result.get("_stock_code"), child, parent)
-                  in MINORITY_INTEREST_DETAIL_EXCEPTIONS)
+                  in MINORITY_INTEREST_DETAIL_EXCEPTIONS
+                  or (result["pdf_hash"], child, parent)
+                  in MINORITY_INTEREST_REPORT_EXCEPTIONS)
         result["checks"].append({"check": "included_detail", "item_id": child,
                                  "parent_id": parent, "passed": passed})
         if not passed:

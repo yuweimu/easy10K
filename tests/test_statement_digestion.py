@@ -61,17 +61,19 @@ class StatementDigestionTests(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertEqual(normalize_label(label), label[1:])
 
-    def test_eps_labels_with_full_width_slash_map_to_per_share_items(self):
-        markdown = "\n".join((
-            "| 项目 | 附注 | 本期 | 上期 |",
-            "| --- | --- | --- | --- |",
-            "| （一）基本每股收益（元／股） | | 0.41 | 0.72 |",
-            "| （二）稀释每股收益（元／股） | | 0.41 | 0.71 |",
-        ))
-        state = parse_statement(markdown, self.chart, "income_statement")
-        self.assertEqual(state.amounts[5901], Decimal("0.41"))
-        self.assertEqual(state.amounts[5903], Decimal("0.41"))
-        self.assertEqual(state.unmapped_rows, [])
+    def test_eps_labels_with_slash_variants_map_to_per_share_items(self):
+        for slash in ("/", "／", "╱"):
+            with self.subTest(slash=slash):
+                markdown = "\n".join((
+                    "| 项目 | 附注 | 本期 | 上期 |",
+                    "| --- | --- | --- | --- |",
+                    f"| （一）基本每股收益（元{slash}股） | | 0.68 | 0.50 |",
+                    f"| （二）稀释每股收益（元{slash}股） | | 0.64 | 0.48 |",
+                ))
+                state = parse_statement(markdown, self.chart, "income_statement")
+                self.assertEqual(state.amounts[5901], Decimal("0.68"))
+                self.assertEqual(state.amounts[5903], Decimal("0.64"))
+                self.assertEqual(state.unmapped_rows, [])
 
     def test_other_comprehensive_income_legacy_labels_are_mapped(self):
         markdown = "\n".join((
@@ -148,6 +150,13 @@ class StatementDigestionTests(unittest.TestCase):
         result = self.check(income, "income_statement", {**self.income, 560203: "21"})
         self.assertFalse(result["passed"])
 
+    def test_net_profit_with_superscript_footnote_reconciles(self):
+        result = self.check(income, "income_statement",
+                            {**self.income, 56: "300<sup>1</sup>"})
+        self.assertTrue(result["passed"], result["issues"])
+        check = next(check for check in result["checks"] if check["check"] == "comprehensive_income")
+        self.assertEqual(check["children_sum"], "307")
+
     def test_cash_all_equations_and_included_minority_disclosures(self):
         for notes in (False, True):
             result = self.check(cash, "cash_flow_statement", self.cash, notes=notes)
@@ -167,6 +176,21 @@ class StatementDigestionTests(unittest.TestCase):
         row["stock_code"] = "600398"
         result = cash.check_report(row, self.chart)
         self.assertTrue(result["passed"], result["issues"])
+
+    def test_300308_source_report_exception_is_limited_to_one_pdf(self):
+        values = {**self.cash, 830101: "611745.51", 83010101: "35692000",
+                  8301: "611745.51", 83: "611695.51", 85: "611776.51",
+                  87: "611876.51"}
+        row = self.row("cash_flow_statement", values)
+        row["stock_code"] = "300308"
+        row["pdf_hash"] = "e53644c29920cde9758664c310b60156"
+        result = cash.check_report(row, self.chart)
+        self.assertTrue(result["passed"], result["issues"])
+
+        row["pdf_hash"] = "b" * 32
+        result = cash.check_report(row, self.chart)
+        self.assertFalse(result["passed"])
+        self.assertTrue(any("minority-interest" in issue for issue in result["issues"]))
 
     def test_rows_with_wrong_table_width_are_reported(self):
         markdown = "\n".join((

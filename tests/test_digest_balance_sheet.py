@@ -431,13 +431,15 @@ class DigestLineItemsTests(unittest.TestCase):
                 self.assertEqual(Decimal(cash["amount"]), 40)
 
     def test_numeric_formats(self):
-        for text, expected in (("1,234.50", "1234.50"), ("（123.45）", "-123.45"),
+        for text, expected in (("1,234.50", "1234.50"),
+                               ("481,473,705.50<sup>1</sup>", "481473705.50"),
+                               ("（123.45）", "-123.45"),
                                ("−12.50", "-12.50"), ("**0.00**", "0.00"),
                                ("/", "0"), ("-", "0"), (" / ", "0")):
             self.assertEqual(parse_amount(text), Decimal(expected))
         for value in ("", "—", "--"):
             self.assertIsNone(parse_amount(value))
-        for value in ("NaN", "Infinity", "abc", "1,2"):
+        for value in ("NaN", "Infinity", "abc", "1,2", "1,234<sup>note</sup>"):
             with self.assertRaises(ValueError):
                 parse_amount(value)
 

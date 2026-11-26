@@ -28,6 +28,17 @@ from statement_digestion import Equation, check_statement, run_cli
 
 REQUIRED_IDS = (OPERATING_PROFIT_ID, PROFIT_BEFORE_TAX_ID, NET_PROFIT_ID)
 
+# This report repeats the consolidated comprehensive-income total in the
+# parent-company row and leaves the minority comprehensive-income row blank.
+# Keep the consolidated comprehensive-income equation checked, but exempt the
+# two ownership reconciliation equations that conflict with that source layout.
+SOURCE_EQUATION_EXCEPTIONS = {
+    "09f90159437d97d2effb0d1fbc11f424": {
+        ("children_sum", COMPREHENSIVE_INCOME_ID),
+        ("comprehensive_income_by_ownership", COMPREHENSIVE_INCOME_OWNERS_ID),
+    },
+}
+
 
 def repair_comprehensive_income(state):
     """Fill omitted comprehensive totals and repair a known PDF row shift.
@@ -167,6 +178,16 @@ def accounting_equations(state, result):
                                         (COMPREHENSIVE_INCOME_NONCONTROLLING_ID, NET_PROFIT_OWNERSHIP_NONCONTROLLING_ID, OTHER_COMPREHENSIVE_INCOME_NONCONTROLLING_ID)):
         if profit in values:
             add("comprehensive_income_by_ownership", total, [(profit, 1), (other_income, 1)], [profit])
+    exceptions = SOURCE_EQUATION_EXCEPTIONS.get(result["pdf_hash"], set())
+    if exceptions:
+        equations = [equation for equation in equations
+                     if (equation.name, equation.target) not in exceptions]
+        result["checks"].append({"check": "source_report_equation_exception",
+                                 "pdf_hash": result["pdf_hash"],
+                                 "excluded_equations": [
+                                     {"check": name, "item_id": item_id}
+                                     for name, item_id in sorted(exceptions)],
+                                 "passed": True})
     return equations
 
 
