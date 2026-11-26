@@ -109,6 +109,8 @@ def accounting_equations(state, result):
     # amounts for their children. Derive only missing/blank parents; an
     # explicitly reported amount, including zero, remains authoritative.
     for parent in (OTHER_COMPREHENSIVE_TOTAL_ID, OTHER_COMPREHENSIVE_INCOME_ID,
+                   OTHER_COMPREHENSIVE_GROUP_CURRENT_ID,
+                   OTHER_COMPREHENSIVE_GROUP_NONCONTROLLING_ID,
                    OTHER_COMPREHENSIVE_INCOME_NONCONTROLLING_ID):
         children = [item_id for item_id in values
                     if str(item_id).startswith(str(parent))

@@ -300,12 +300,15 @@
 		830103|取得借款收到的现金|Cash Received from Borrowings
 		830104|发行债券收到的现金|Cash Received from Issuance of Bonds
 		830105|收到其他与筹资活动有关的现金|Other Cash Received Relating to Financing Activities
+		830106|黄金租赁业务收到的现金|Cash Received from Gold Leasing
 	8302|筹资活动现金流出小计|Total Cash Outflows from Financing Activities
 		830201|偿还债务支付的现金|Cash Paid for Repayment of Debt
 		830203|分配股利、利润或偿付利息支付的现金|Cash Paid for Dividends, Profit Distributions and Interest
 			83020301|子公司支付给少数股东的股利、利润|Dividends and Profits Paid by Subsidiaries to Non-controlling Shareholders
 			83020301|其中：子公司支付给少数股东的股利、利润|Dividends and Profits Paid by Subsidiaries to Non-controlling Shareholders
 		830205|支付其他与筹资活动有关的现金|Other Cash Paid Relating to Financing Activities
+		830208|偿还黄金租赁业务支付的现金|Cash Paid for Repayment of Gold Leasing
+		830210|偿还债券和超短期融资券支付的现金|Cash Paid for Repayment of Bonds and Short-term Financing Bills
 
 84|汇率变动对现金及现金等价物的影响|Effect of Exchange Rate Changes on Cash and Cash Equivalents
 85|现金及现金等价物净增加额|Net Increase in Cash and Cash Equivalents

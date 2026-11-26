@@ -45,7 +45,13 @@ def accounting_equations(state, result):
     for parent in CASH_FLOW_NET_PARENTS:
         if parent in values:
             inflow, outflow = parent * 100 + 1, parent * 100 + 2
-            equations.append(Equation("net_cash_flow", parent, ((inflow, 1), (outflow, -1)), (inflow, outflow)))
+            # Reports use both signed (negative outflows) and unsigned
+            # (positive outflows) presentations. Match the source subtotal.
+            outflow_amount = values.get(outflow)
+            outflow_coefficient = 1 if outflow_amount is not None and outflow_amount < 0 else -1
+            equations.append(Equation("net_cash_flow", parent,
+                                      ((inflow, 1), (outflow, outflow_coefficient)),
+                                      (inflow, outflow)))
     if NET_CASH_INCREASE_ID in values:
         cash_flow_terms = tuple((item_id, 1) for item_id in (*CASH_FLOW_NET_PARENTS, OTHER_CASH_FLOW_ID))
         equations.append(Equation("net_increase_in_cash", NET_CASH_INCREASE_ID,
