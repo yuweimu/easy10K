@@ -35,6 +35,7 @@ REQUIRED_IDS = (ASSETS_ID, CURRENT_ASSETS_ID, CASH_ID, OTHER_RECEIVABLES_ID,
                 SHARE_CAPITAL_ID, CAPITAL_RESERVE_ID, OTHER_EQUITY_DETAIL_ID)
 UNITS = {"元": 1, "千元": 1000, "万元": 10000, "百万元": 1000000, "亿元": 100000000}
 NUMBER = re.compile(r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
+DUPLICATE_AMOUNT_ROUNDING_TOLERANCE = Decimal("0.01")
 
 
 def clean_cell(text: str) -> str:
@@ -44,6 +45,7 @@ def clean_cell(text: str) -> str:
 
 def parse_amount(text: str) -> Decimal | None:
     value = clean_cell(text)
+    value = re.sub(r"(?:<sup>\d+</sup>)+$", "", value, flags=re.I)
     if value in ("/", "-"):
         return Decimal(0)
     if value in ("", "--", "—", "–"):
@@ -119,7 +121,7 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
         label = clean_cell(re.sub(r"【[^】]*(?:】|$)", "", text)).replace("(", "（").replace(")", "）")
         label = re.sub(r"^[☆★]+", "", label)
         label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", label)
-        return label.rstrip("：:")
+        return label.replace(":", "：").rstrip("=＝：")
 
     lines = markdown.splitlines()
     table_width = None
@@ -131,21 +133,38 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
         cells = split_cells(line)
         if len(cells) < 2:
             continue
-        label = clean_cell(re.sub(r"【[^】]*(?:】|$)", "", cells[0])).replace("(", "（").replace(")", "）")
-        label = re.sub(r"^[☆★]+", "", label)
+        label = normalize_balance_label(cells[0])
+        # These rows disclose components already included in a parent balance
+        # sheet item; they are not separate items to map or sum again.
+        if label in ("其中：衍生金融资产", "其中：衍生金融负债", "其中：可续期公司债"):
+            continue
+        is_final_total = bool(re.search(
+            r"负债[和及](?:股东|所有者)权益总计", label
+        ))
         notes_header = (
             len(cells) >= 4
             and re.search(r"附注|注释|行次|^注$", clean_cell(cells[1]))
-            and re.search(r"期末|期初|上年年末", clean_cell(cells[2]))
+            and re.search(r"期末|期初|上年年末|20\d{2}", clean_cell(cells[2]))
         )
-        if label in ("项目", "科目") or notes_header:
+        blank_note_header = (
+            len(cells) == 4
+            and not clean_cell(cells[1])
+            and re.search(r"期末|期初|上年年末|20\d{2}", clean_cell(cells[2]))
+        )
+        if label in ("项目", "科目") or notes_header or blank_note_header:
             table_width = len(cells)
-            amount_column = 2 if re.search(r"附注|注释|行次|^注$", clean_cell(cells[1])) else 1
+            has_note_column = re.search(r"附注|注释|行次|^注$", clean_cell(cells[1]))
+            amount_column = 2 if has_note_column or blank_note_header else 1
             continue
         if table_width is not None and len(cells) != table_width:
             issues.append(f"Line {line_number}: expected {table_width} table columns, got {len(cells)}")
+            if is_final_total:
+                break
             continue
         if not label or re.fullmatch(r"[:\-]+", label):
+            continue
+        # External PDF extraction sometimes emits page markers as table rows.
+        if re.fullmatch(r"\[\d+", label):
             continue
         label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", label)
         section_heading = label.rstrip().endswith(("：", ":"))
@@ -170,6 +189,8 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
                 len(name) > len(label) and name.endswith(label) for name in long_names)
             if item is None and not continue_if_total and not truncated_suffix:
                 state.unmapped_rows.append({"line": line_number, "label": label})
+            if is_final_total:
+                break
             continue
         row_amount_column = select_amount_column(cells, amount_column)
         if len(cells) <= row_amount_column:
@@ -179,11 +200,16 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
             amount = parse_amount(cells[row_amount_column])
         except ValueError as error:
             issues.append(f"Line {line_number}: {label}: {error}")
+            if is_final_total:
+                break
             continue
         previous = parsed.get(item.item_id)
         if previous is not None and previous[1] is not None:
-            if amount is not None and previous[1] != amount:
+            if (amount is not None
+                    and abs(previous[1] - amount) >= DUPLICATE_AMOUNT_ROUNDING_TOLERANCE):
                 issues.append(f"Conflicting amounts for item {item.item_id}: {previous[1]} and {amount}")
+            if is_final_total:
+                break
             continue
         parsed[item.item_id] = (item, amount)
         if amount is not None and row_amount_column == 1 and amount_column == 2:
@@ -191,6 +217,8 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
         if (amount is not None and amount_column == row_amount_column == 2
                 and not clean_cell(cells[1]) and len(cells) >= 4 and not clean_cell(cells[-1])):
             ambiguous_rows[item.item_id] = line_number
+        if is_final_total:
+            break
     return state
 
 
@@ -366,12 +394,16 @@ def check_report(row: dict, chart: LineItemChart, *, absolute_tolerance: Decimal
 def main(argv: list[str] | None = None) -> int:
     def load_rows(storage, args):
         options = {"pdf_hash": args.pdf_hash, "retry": args.retry}
+        if args.ex:
+            options["ex"] = True
         if args.stock_code:
             options["stock_code"] = args.stock_code
         return storage.get_audit_pass_reports(**options)
 
     def save_row(storage, row, result, args, retry_failure=False):
         options = {"allow_any_stage": True} if args.pdf_hash or (args.retry and not retry_failure) else {}
+        if args.ex:
+            options["ex"] = True
         storage.store_line_item_digestion(row, result, **options)
 
     return run_digest_cli(

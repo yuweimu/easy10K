@@ -12,6 +12,43 @@ import line_item_storage
 
 
 class LineItemStorageTests(unittest.TestCase):
+    def test_external_queue_reads_and_transitions(self):
+        with LineItemStorage("postgresql://test") as storage:
+            storage._report_digestion_ready = True
+            self.cursor.fetchall.return_value = [("hash", "report.pdf", "{}", "600398", "2020-12-31", "bs", "is", "cf")]
+            result = storage.get_extracted_reports(ex=True)
+            self.assertEqual(result[0]["balance_sheet_ex"], "bs")
+            self.assertIn("extraction_report_ex", self.cursor.execute.call_args.args[0])
+            self.assertEqual(self.cursor.execute.call_args.args[1], ("ExExtractOK",))
+            storage.store_extraction_audit("hash", [], {}, ex=True)
+            self.assertEqual(self.cursor.execute.call_args.args[1][1], "ExAuditOK")
+            self.cursor.fetchall.return_value = [("hash", "bs", "600398", "2020-12-31", "created")]
+            self.assertEqual(storage.get_audit_pass_reports(ex=True)[0]["balance_sheet"], "bs")
+            self.assertIn("balance_sheet_ex AS balance_sheet", self.cursor.execute.call_args.args[0])
+            self.assertEqual(self.cursor.execute.call_args.args[1], ("ExAuditOK",))
+            self.cursor.fetchone.return_value = ("ExAuditOK",)
+            storage.store_line_item_digestion({"pdf_hash": "hash"}, {"passed": False, "issues": []}, ex=True)
+            self.assertEqual(self.cursor.execute.call_args.args[1][1], "ExBalanceErr")
+            for statement, queued, success in (("income_statement", "ExBalanceOK", "ExIncomeOK"),
+                                               ("cash_flow_statement", "ExIncomeOK", "ExCashFlowOK")):
+                self.cursor.fetchall.return_value = [("hash", "markdown", "600398", "2020-12-31", "created")]
+                self.assertEqual(storage.get_statement_reports(statement, ex=True)[0][statement], "markdown")
+                self.assertIn(f"{statement}_ex AS {statement}", self.cursor.execute.call_args.args[0])
+                self.assertEqual(self.cursor.execute.call_args.args[1], (queued,))
+                self.cursor.fetchone.return_value = (queued,)
+                storage.store_statement_digestion(statement, {"pdf_hash": "hash"},
+                                                 {"passed": False, "issues": []}, ex=True)
+                self.assertEqual(self.cursor.execute.call_args.args[1][1],
+                                 "ExIncomeErr" if statement == "income_statement" else "ExCashFlowErr")
+
+    def test_schema_replaces_external_file_stages_with_cash_flow_stages(self):
+        schema = Path(__file__).resolve().parents[1].joinpath("schema.sql").read_text(encoding="utf-8")
+        constraint = schema.split("ADD CONSTRAINT report_digestion_digestion_stage_check", 1)[1].split("));", 1)[0]
+        self.assertNotIn("'ExFileOK'", constraint)
+        self.assertNotIn("'ExFileErr'", constraint)
+        self.assertIn("'ExCashFlowOK'", constraint)
+        self.assertIn("'ExCashFlowErr'", constraint)
+
     def test_normalizes_pdf_creation_date_with_utc_suffix(self):
         self.assertEqual(
             _normalize_pdf_creation_date("D:20181026075333Z").isoformat(),

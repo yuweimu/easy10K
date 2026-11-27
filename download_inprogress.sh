@@ -39,7 +39,7 @@ fi
 stock_codes=$(psql "$database_url" -AtX -v ON_ERROR_STOP=1 -c \
     "SELECT stock_code
        FROM stock_metadata
-      WHERE enrollment = 'InProgress'
+      WHERE enrollment = 'Pending'
       ORDER BY stock_code;")
 
 if [[ -z "$stock_codes" ]]; then

@@ -1,3 +1,14 @@
+-- Company details keyed by stock code; metadata may be filled in incrementally.
+CREATE TABLE IF NOT EXISTS stock_metadata (
+    stock_code VARCHAR(12) PRIMARY KEY CHECK (btrim(stock_code) <> ''),
+    stock_name VARCHAR(16) NOT NULL CHECK (btrim(stock_name) <> ''),
+    enrollment TEXT NOT NULL DEFAULT 'Pending'
+        CHECK (enrollment IN ('Pending', 'InProgress', 'Error', 'Done')),
+    company_name TEXT,
+    company_homepage TEXT,
+    company_profile TEXT
+);
+
 -- PostgreSQL schema for the report download, extraction, and digestion pipeline.
 CREATE TABLE IF NOT EXISTS report_digestion (
     pdf_hash TEXT PRIMARY KEY CHECK (btrim(pdf_hash) <> ''),
@@ -22,13 +33,25 @@ CREATE TABLE IF NOT EXISTS report_digestion (
             'IncomeOK',
             'IncomeErr',
             'CashFlowOK',
-            'CashFlowErr'
+            'CashFlowErr',
+            
+            'ExExtractOK',
+            'ExExtractErr',
+            'ExAuditOK',
+            'ExAuditErr',
+            'ExBalanceOK',
+            'ExBalanceErr',
+            'ExIncomeOK',
+            'ExIncomeErr',
+            'ExCashFlowOK',
+            'ExCashFlowErr'
         )),
 
     stock_code VARCHAR(12),
     reporting_date DATE,
 
     extraction_report TEXT,
+    extraction_report_ex TEXT,
     balance_sheet TEXT,
     balance_sheet_ex TEXT,
     income_statement TEXT,
@@ -49,185 +72,32 @@ CREATE INDEX IF NOT EXISTS report_digestion_pdf_hash_digestion_stage_idx
 CREATE INDEX IF NOT EXISTS report_digestion_stock_code_idx
     ON report_digestion (stock_code);
 
--- Upgrade existing tables while preserving parseable PDF metadata.
-ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS extraction_audit TEXT;
-ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS download_report TEXT;
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = 'report_digestion'
-          AND column_name = 'pdf_creation_date'
-          AND data_type = 'text'
-    ) THEN
-        ALTER TABLE report_digestion
-            ALTER COLUMN pdf_creation_date TYPE TIMESTAMPTZ
-            USING CASE
-                WHEN pdf_creation_date ~ '^D:[0-9]{14}$'
-                    THEN to_timestamp(substring(pdf_creation_date FROM 3), 'YYYYMMDDHH24MISS')
-                WHEN pdf_creation_date ~ '^[0-9]{14}$'
-                    THEN to_timestamp(pdf_creation_date, 'YYYYMMDDHH24MISS')
-                ELSE NULL
-            END;
-    END IF;
-END $$;
--- Preserve balance-sheet checks when upgrading the former shared report column.
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM pg_attribute
-        WHERE attrelid = 'report_digestion'::regclass
-          AND attname = 'digestion_report' AND NOT attisdropped
-    ) THEN
-        IF EXISTS (
-            SELECT 1 FROM pg_attribute
-            WHERE attrelid = 'report_digestion'::regclass
-              AND attname = 'bs_digestion_report' AND NOT attisdropped
-        ) THEN
-            UPDATE report_digestion
-                SET bs_digestion_report = COALESCE(bs_digestion_report, digestion_report);
-            ALTER TABLE report_digestion DROP COLUMN digestion_report;
-        ELSE
-            ALTER TABLE report_digestion RENAME COLUMN digestion_report TO bs_digestion_report;
-        END IF;
-    END IF;
-END $$;
-ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS bs_digestion_report TEXT;
-ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS is_digestion_report TEXT;
-ALTER TABLE report_digestion ADD COLUMN IF NOT EXISTS cfs_digestion_report TEXT;
-ALTER TABLE report_digestion DROP COLUMN IF EXISTS stock_name;
 
 -- Extracted balance-sheet line items. Monetary values are stored in yuan.
 CREATE TABLE IF NOT EXISTS balance_sheet_items (
     stock_code VARCHAR(12) NOT NULL,
     reporting_date DATE NOT NULL,
     item_id INTEGER NOT NULL,
-    report_creation_time TEXT NOT NULL,
+    report_creation_time TIMESTAMP NOT NULL,
     amount NUMERIC(20, 2) NOT NULL,
     UNIQUE (stock_code, reporting_date, item_id, report_creation_time)
 );
-ALTER TABLE balance_sheet_items DROP COLUMN IF EXISTS item_english_name;
-ALTER TABLE balance_sheet_items DROP COLUMN IF EXISTS amount_unit;
-
--- Registered source files and their digestion status.
-CREATE TABLE IF NOT EXISTS report_registry (
-    pdf_hash TEXT NOT NULL,
-    pdf_creation_time TEXT NOT NULL,
-    stock_code VARCHAR(12),
-    reporting_date DATE,
-    pdf_download_url TEXT,
-    pdf_local_path TEXT,
-    markdown_file TEXT,
-    preprocessed_file TEXT,
-    digestion_status TEXT NOT NULL DEFAULT 'PENDING',
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (pdf_hash, pdf_creation_time)
-);
-DROP TRIGGER IF EXISTS report_registry_digestion_status_changed ON report_registry;
-ALTER TABLE report_registry DROP COLUMN IF EXISTS digestion_time;
-DROP FUNCTION IF EXISTS report_registry_set_digestion_time();
-ALTER TABLE report_registry DROP CONSTRAINT IF EXISTS report_registry_digestion_status_check;
-
--- Rename legacy stages before enforcing the new allowed values.
-ALTER TABLE report_digestion DROP CONSTRAINT IF EXISTS report_digestion_digestion_stage_check;
-UPDATE report_digestion SET digestion_stage = 'FileOK'
-    WHERE digestion_stage IN ('Downloaded', 'PreviewSuccess');
-UPDATE report_digestion SET digestion_stage = 'FileErr'
-    WHERE digestion_stage = 'PreviewError';
-UPDATE report_digestion SET digestion_stage = 'AuditPass'
-    WHERE digestion_stage IN ('HandPass', 'ManualPass');
-UPDATE report_digestion SET digestion_stage = 'AuditOK'
-    WHERE digestion_stage = 'AuditPass';
-UPDATE report_digestion SET digestion_stage = 'AuditErr'
-    WHERE digestion_stage = 'AuditIssues';
-UPDATE report_digestion SET digestion_stage = CASE digestion_stage
-        WHEN 'DigestionSuccess' THEN 'BalanceOK'
-        WHEN 'DigestionError' THEN 'BalanceErr'
-    END
-    WHERE digestion_stage IN ('DigestionSuccess', 'DigestionError');
-UPDATE report_digestion SET digestion_stage = CASE digestion_stage
-        WHEN 'ExtractionSuccess' THEN 'ExtractOK'
-        WHEN 'ExtractionError' THEN 'ExtractErr'
-        WHEN 'BalanceSheetOK' THEN 'BalanceOK'
-        WHEN 'BalanceSheetErr' THEN 'BalanceErr'
-        WHEN 'IncomStatementOK' THEN 'IncomeOK'
-        WHEN 'IncomeStatementErr' THEN 'IncomeErr'
-        WHEN 'CashFlowStatementOK' THEN 'CashFlowOK'
-        WHEN 'CashFlowStatementErr' THEN 'CashFlowErr'
-    END
-    WHERE digestion_stage IN (
-        'ExtractionSuccess', 'ExtractionError', 'BalanceSheetOK', 'BalanceSheetErr',
-        'IncomStatementOK', 'IncomeStatementErr', 'CashFlowStatementOK', 'CashFlowStatementErr'
-    );
-ALTER TABLE report_digestion ADD CONSTRAINT report_digestion_digestion_stage_check
-    CHECK (digestion_stage IN (
-        'FileOK', 'FileErr',
-        'ExtractOK', 'ExtractErr',
-        'AuditOK', 'AuditErr',
-        'Deprecated', 'NoStatements',
-        'BalanceOK', 'BalanceErr',
-        'IncomeOK', 'IncomeErr',
-        'CashFlowOK', 'CashFlowErr'
-    ));
-
--- Preserve existing extraction content when upgrading an older installation.
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM pg_attribute
-        WHERE attrelid = 'report_digestion'::regclass
-          AND attname = 'extraction_info' AND NOT attisdropped
-    ) AND NOT EXISTS (
-        SELECT 1 FROM pg_attribute
-        WHERE attrelid = 'report_digestion'::regclass
-          AND attname = 'extraction_report' AND NOT attisdropped
-    ) THEN
-        ALTER TABLE report_digestion RENAME COLUMN extraction_info TO extraction_report;
-    END IF;
-END $$;
 
 -- Monetary statement values are normalized to yuan; EPS remains yuan per share.
 CREATE TABLE IF NOT EXISTS income_statement_items (
     stock_code VARCHAR(12) NOT NULL,
     reporting_date DATE NOT NULL,
     item_id INTEGER NOT NULL,
-    report_creation_time TEXT NOT NULL,
+    report_creation_time TIMESTAMP NOT NULL,
     amount NUMERIC(28, 8) NOT NULL,
     UNIQUE (stock_code, reporting_date, item_id, report_creation_time)
 );
-ALTER TABLE income_statement_items DROP COLUMN IF EXISTS amount_unit;
 
 CREATE TABLE IF NOT EXISTS cash_flow_statement_items (
     stock_code VARCHAR(12) NOT NULL,
     reporting_date DATE NOT NULL,
     item_id INTEGER NOT NULL,
-    report_creation_time TEXT NOT NULL,
+    report_creation_time TIMESTAMP NOT NULL,
     amount NUMERIC(28, 8) NOT NULL,
     UNIQUE (stock_code, reporting_date, item_id, report_creation_time)
 );
-ALTER TABLE cash_flow_statement_items DROP COLUMN IF EXISTS amount_unit;
-
--- Company details keyed by stock code; metadata may be filled in incrementally.
-CREATE TABLE IF NOT EXISTS stock_metadata (
-    stock_code VARCHAR(12) PRIMARY KEY CHECK (btrim(stock_code) <> ''),
-    stock_name VARCHAR(16) NOT NULL CHECK (btrim(stock_name) <> ''),
-    enrollment TEXT NOT NULL DEFAULT 'Pending'
-        CHECK (enrollment IN ('Pending', 'InProgress', 'Error', 'Done')),
-    company_name TEXT,
-    company_homepage TEXT,
-    company_profile TEXT
-);
-
-ALTER TABLE stock_metadata
-    ADD COLUMN IF NOT EXISTS enrollment TEXT NOT NULL DEFAULT 'Pending'
-        CHECK (enrollment IN ('Pending', 'InProgress', 'Error', 'Done'));
-
-ALTER TABLE stock_metadata
-    ALTER COLUMN enrollment SET DEFAULT 'Pending';
-
-ALTER TABLE stock_metadata
-    DROP CONSTRAINT IF EXISTS stock_metadata_enrollment_check,
-    ADD CONSTRAINT stock_metadata_enrollment_check
-        CHECK (enrollment IN ('Pending', 'InProgress', 'Error', 'Done'));

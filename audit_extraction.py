@@ -12,7 +12,7 @@ import re
 from extract import STATEMENTS, ReportExtraction, Statement, extract_report
 from line_item_storage import LineItemStorage
 from report_metadata import match_filename_reporting_date
-from statement_parsing import table_width_issues
+from statement_parsing import split_cells, table_width_issues
 
 PROJECT_DIR = Path(__file__).resolve().parent
 NUMBER = re.compile(r"(?<![\d.])[-−]?\d[\d,]*\.\d{2,}(?!\d)")
@@ -86,38 +86,93 @@ def load_report_json(payload: str) -> ReportExtraction:
     return ReportExtraction(**data)
 
 
+def audit_external_report(row: dict) -> dict:
+    """Screen imported metadata and Markdown without relying on PDF text extraction."""
+    entry = {"file": row["local_path"], "issues": [], "statements": {}}
+    metadata = json.loads(row["extraction_report"])
+    if not isinstance(metadata, dict):
+        raise ValueError("external extraction metadata must be a JSON object")
+    for field, key in (("stock_code", "stock_code"),
+                       ("reporting_date", "reporting_date"), ("pdf_hash", "pdf_md5")):
+        if str(metadata.get(key) or "") != str(row.get(field) or ""):
+            entry["issues"].append(f"{key} differs from registered {field}")
+    for field in ("balance_sheet_ex", "income_statement_ex", "cash_flow_statement_ex"):
+        markdown = row.get(field)
+        if not isinstance(markdown, str) or not markdown.strip():
+            entry["issues"].append(f"missing {field}")
+            continue
+        rows = [split_cells(line) for line in markdown.splitlines() if line.strip().startswith("|")]
+        entry["statements"][field.removesuffix("_ex")] = {
+            "rows": len(rows), "column_counts": sorted(set(map(len, rows))),
+        }
+        if len(rows) < 10:
+            entry["issues"].append(f"{field}: too few table rows ({len(rows)})")
+        has_header = any(
+            cells and (
+                cells[0] in ("项目", "科目")
+                or (
+                    not cells[0]
+                    and any(re.search(r"附注|注释|行次|^注$", cell) for cell in cells[1:])
+                    and any(re.search(r"20\d{2}|期末|期初|上年年末", cell)
+                            for cell in cells[1:])
+                )
+            )
+            for cells in rows
+        )
+        if field == "balance_sheet_ex":
+            has_header = has_header or any(
+                cells and cells[0] == "资产"
+                and any("附注" in cell for cell in cells[1:])
+                and any(re.search(r"20\d{2}|期末|期初|上年年末", cell)
+                        for cell in cells[1:])
+                for cells in rows
+            )
+        if not has_header:
+            entry["issues"].append(f"{field}: missing table header")
+        for row_number, expected_width, actual_width in table_width_issues(rows):
+            entry["issues"].append(
+                f"{field}: row {row_number} has {actual_width} columns; expected {expected_width}"
+            )
+    return entry
+
+
 def write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def audit_extracted_reports(output_dir: Path, pdf_hash: str | None = None,
                             stock_code: str | None = None,
-                            *, retry: bool = False) -> list[dict]:
+                            *, retry: bool = False, ex: bool = False) -> list[dict]:
     """Audit queued extraction rows and persist details and stages by hash."""
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     results = []
     with LineItemStorage() as storage:
-        rows = storage.get_extracted_reports(
-            pdf_hash=pdf_hash,
-            stock_code=stock_code,
-            retry=retry,
-        )
+        options = {"pdf_hash": pdf_hash, "stock_code": stock_code, "retry": retry}
+        if ex:
+            options["ex"] = True
+        rows = storage.get_extracted_reports(**options)
         write_json(output_dir / "audit.json", results)
         for index, row in enumerate(rows, 1):
             entry = {"pdf_hash": row["pdf_hash"], "file": row["local_path"],
                      "issues": [], "statements": {}}
 
             try:
-                report = load_report_json(row["extraction_report"])
-                path = Path(row["local_path"] or report.pdf_file)
-                entry.update(audit_report(report, path))
+                if ex:
+                    entry.update(audit_external_report(row))
+                else:
+                    report = load_report_json(row["extraction_report"])
+                    path = Path(row["local_path"] or report.pdf_file)
+                    entry.update(audit_report(report, path))
             except Exception as error:
                 entry["error"] = repr(error)
                 entry["issues"].append("extraction exception")
             results.append(entry)
             write_json(output_dir / "audit.json", results)
-            storage.store_extraction_audit(row["pdf_hash"], entry["issues"], entry["statements"])
+            if ex:
+                storage.store_extraction_audit(row["pdf_hash"], entry["issues"], entry["statements"], ex=True)
+            else:
+                storage.store_extraction_audit(row["pdf_hash"], entry["issues"], entry["statements"])
             print(f"{index}/{len(rows)} {row['pdf_hash']} {row['local_path']}: "
                   + ("; ".join(entry["issues"]) or "PASS"), flush=True)
     print(f"TOTAL {len(results)}; flagged {sum(bool(r['issues']) for r in results)}", flush=True)
@@ -180,12 +235,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stock_code", help="Audit only reports for this stock code")
     parser.add_argument("--retry", action="store_true",
                         help="Retry reports currently at the AuditErr stage")
+    parser.add_argument("--ex", action="store_true",
+                        help="Audit external *_ex extraction fields and use ExAuditOK/ExAuditErr stages")
     parser.add_argument("--cached", action="store_true",
                         help="Trust saved extraction_report.json results; extract only uncached PDFs")
     parser.add_argument("--fail-on-issues", action="store_true",
                         help="Return exit code 1 if any report has audit issues")
     args = parser.parse_args(argv)
     if args.input_dir is not None:
+        if args.ex:
+            parser.error("--ex requires database mode")
         if args.pdf_hash:
             parser.error("--hash cannot be combined with --input-dir")
         if not args.input_dir.is_dir():
@@ -198,7 +257,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.retry and args.pdf_hash:
             parser.error("--retry cannot be combined with --hash")
         results = audit_extracted_reports(args.output_dir, pdf_hash=args.pdf_hash,
-                                          stock_code=args.stock_code, retry=args.retry)
+                                          stock_code=args.stock_code, retry=args.retry,
+                                          **({"ex": True} if args.ex else {}))
         if args.pdf_hash and not results:
             print(f"No report found for PDF hash {args.pdf_hash}")
             return 1

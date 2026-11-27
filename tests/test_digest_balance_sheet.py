@@ -11,6 +11,14 @@ from line_item_chart import LineItemChart
 
 
 class DigestLineItemsTests(unittest.TestCase):
+    def test_cli_ex_uses_external_balance_sheet(self):
+        with patch("digest_bs.LineItemStorage") as factory, redirect_stdout(io.StringIO()):
+            storage = factory.return_value.__enter__.return_value
+            storage.get_audit_pass_reports.return_value = [self.row()]
+            self.assertEqual(main(["--ex"]), 0)
+            storage.get_audit_pass_reports.assert_called_once_with(pdf_hash=None, retry=False, ex=True)
+            self.assertTrue(storage.store_line_item_digestion.call_args.kwargs["ex"])
+
     def setUp(self):
         self.chart = LineItemChart()
         self.values = {11: "300", 1101: "100", 110101: "40", 110128: "10", 110150: "50",
@@ -423,13 +431,15 @@ class DigestLineItemsTests(unittest.TestCase):
                 self.assertEqual(Decimal(cash["amount"]), 40)
 
     def test_numeric_formats(self):
-        for text, expected in (("1,234.50", "1234.50"), ("（123.45）", "-123.45"),
+        for text, expected in (("1,234.50", "1234.50"),
+                               ("481,473,705.50<sup>1</sup>", "481473705.50"),
+                               ("（123.45）", "-123.45"),
                                ("−12.50", "-12.50"), ("**0.00**", "0.00"),
                                ("/", "0"), ("-", "0"), (" / ", "0")):
             self.assertEqual(parse_amount(text), Decimal(expected))
         for value in ("", "—", "--"):
             self.assertIsNone(parse_amount(value))
-        for value in ("NaN", "Infinity", "abc", "1,2"):
+        for value in ("NaN", "Infinity", "abc", "1,2", "1,234<sup>note</sup>"):
             with self.assertRaises(ValueError):
                 parse_amount(value)
 

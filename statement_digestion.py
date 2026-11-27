@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+from difflib import SequenceMatcher
 import re
 
 from digest_bs import check_report_metadata, clean_cell, parse_amount, select_amount_column
@@ -10,6 +11,7 @@ from item_ids import (
     ASSET_DISPOSAL_INCOME_ID, ASSET_IMPAIRMENT_LOSS_ID, CREDIT_IMPAIRMENT_ID,
     FAIR_VALUE_CHANGE_ID, INVESTMENT_INCOME_ID, OTHER_COMPREHENSIVE_GROUP_CURRENT_ID,
     OTHER_COMPREHENSIVE_GROUP_NONCONTROLLING_ID, OTHER_COMPREHENSIVE_INCOME_ID,
+    OTHER_COMPREHENSIVE_TOTAL_ID,
     NET_PROFIT_OWNERSHIP_CURRENT_ID, OPERATING_COST_ID,
     COMPREHENSIVE_INCOME_OWNERS_ID, INTEREST_INCOME_ID, FINANCE_INCOME_ID,
     FINANCE_INCOME_DETAIL_ID, ASSET_DISPOSAL_LOSS_ID,
@@ -17,7 +19,8 @@ from item_ids import (
     EPS_ID, EPS_DILUTED_ID, PER_SHARE_ITEMS_ID,
     OPERATING_REVENUE_ID, COMPREHENSIVE_INCOME_ID, OPERATING_PROFIT_ID,
     OPERATING_REVENUE_DETAIL_ID, CASH_FLOW_NET_PARENTS, CLOSING_CASH_ID,
-    NET_PROFIT_OPERATIONS_ID, NET_PROFIT_OWNERSHIP_ID,
+    INVESTING_CASH_FLOW_ID, FINANCING_CASH_FLOW_ID, OPENING_CASH_ID,
+    NET_CASH_INCREASE_ID, NET_PROFIT_OPERATIONS_ID, NET_PROFIT_OWNERSHIP_ID,
 )
 from line_item_chart import LineItem, LineItemChart
 from line_item_storage import LineItemStorage
@@ -28,6 +31,7 @@ from statement_parsing import split_cells
 class ParsedStatement:
     amounts: dict[int, Decimal | None] = field(default_factory=dict)
     labels: dict[int, str] = field(default_factory=dict)
+    fuzzy_rows: dict[int, dict] = field(default_factory=dict)
     ambiguous_rows: dict[int, int] = field(default_factory=dict)
     shifted_items: set[int] = field(default_factory=set)
     signs: dict[int, int] = field(default_factory=dict)
@@ -47,11 +51,26 @@ def normalize_label(text):
     label = clean_cell(re.sub(r"【[^】]*(?:】|$)", "", text)).replace("(", "（").replace(")", "）")
     label = re.sub(r"^[☆★]+", "", label)
     label = re.sub(r"^(?:[一二三四五六七八九十\d]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])", "", label)
+    # Some PDF table extractors retain the punctuation from a numbered row
+    # while dropping its numeral (for example ``.持续经营净利润``).
+    label = re.sub(r"^[=.．、]+", "", label)
     label = re.sub(r"^(?:其中|加|减)[：:]", "", label)
     label = re.sub(r"（减少）", "", label)
     label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*）$", "", label)
     label = re.sub(r"（[^）]*(?:净亏损|亏损总额|亏损|损失)[^）]*$", "", label)
-    label = re.sub(r"（(?:人民币)?元(?:/股)?）", "", label)
+    label = re.sub(r"[/／]?[（(](?:亏|损)$", "", label)
+    label = re.sub(r"[/／]+$", "", label)
+    label = re.sub(r"[/／]+(?=额)", "", label)
+    label = re.sub(r"（损失）[/／]收益$", "收益", label)
+    label = re.sub(r"（(?:人民币)?元(?:[/／╱]股)?）", "", label)
+    label = re.sub(r"(现金流入小计|现金流出小计).*$", r"\1", label)
+    label = (label.replace("其它", "其他").replace("国定资产", "固定资产")
+             .replace("设定收益计划", "设定受益计划")
+             .replace("其他综合亏损", "其他综合收益的税后净额")
+             .replace("其他综合（亏损）/收益", "其他综合收益")
+             .replace("其他综合（亏损）／收益", "其他综合收益"))
+    label = re.sub(r"归属于母公司股东的其他综合收益(?:的税后净额)?",
+                   "归属母公司所有者的其他综合收益的税后净额", label)
     return label.rstrip("：:")
 
 
@@ -64,28 +83,120 @@ def parse_statement(markdown, chart, statement):
                                <= int(str(item_id)[:2]) <= int(str(CLOSING_CASH_ID)[:2]))
     names = {name: item for name, item in chart.items.items() if allowed(item.item_id)}
 
-    def find_item(label):
-        item = next((item for name, item in names.items() if normalize_label(name) == normalize_label(label)), None)
+    def find_item(label, fuzzy=True):
+        normalized_label = normalize_label(label)
+        matching_label = re.sub(r"（损失）[/／]转回$", "损失", normalized_label)
+        item = next((item for name, item in names.items()
+                     if normalize_label(name) == matching_label), None)
+        if item is not None:
+            return item, False, 1.0
         if item is None and len(label) >= 8:
             item = next((item for name, item in names.items()
-                         if normalize_label(name).startswith(normalize_label(label))), None)
-        return item
+                         if normalize_label(name).startswith(matching_label)), None)
+        if item is not None:
+            return item, False, 1.0
+        if fuzzy and len(matching_label) >= 4:
+            scores = {}
+            candidates = [(name, item) for name, item in names.items()]
+            candidates.extend(
+                (alias, chart._items_by_id[item_id])
+                for alias, item_id in aliases.items()
+                if item_id in chart._items_by_id and allowed(item_id)
+            )
+            for name, candidate in candidates:
+                normalized_name = normalize_label(name)
+                if len(normalized_name) < 4:
+                    continue
+                score = SequenceMatcher(None, matching_label, normalized_name).ratio()
+                previous = scores.get(candidate.item_id)
+                if previous is None or score > previous[0]:
+                    scores[candidate.item_id] = (score, candidate)
+            ranked = sorted(scores.values(), key=lambda match: match[0], reverse=True)
+            if (ranked and ranked[0][0] >= 0.70
+                    and (len(ranked) == 1 or ranked[0][0] - ranked[1][0] >= 0.12)):
+                return ranked[0][1], True, ranked[0][0]
+        return None, False, None
 
     aliases = {"归属于母公司所有者的净利润": NET_PROFIT_OWNERSHIP_CURRENT_ID,
+               "营业税金及附加": 4217,
+               "提取保险责任合同准备金净额": 4211,
                "归属于母公司所有者的其他综合收益的税后净额": OTHER_COMPREHENSIVE_INCOME_ID,
                "归属于母公司股东的其他综合收益的税后净额": OTHER_COMPREHENSIVE_INCOME_ID,
                "归属于母公司股东的综合收益总额": COMPREHENSIVE_INCOME_OWNERS_ID,
+               "重新计算设定受益计划的变动额": 57010101,
+               "应收款项融资信用减值准备": 57010307,
+               "现金流量套期有效部分": 57010309,
+               "套期成本-远期要素": 57010313,
+               "其他综合收益的税后净额小计": OTHER_COMPREHENSIVE_TOTAL_ID,
+               "资产处置（损失）/收益": ASSET_DISPOSAL_INCOME_ID,
+               "对联营及合营公司投资收益": 4401,
+               "公允价值变动损益": FAIR_VALUE_CHANGE_ID,
+               "信用减值转回": CREDIT_IMPAIRMENT_ID,
+               "投资活动使用的现金流量净额": INVESTING_CASH_FLOW_ID,
+               "筹资活动（使用）/产生的现金流量净额": FINANCING_CASH_FLOW_ID,
+               "筹资活动产生/（使用）的现金流量净额": FINANCING_CASH_FLOW_ID,
+               "筹资活动产生/(使用)的现金流量净额": FINANCING_CASH_FLOW_ID,
+               "筹资活动使用的现金流量净额": FINANCING_CASH_FLOW_ID,
+               "筹资活动使用现金流量净额": FINANCING_CASH_FLOW_ID,
+               "黄金租赁业务收到的现金": 830106,
+               "收回投资所收到的现金": 820101,
+               "取得投资收益所收到的现金": 820103,
+               "处置固定资产、无形资产和其他长期资产收到的现金净额": 820105,
+               "处置固定资产、无形资产和其他长期资产而收回的现金净额": 820105,
+               "取得子公司及其他经营单位收到的现金净额": 820107,
+               "处置子公司及其他经营单位收到的现金净额": 820107,
+               "购买子公司收到的现金净额": 820107,
+               "收到的其他与投资有关的现金": 820109,
+               "收到的其他与投资活动有关的现金": 820109,
+               "投资所支付的现金": 820203,
+               "支付的其他与投资活动有关的现金": 820209,
+               "收到的其他与经营活动有关现金": 810125,
+               "收到的其他与经营活动有关的现金": 810125,
+               "支付的其他与经营活动有关现金": 810219,
+               "支付的其他与经营活动有关的现金": 810219,
+               "支付的其它与经营活动有关现金": 810219,
+               "吸收投资所收到的现金": 830101,
+               "借款所收到的现金": 830103,
+               "收到的其他与筹资活动有关的现金": 830105,
+               "偿还债务所支付的现金": 830201,
+               "分配股利、利润和偿付利息所支付的现金": 830203,
+               "支付的其他与筹资活动有关的现金": 830205,
+               "发行债券和短期融资券收到的现金": 830104,
+               "发行可续期债收到的现金": 830104,
+               "发行短期融资券收到的现金": 830104,
+               "发行可转换债券收到的现金": 830104,
+               "收到再保险业务现金净额": 810111,
+               "偿还债券支付的现金": 830210,
+               "偿还超短期融资券支付的现金": 830210,
+               "偿还黄金租赁业务支付的现金": 830208,
+               "偿还债券和超短期融资券支付的现金": 830210,
+               "年初现金及现金等价物余额": OPENING_CASH_ID,
+               "年末现金及现金等价物余额": CLOSING_CASH_ID,
+               "现金及现金等价物净/增加额": NET_CASH_INCREASE_ID,
                "投资损失": INVESTMENT_INCOME_ID, "公允价值变动损失": FAIR_VALUE_CHANGE_ID,
                "资产处置损失": ASSET_DISPOSAL_INCOME_ID}
     amount_column, finance_details, oci_group = 1, False, None
     in_operating_costs = False
     previous_label = previous_full_name = ""
+    pending_label = ""
     table_width = None
+    in_cash_reconciliation = False
+    in_cash_reconciliation_totals = False
 
     def statement_amount_column(cells):
         if statement == "income_statement" and len(cells) == 5:
             return 3
         return select_amount_column(cells, amount_column)
+
+    def statement_amount_text(cells, column, label):
+        text = cells[column]
+        if (statement == "cash_flow_statement"
+                and label in ("筹资活动现金流入小计", "筹资活动现金流出小计")):
+            number = r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+            match = re.fullmatch(rf"\s*({number})\s{{2,}}({number})\s*", text)
+            if match:
+                return match.group(1)
+        return text
 
     def dynamic_other_item(parent_id):
         """Register the non-zero ``其他`` child for a statement parent."""
@@ -110,9 +221,27 @@ def parse_statement(markdown, chart, statement):
             continue
         raw = clean_cell(cells[0])
         label = normalize_label(cells[0])
-        if label in ("项目", "科目"):
+        blank_first_cell_header = (
+            not label and len(cells) >= 4
+            and re.search(r"附注|注释|行次|^注$", clean_cell(cells[1]))
+            and any(re.search(r"20\d{2}|期末|期初|上年年末", clean_cell(cell))
+                    for cell in cells[2:])
+        )
+        # A new table may start after a page break. Do not carry a pending
+        # wrapped row label into its header (for example, "...套期储备项目").
+        if label in ("项目", "科目") or blank_first_cell_header:
+            pending_label = ""
+        if pending_label:
+            label = normalize_label(pending_label + label)
+            raw = pending_label + raw
+            pending_label = ""
+        if label in ("项目", "科目") or blank_first_cell_header:
             table_width = len(cells)
-            amount_column = 2 if re.search(r"附注|注释|行次|^注$", clean_cell(cells[1])) else 1
+            has_note_column = re.search(r"附注|注释|行次|^注$", clean_cell(cells[1]))
+            has_blank_note_placeholder = (statement in {"income_statement", "cash_flow_statement"}
+                                           and len(cells) == 4
+                                           and not clean_cell(cells[1]))
+            amount_column = 2 if has_note_column or has_blank_note_placeholder else 1
             continue
 
         if table_width is not None and len(cells) != table_width:
@@ -123,11 +252,60 @@ def parse_statement(markdown, chart, statement):
             continue
         if not label or re.fullmatch(r"[:\-]+", label):
             continue
+        if statement == "income_statement" and label == "按所有权属分类":
+            continue
+        if (statement == "cash_flow_statement"
+                and "将净利润调节为经营活动的现金流量" in label):
+            in_cash_reconciliation = True
+            in_cash_reconciliation_totals = False
+            continue
+        if (statement == "cash_flow_statement" and in_cash_reconciliation
+                and "现金及现金等价物净增加情况" in label):
+            in_cash_reconciliation_totals = True
+            continue
+        if statement == "cash_flow_statement" and in_cash_reconciliation:
+            if not in_cash_reconciliation_totals:
+                continue
+            if not any(token in label for token in (
+                    "期初现金及现金等价物余额",
+                    "现金及现金等价物净增加",
+                    "期末现金及现金等价物余额")):
+                continue
+        if (re.search(r"[/／]?[（(](?:亏|损)$", raw)
+                and not any(clean_cell(cell) for cell in cells[1:])):
+            pending_label = raw
+            continue
+        if (statement == "cash_flow_statement"
+                and not any(clean_cell(cell) for cell in cells[1:])
+                and any(normalize_label(alias).startswith(label)
+                        and len(normalize_label(alias)) > len(label)
+                        for alias in aliases)):
+            pending_label = raw
+            continue
+        if (len(label) >= 8 and not label.endswith("产生的现金流量")
+                and not any(clean_cell(cell) for cell in cells[1:])
+                and label not in aliases
+                and not any(normalize_label(name) == label for name in names)
+                and any(normalize_label(name).startswith(label)
+                        and len(normalize_label(name)) > len(label)
+                        for name in names)):
+            pending_label = raw
+            continue
+        if (statement == "cash_flow_statement"
+                and not label.endswith("产生的现金流量")
+                and not any(clean_cell(cell) for cell in cells[1:])
+                and any(normalize_label(name).startswith(label)
+                        and len(normalize_label(name)) > len(label)
+                        for name in names)):
+            pending_label = label
+            continue
         # Section headings such as "投资活动产生的现金流量：" are prefixes
         # of the corresponding "...现金流量净额" item, but are not rows with
         # an amount. Do not let prefix matching turn their placeholder into 0.
-        item = None if label.endswith("产生的现金流量") else find_item(label)
-        item_id = item.item_id if item else aliases.get(label) if statement == "income_statement" else None
+        item, fuzzy_match, fuzzy_score = ((None, False, None)
+                                          if label.endswith("产生的现金流量")
+                                          else find_item(label, fuzzy=label not in aliases))
+        item_id = item.item_id if item else aliases.get(label)
         if statement == "income_statement":
             if label == "资产减值损失" and in_operating_costs:
                 item_id = ASSET_IMPAIRMENT_LOSS_ID
@@ -179,7 +357,7 @@ def parse_statement(markdown, chart, statement):
             state.issues.append(f"Line {number}: missing current amount for {label}")
             continue
         try:
-            amount = parse_amount(cells[column])
+            amount = parse_amount(statement_amount_text(cells, column, label))
         except ValueError as error:
             if item_id in (EPS_ID, EPS_DILUTED_ID) and clean_cell(cells[column]) in {"不适用", "不适用。"}:
                 amount = None
@@ -188,13 +366,53 @@ def parse_statement(markdown, chart, statement):
                 continue
         if item_id in state.amounts and state.amounts[item_id] is not None:
             if amount is not None and amount != state.amounts[item_id]:
+                # Reports may show the same investing cash-flow line under
+                # two labels, with one presentation explicitly zero. Keep
+                # the reported non-zero amount instead of treating zero as
+                # a conflicting duplicate.
+                if item_id == 820107 and amount == 0:
+                    continue
+                if item_id == 820107 and state.amounts[item_id] == 0:
+                    state.amounts[item_id], state.labels[item_id] = amount, label
+                    continue
+                aggregate_rows = {
+                    820107: {
+                        "取得子公司及其他经营单位收到的现金净额",
+                        "处置子公司及其他经营单位收到的现金净额",
+                        "购买子公司收到的现金净额",
+                    },
+                    830104: {
+                        "发行债券收到的现金",
+                        "发行债券和短期融资券收到的现金",
+                        "发行可续期债收到的现金",
+                        "发行短期融资券收到的现金",
+                        "发行可转换债券收到的现金",
+                    },
+                    830210: {
+                        "偿还债券支付的现金",
+                        "偿还超短期融资券支付的现金",
+                        "偿还债券和超短期融资券支付的现金",
+                    },
+                }
+                if (label in aggregate_rows.get(item_id, set())
+                        and state.labels.get(item_id) in aggregate_rows.get(item_id, set())):
+                    state.amounts[item_id] += amount
+                    state.labels[item_id] = f"{state.labels[item_id]}、{label}"
+                    continue
                 state.issues.append(f"Conflicting amounts for item {item_id}: {state.amounts[item_id]} and {amount}")
             continue
         state.amounts[item_id], state.labels[item_id] = amount, label
+        if fuzzy_match:
+            state.fuzzy_rows[item_id] = {"line": number, "label": label,
+                                         "amount": amount, "score": fuzzy_score}
         if item_id in range(OTHER_OPERATING_INCOME_ID, ASSET_DISPOSAL_INCOME_ID + 1):
-            state.signs[item_id] = (1 if raw.startswith(("加：", "加:")) else
-                                    -1 if raw.startswith(("减：", "减:")) or "损失" in label
-                                    and "损失以" not in raw else 1)
+            state.signs[item_id] = (-1 if item_id == CREDIT_IMPAIRMENT_ID
+                                    and raw.startswith(("减：", "减:")) else
+                                    1 if item_id == CREDIT_IMPAIRMENT_ID else
+                                    1 if raw.startswith(("加：", "加:")) else
+                                    -1 if raw.startswith(("减：", "减:")) else
+                                    (1 if amount is not None and amount < 0 else -1)
+                                    if "损失" in label and "损失以" not in raw else 1)
         if amount is not None and amount_column == 2 and column == 1:
             state.shifted_items.add(item_id)
         if (amount is not None and amount_column == column == 2 and len(cells) >= 4
@@ -252,18 +470,54 @@ def resolve_shifted_amounts(state, equations, required_ids, absolute_tolerance, 
     return adjustments
 
 
+def validate_fuzzy_matches(state, validation_context, equation_builder,
+                           absolute_tolerance, relative_tolerance):
+    """Keep fuzzy mappings only when their amount reconciles in a subtotal equation."""
+    while True:
+        validation_result = {**validation_context, "checks": [], "issues": []}
+        equations = equation_builder(state, validation_result)
+        rejected = []
+        accepted = []
+        for item_id, row in state.fuzzy_rows.items():
+            participating = [equation for equation in equations
+                             if equation.target == item_id
+                             or any(child_id == item_id for child_id, _ in equation.terms)]
+            checks = [evaluate_equation(equation, state, absolute_tolerance, relative_tolerance)
+                      for equation in participating]
+            if row["amount"] is None or not checks or any(not check["passed"] for check in checks):
+                rejected.append((item_id, row))
+                continue
+            accepted.append({"item_id": item_id, "line": row["line"], "label": row["label"],
+                             "similarity": round(row["score"], 3),
+                             "validated_by": [equation.name for equation in participating]})
+        if not rejected:
+            return accepted
+        for item_id, row in rejected:
+            state.amounts.pop(item_id, None)
+            state.labels.pop(item_id, None)
+            state.signs.pop(item_id, None)
+            state.unmapped_rows.append({"line": row["line"], "label": row["label"]})
+            state.fuzzy_rows.pop(item_id, None)
+
+
 def check_statement(row, chart, statement, required_ids, equation_builder, *,
                     absolute_tolerance=Decimal("0.01"), relative_tolerance=Decimal("0.0001"),
                     required_numeric_ids=()):
     result = {"pdf_hash": row["pdf_hash"], "statement": statement, "passed": False, "issues": [],
               "checks": [], "unmapped_rows": [], "items": [],
-              "tolerance": {"absolute_statement_units": str(absolute_tolerance), "relative": str(relative_tolerance)}}
+              "tolerance": {"absolute_statement_units": str(absolute_tolerance), "relative": str(relative_tolerance)},
+              "_stock_code": row.get("stock_code")}
     markdown, multiplier = check_report_metadata({**row, "balance_sheet": row.get(statement)}, result)
     result["issues"] = [issue.replace("balance_sheet", statement) for issue in result["issues"]]
     if row.get("stock_code") and not re.fullmatch(r"\d{6}", str(row["stock_code"])):
         result["issues"].append("Invalid stock_code")
     state = parse_statement(markdown, chart, statement)
     result["issues"].extend(state.issues)
+    fuzzy_matches = validate_fuzzy_matches(
+        state, result, equation_builder, absolute_tolerance, relative_tolerance)
+    equations = equation_builder(state, result)
+    if fuzzy_matches:
+        result["fuzzy_matches"] = fuzzy_matches
     result["unmapped_rows"] = state.unmapped_rows
     if state.unmapped_rows:
         result["issues"].append(f"Unmapped {statement} rows: {len(state.unmapped_rows)}")
@@ -275,7 +529,6 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
                              "passed": not missing, "failed_item_ids": missing})
     if missing:
         result["issues"].append("Required items missing or blank: " + ", ".join(map(str, missing)))
-    equations = equation_builder(state, result)
     adjustments = resolve_shifted_amounts(state, equations, required_ids, absolute_tolerance, relative_tolerance)
     if adjustments:
         result["column_adjustments"] = adjustments
@@ -303,18 +556,23 @@ def check_statement(row, chart, statement, required_ids, equation_builder, *,
                                     "statement_amount": str(amount), "amount_unit": "元/股" if item_id in per_share_ids else "元",
                                     "amount": str(amount if item_id in per_share_ids else amount * multiplier) if multiplier else None})
     result["passed"] = not result["issues"]
+    result.pop("_stock_code", None)
     return result
 
 
 def run_cli(statement, check_report, argv=None):
     def load_rows(storage, args):
         options = {"pdf_hash": args.pdf_hash, "retry": args.retry}
+        if args.ex:
+            options["ex"] = True
         if args.stock_code:
             options["stock_code"] = args.stock_code
         return storage.get_statement_reports(statement, **options)
 
     def save_row(storage, row, result, args, retry_failure=False):
         options = {"allow_any_stage": True} if args.pdf_hash or (args.retry and not retry_failure) else {}
+        if args.ex:
+            options["ex"] = True
         storage.store_statement_digestion(statement, row, result, **options)
 
     return run_digest_cli(

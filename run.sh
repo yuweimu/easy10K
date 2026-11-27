@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+# set -euo pipefail
 
 if [[ $# -ne 1 || ! $1 =~ ^[0-9]{6}$ ]]; then
     echo "Usage: $0 STOCK_CODE" >&2
@@ -17,11 +17,11 @@ fi
 
 echo "Downloading reports for $stock_code"
 #"$python" "$script_dir/cninfo_download.py" --enroll-only "$stock_code"
-"$python" "$script_dir/cninfo_download.py" --refresh "$stock_code"
+#"$python" "$script_dir/cninfo_download.py" --refresh "$stock_code"
 # "$python" "$script_dir/cninfo_download.py" "$stock_code"
 
 echo "Extracting reports for $stock_code"
-"$python" "$script_dir/extract.py" --stock_code "$stock_code"
+#"$python" "$script_dir/extract.py" --stock_code "$stock_code"
 
 echo "Auditing extractions for $stock_code"
 "$python" "$script_dir/audit_extraction.py" --stock_code "$stock_code" --fail-on-issues

@@ -762,7 +762,7 @@ def _print_extraction_summary(result: ReportExtraction) -> None:
             print(f"\t{label} {statement.title}\t@ {statement.pages}")
 
 
-def _extract_one_report(storage: LineItemStorage, report: dict, output_dir: Path | None, root: Path) -> None:
+def     _extract_one_report(storage: LineItemStorage, report: dict, output_dir: Path | None, root: Path) -> None:
     pdf_hash = report["pdf_hash"]
     path_value = report["local_path"]
     if not path_value:
