@@ -146,9 +146,15 @@ def parse_balance_sheet(markdown: str, chart: LineItemChart) -> ParsedBalanceShe
             and re.search(r"附注|注释|行次|^注$", clean_cell(cells[1]))
             and re.search(r"期末|期初|上年年末|20\d{2}", clean_cell(cells[2]))
         )
-        if label in ("项目", "科目") or notes_header:
+        blank_note_header = (
+            len(cells) == 4
+            and not clean_cell(cells[1])
+            and re.search(r"期末|期初|上年年末|20\d{2}", clean_cell(cells[2]))
+        )
+        if label in ("项目", "科目") or notes_header or blank_note_header:
             table_width = len(cells)
-            amount_column = 2 if re.search(r"附注|注释|行次|^注$", clean_cell(cells[1])) else 1
+            has_note_column = re.search(r"附注|注释|行次|^注$", clean_cell(cells[1]))
+            amount_column = 2 if has_note_column or blank_note_header else 1
             continue
         if table_width is not None and len(cells) != table_width:
             issues.append(f"Line {line_number}: expected {table_width} table columns, got {len(cells)}")

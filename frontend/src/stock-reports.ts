@@ -41,6 +41,7 @@ const statementTabs = Array.from(document.querySelectorAll<HTMLButtonElement>("#
 
 let stocks: Stock[] = [];
 let selectedCode = "";
+const enrollmentEditorOpen = new Set<string>();
 let requestId = 0;
 let activeStatement: Statement = "all";
 let selectedReports: Report[] = [];
@@ -105,22 +106,78 @@ function quarterEndsFrom(start: string, end: string): string[] {
 function renderStocks(): void {
   stocksElement.replaceChildren();
   for (const stock of stocks) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = [
+    const item = document.createElement("div");
+    item.className = [
+      "stock-chip",
+      enrollmentEditorOpen.has(stock.stock_code) ? "enrollment-editor-open" : "",
+      stock.stock_code === selectedCode ? "stock-selected" : "",
       stock.has_missing_reporting_dates ? "" : "stock-complete",
       stock.enrollment === "Done" && stock.has_missing_reporting_dates ? "stock-missing-dates" : "",
       `enrollment-${(stock.enrollment || "Unknown").toLowerCase()}`,
     ].filter(Boolean).join(" ");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "stock-select";
     button.setAttribute("aria-pressed", String(stock.stock_code === selectedCode));
+    button.setAttribute("aria-expanded", String(enrollmentEditorOpen.has(stock.stock_code)));
     const label = document.createElement("span");
-    label.textContent = `${stock.stock_code} · ${stock.stock_name || "Unnamed"} (${stock.report_count} reports)`;
-    const enrollment = document.createElement("small");
-    enrollment.textContent = stock.enrollment || "Unknown";
-    enrollment.className = "enrollment-label";
-    button.append(label, enrollment);
-    button.addEventListener("click", () => void selectStock(stock.stock_code));
-    stocksElement.append(button);
+    label.textContent = `${stock.stock_code} · ${stock.stock_name || "Unnamed"} (${stock.report_count})`;
+    button.addEventListener("click", () => {
+      if (enrollmentEditorOpen.has(stock.stock_code)) {
+        enrollmentEditorOpen.clear();
+      } else {
+        enrollmentEditorOpen.clear();
+        enrollmentEditorOpen.add(stock.stock_code);
+      }
+      void selectStock(stock.stock_code);
+    });
+    button.append(label);
+
+    const editor = document.createElement("div");
+    editor.className = "enrollment-editor";
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", `Status for ${stock.stock_code}`);
+    const currentEnrollment = stock.enrollment || "Pending";
+    for (const status of ["Pending", "InProgress", "Error", "Done"]) {
+      select.add(new Option(status, status));
+    }
+    select.value = currentEnrollment;
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "enrollment-save";
+    save.textContent = "Save";
+    save.disabled = true;
+    const feedback = document.createElement("small");
+    feedback.className = "enrollment-feedback";
+    feedback.setAttribute("role", "status");
+    select.addEventListener("change", () => {
+      save.disabled = select.value === currentEnrollment;
+      feedback.textContent = "";
+    });
+    save.addEventListener("click", async () => {
+      select.disabled = save.disabled = true;
+      feedback.textContent = "Saving…";
+      try {
+        const response = await fetch(`/api/stock-metadata/${encodeURIComponent(stock.stock_code)}/enrollment`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enrollment: select.value }),
+        });
+        if (!response.ok) throw new Error(`Unable to save status (HTTP ${response.status}).`);
+        const updated: Pick<Stock, "enrollment" | "stock_name"> = await response.json();
+        stock.enrollment = updated.enrollment;
+        stock.stock_name = updated.stock_name;
+        renderStocks();
+      } catch (reason) {
+        feedback.textContent = reason instanceof Error ? reason.message : "Unable to save status.";
+      } finally {
+        select.disabled = false;
+        save.disabled = select.value === (stock.enrollment || "Pending");
+      }
+    });
+    editor.append(select, save, feedback);
+    item.append(button, editor);
+    stocksElement.append(item);
   }
   stockCount.textContent = String(stocks.length);
   reportTotal.textContent = `Total reports: ${stocks.reduce((sum, stock) => sum + stock.report_count, 0).toLocaleString()}`;
@@ -209,7 +266,7 @@ async function loadReports(stockCode: string, currentRequest: number): Promise<v
     const response = await fetch(`/api/report-digestion?${query}`);
     if (!response.ok) throw new Error(`Unable to load reports (HTTP ${response.status}).`);
     const data: ReportPage = await response.json();
-    allReports.push(...data.items);
+    allReports.push(...data.items.filter(report => report.digestion_stage !== "Deprecated"));
     totalPages = data.total_pages;
     page += 1;
   } while (page <= totalPages);

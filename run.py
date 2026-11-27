@@ -4,10 +4,10 @@ Usage:
     python run.py 300750
 
 Each report is advanced from its current digestion stage. Deprecated reports are
-ignored. Reports ending at ExtractErr or AuditErr are copied to the AI review
-directory after processing. Pass --copy-digestion-errors to include reports
-ending at BalanceErr, IncomeErr, or CashFlowErr. Original PDFs are copied to
-reports/ai-extract with their PDF hashes in the filenames.
+ignored. Pass --copy to copy reports ending at ExtractErr or AuditErr to the
+AI review directory after processing. Pass --deep-copy to also include reports
+ending at BalanceErr, IncomeErr, or CashFlowErr. Original PDFs
+are copied to reports/ai-extract with their PDF hashes in the filenames.
 """
 
 import argparse
@@ -140,10 +140,15 @@ def _process_report(storage: LineItemStorage, report: dict, stock_code: str) -> 
 
 
 def _copy_error_reports(rows: list[dict], destination: Path, *,
+                        include_extract_audit_errors: bool = False,
                         include_digestion_errors: bool = False) -> int:
-    stages = {"ExtractErr", "AuditErr"}
+    stages = set()
+    if include_extract_audit_errors or include_digestion_errors:
+        stages.update({"ExtractErr", "AuditErr"})
     if include_digestion_errors:
         stages.update({"BalanceErr", "IncomeErr", "CashFlowErr"})
+    if not stages:
+        return 0
     destination.mkdir(parents=True, exist_ok=True)
     copied = 0
     for row in rows:
@@ -187,9 +192,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stock_code",
                         help="Process all registered reports for this stock code")
-    parser.add_argument("--copy-digestion-errors", "--copy-digestion-error",
-                        dest="copy_digestion_errors", action="store_true",
-                        help="Also copy BalanceErr/IncomeErr/CashFlowErr original PDFs")
+    parser.add_argument("--copy", action="store_true",
+                        help="Copy ExtractErr/AuditErr original PDFs to reports/ai-extract")
+    parser.add_argument("--deep-copy", action="store_true",
+                        help="Also copy BalanceErr/IncomeErr/CashFlowErr original PDFs (and ExtractErr/AuditErr)")
     args = parser.parse_args(argv)
 
     with LineItemStorage() as storage:
@@ -207,7 +213,8 @@ def main(argv: list[str] | None = None) -> int:
         final_reports = storage.get_report_pipeline_rows(args.stock_code)
 
     copied = _copy_error_reports(final_reports, DEFAULT_AI_EXTRACT_DIR,
-                                 include_digestion_errors=args.copy_digestion_errors)
+                                 include_extract_audit_errors=args.copy,
+                                 include_digestion_errors=args.deep_copy)
     error_count = sum(row["digestion_stage"] in {"ExtractErr", "AuditErr"} for row in final_reports)
     print(f"Finished {args.stock_code}: {error_count} error-stage reports; copied {copied} file(s).", flush=True)
     _print_stage_summary(args.stock_code, final_reports)

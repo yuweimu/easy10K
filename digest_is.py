@@ -142,6 +142,10 @@ def accounting_equations(state, result):
                 children.append(CREDIT_IMPAIRMENT_ID)
                 credit_impairment_is_cost_child = True
         if children:
+            # Investment income from associates and joint ventures (4401) is
+            # disclosed as a component already included in the 44 total.
+            if parent == INVESTMENT_INCOME_ID and 4401 in children:
+                continue
             add("children_sum", parent, [(item_id, 1) for item_id in children])
     revenue = OPERATING_REVENUE_ID if OPERATING_REVENUE_ID in values else OPERATING_REVENUE_DETAIL_ID
     costs = [(OPERATING_COST_ID, -1)] if OPERATING_COST_ID in values else [(item_id, -1) for item_id in values
@@ -161,6 +165,35 @@ def accounting_equations(state, result):
         adjustment_ids = tuple(item_id for item_id in adjustment_ids if item_id != CREDIT_IMPAIRMENT_ID)
     adjustments = [(item_id, state.signs.get(item_id, -1 if item_id in (CREDIT_IMPAIRMENT_ID, ASSET_DISPOSAL_LOSS_ID) else 1))
                    for item_id in adjustment_ids]
+    if (CREDIT_IMPAIRMENT_ID in adjustment_ids and CREDIT_IMPAIRMENT_ID in values
+            and values.get(CREDIT_IMPAIRMENT_ID) is not None
+            and OPERATING_PROFIT_ID in values and values.get(OPERATING_PROFIT_ID) is not None):
+        base = sum((values.get(item_id, Decimal(0)) or Decimal(0)) * coefficient
+                   for item_id, coefficient in [(revenue, 1), *costs, *adjustments]
+                   if item_id != CREDIT_IMPAIRMENT_ID)
+        credit_amount = values[CREDIT_IMPAIRMENT_ID]
+        reported_profit = values[OPERATING_PROFIT_ID]
+        existing_coefficient = next(
+            coefficient for item_id, coefficient in adjustments
+            if item_id == CREDIT_IMPAIRMENT_ID
+        )
+        alternate_coefficient = -existing_coefficient
+        tolerance = max(Decimal("0.00001"), abs(reported_profit) * Decimal("0.00001"))
+        existing_difference = abs(
+            reported_profit - (base + existing_coefficient * credit_amount)
+        )
+        alternate_difference = abs(
+            reported_profit - (base + alternate_coefficient * credit_amount)
+        )
+        credit_coefficient = (
+            alternate_coefficient
+            if existing_difference > tolerance and alternate_difference <= tolerance
+            else existing_coefficient
+        )
+        adjustments = [
+            (item_id, credit_coefficient if item_id == CREDIT_IMPAIRMENT_ID else coefficient)
+            for item_id, coefficient in adjustments
+        ]
     add("operating_profit", OPERATING_PROFIT_ID, [(revenue, 1), *costs, *adjustments], [revenue])
     add("profit_before_tax", PROFIT_BEFORE_TAX_ID,
         [(OPERATING_PROFIT_ID, 1), (NON_OPERATING_INCOME_ID, 1), (NON_OPERATING_EXPENSE_ID, -1)],

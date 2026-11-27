@@ -107,7 +107,18 @@ def audit_external_report(row: dict) -> dict:
         }
         if len(rows) < 10:
             entry["issues"].append(f"{field}: too few table rows ({len(rows)})")
-        has_header = any(cells and cells[0] in ("项目", "科目") for cells in rows)
+        has_header = any(
+            cells and (
+                cells[0] in ("项目", "科目")
+                or (
+                    not cells[0]
+                    and any(re.search(r"附注|注释|行次|^注$", cell) for cell in cells[1:])
+                    and any(re.search(r"20\d{2}|期末|期初|上年年末", cell)
+                            for cell in cells[1:])
+                )
+            )
+            for cells in rows
+        )
         if field == "balance_sheet_ex":
             has_header = has_header or any(
                 cells and cells[0] == "资产"

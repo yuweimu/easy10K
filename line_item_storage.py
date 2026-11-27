@@ -24,6 +24,7 @@ ReportDigestionStage = Literal[
     "ExAuditOK", "ExAuditErr", "ExBalanceOK", "ExBalanceErr", "ExIncomeOK", "ExIncomeErr",
     "ExCashFlowOK", "ExCashFlowErr", "CashFlowOK", "CashFlowErr",
 ]
+StockEnrollment = Literal["Pending", "InProgress", "Error", "Done"]
 
 STATEMENT_DIGESTION = {
     "income_statement": ("BalanceOK", "IncomeOK", "IncomeErr", "is_digestion_report", "income_statement_items"),
@@ -714,6 +715,21 @@ class LineItemStorage:
             return [{"stock_code": row[0], "report_count": row[1], "stock_name": row[2],
                      "enrollment": row[3], "has_missing_reporting_dates": _has_missing_quarters(row[4])}
                     for row in cursor.fetchall()]
+
+    def update_stock_enrollment(self, stock_code: str, enrollment: StockEnrollment) -> dict:
+        """Set a stock's enrollment status, creating metadata if needed."""
+        if enrollment not in get_args(StockEnrollment):
+            raise ValueError("Invalid stock enrollment")
+        with self._connect().cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO stock_metadata (stock_code, stock_name, enrollment) "
+                "VALUES (%s, %s, %s) ON CONFLICT (stock_code) DO UPDATE "
+                "SET enrollment = EXCLUDED.enrollment "
+                "RETURNING stock_code, stock_name, enrollment",
+                (stock_code, stock_code, enrollment),
+            )
+            row = cursor.fetchone()
+            return {"stock_code": row[0], "stock_name": row[1], "enrollment": row[2]}
 
     def get_statement_items(self, statement: str, stock_code: str) -> list[dict]:
         """Read statement values, preserving EPS units and exact report versions."""

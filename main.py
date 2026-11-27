@@ -19,7 +19,7 @@ from item_ids import (
     OPERATING_REVENUE_ID,
 )
 from line_item_chart import LineItemChart
-from line_item_storage import LineItemStorage, ReportDigestionStage
+from line_item_storage import LineItemStorage, ReportDigestionStage, StockEnrollment
 from report_renderer import render_report
 from report_sources import locate_source, render_page
 
@@ -52,6 +52,23 @@ class WordInput(BaseModel):
 
 class ReportStageUpdate(BaseModel):
     digestion_stage: ReportDigestionStage
+
+
+class StockEnrollmentUpdate(BaseModel):
+    enrollment: StockEnrollment
+
+
+@app.patch("/stock-metadata/{stock_code}/enrollment")
+def update_stock_enrollment(stock_code: str, data: StockEnrollmentUpdate) -> dict:
+    """Manually set a stock's enrollment status from the stock reports UI."""
+    with LineItemStorage() as storage:
+        if not storage.database_url:
+            raise HTTPException(status_code=503, detail="DATABASE_URL is not configured")
+        try:
+            return storage.update_stock_enrollment(stock_code, data.enrollment)
+        except Exception as exc:
+            logger.warning("Unable to update stock enrollment", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to update stock status") from exc
 
 
 @app.patch("/report-digestion/{pdf_hash}/stage")
@@ -225,6 +242,31 @@ def get_public_statement_page(
     latest_items: dict[tuple[str, int], dict] = {}
     for item in items:
         latest_items[(str(item["reporting_date"]), int(item["item_id"]))] = item
+    if statement == "income_statement":
+        # Older extracted reports may use 4227 for the standalone asset
+        # impairment line now represented by item 49. Normalize only when the
+        # same reporting period does not already contain item 49.
+        for date in dates:
+            legacy_item = latest_items.pop((date, 4227), None)
+            if legacy_item is not None and (date, 49) not in latest_items:
+                legacy_item = {**legacy_item, "item_id": 49}
+                latest_items[(date, 49)] = legacy_item
+            elif legacy_item is not None:
+                latest_items[(date, 4227)] = legacy_item
+        # Keep the classification headings and earnings-per-share group
+        # visible even when extraction omitted them; these rows are display-only.
+        for date in dates:
+            for item_id in (5601, 5602, 59):
+                latest_items[(date, item_id)] = {
+                    "amount": None,
+                    "item_id": item_id,
+                    "reporting_date": date,
+                }
+            latest_items.setdefault((date, 560103), {
+                "amount": None,
+                "item_id": 560103,
+                "reporting_date": date,
+            })
     calculated_item_labels: dict[int, tuple[str, str]] = {}
     if statement == "income_statement":
         calculated_item_labels[CALCULATED_GROSS_PROFIT_ID] = ("毛利润", "Gross profit")
@@ -356,6 +398,32 @@ def get_public_statement_page(
         except (InvalidOperation, ValueError):
             return escape(str(value))
 
+    cash_flow_label_overrides = {
+        81: "一、经营活动产生的现金流量",
+        82: "二、投资活动产生的现金流量",
+        83: "三、筹资活动产生的现金流量",
+        84: "四、汇率变动对现金及现金等价物的影响",
+        85: "五、现金及现金等价物净增加额",
+        86: "\u00a0\u00a0\u00a0加：期初现金及现金等价物余额",
+        87: "六、期末现金及现金等价物余额",
+    }
+    income_statement_label_overrides = {
+        41: "一、营业总收入",
+        42: "二、营业总成本",
+        51: "三、营业利润",
+        52: "\u00a0加：营业外收入",
+        53: "\u00a0减：营业外支出",
+        54: "四、利润总额",
+        55: "\u00a0减：所得税费用",
+        56: "五、净利润",
+        5601: "(一)按经营持续性分类",
+        5602: "(二)按所有权归属分类",
+        57: "六、其他综合收益的税后净额",
+        58: "七、综合收益总额",
+        59: "八、每股收益",
+        5901: "(一)基本每股收益(元/股)",
+	    5903: "(二)稀释每股收益(元/股)",
+    }
     rows = []
     for item_id in ordered_item_ids:
         raw_values = [latest_items.get((date, item_id), {}).get("amount") for date in dates]
@@ -369,7 +437,7 @@ def get_public_statement_page(
             except (InvalidOperation, ValueError):
                 has_unparseable_value = True
                 break
-        if (item_id != OTHER_PROFIT_LOSS_GROUP_ID and numeric_values
+        if (item_id not in {OTHER_PROFIT_LOSS_GROUP_ID, 560103} and numeric_values
                 and not has_unparseable_value and all(value == 0 for value in numeric_values)):
             continue
         if item_id in calculated_item_labels:
@@ -378,11 +446,21 @@ def get_public_statement_page(
             chart_item = chart_items.get(item_id)
             label_cn = chart_item.name if chart_item else f"Item {item_id}"
             label_en = chart_item.english_name if chart_item else f"Item {item_id}"
+        trend_label = label_cn if language == "zh" else label_en
+        if statement == "cash_flow_statement":
+            label_cn = cash_flow_label_overrides.get(item_id, label_cn)
+        elif statement == "income_statement":
+            label_cn = income_statement_label_overrides.get(item_id, label_cn)
         item_label = label_cn if language == "zh" else label_en
+        item_name_markup = escape(item_label) + (
+            "<sup>(1)</sup>" if item_id == CALCULATED_GROSS_PROFIT_ID else ""
+        )
         item_language = "zh-CN" if language == "zh" else "en"
         per_share = statement == "income_statement" and item_id in {EPS_ID, EPS_DILUTED_ID}
+        is_income_statement_blank_item = statement == "income_statement" and item_id in {5601, 5602, 59}
+        is_income_classification_heading = statement == "income_statement" and item_id in {5601, 5602}
         gross_margin_values: dict[str, str] = {}
-        if item_id == CALCULATED_GROSS_PROFIT_ID:
+        if item_id in {CALCULATED_GROSS_PROFIT_ID, 51, 56}:
             for date in dates:
                 gross_profit = latest_items.get((date, item_id), {}).get("amount")
                 revenue_item = latest_items.get((date, OPERATING_REVENUE_ID))
@@ -395,12 +473,16 @@ def get_public_statement_page(
                 except (InvalidOperation, TypeError, ValueError):
                     continue
         cells = "".join(
-            f"<td class=\"amount-column\" data-reporting-date=\"{escape(date, quote=True)}\" data-amount=\"{escape(str(latest_items.get((date, item_id), {}).get('amount') if latest_items.get((date, item_id), {}).get('amount') is not None else ''), quote=True)}\" data-per-share=\"{'true' if per_share else 'false'}\" data-gross-margin=\"{gross_margin_values.get(date, '')}\">"
-            f"{amount_text(latest_items.get((date, item_id), {}).get('amount'), per_share=per_share)}</td>"
+            f"<td class=\"amount-column\" data-reporting-date=\"{escape(date, quote=True)}\" data-amount=\"{escape(str(latest_items.get((date, item_id), {}).get('amount') if latest_items.get((date, item_id), {}).get('amount') is not None else ''), quote=True)}\" data-per-share=\"{'true' if per_share else 'false'}\" data-zero-display=\"{'blank' if is_income_statement_blank_item else ''}\" data-gross-margin=\"{gross_margin_values.get(date, '')}\">"
+            f"{' ' if is_income_statement_blank_item else amount_text(latest_items.get((date, item_id), {}).get('amount'), per_share=per_share)}</td>"
             for date in dates
         )
         is_other_profit_loss_group = item_id == OTHER_PROFIT_LOSS_GROUP_ID
         is_other_profit_loss_detail = item_id in other_profit_loss_detail_ids
+        initially_collapsed = (
+            (statement == "cash_flow_statement" and item_id in {82, 83})
+            or (statement == "income_statement" and item_id == 57)
+        )
         toggle = (
             f'<button type="button" class="item-toggle" data-other-profit-loss-toggle '
             f'aria-label="{escape("展开" if language == "zh" else "Show", quote=True)} {escape(item_label, quote=True)}" '
@@ -409,12 +491,12 @@ def get_public_statement_page(
             else (
             f'<button type="button" class="item-toggle" data-item-toggle="{item_id}" '
             f'aria-label="{escape(("展开" if language == "zh" else "Show") + " " + item_label)}" '
-            f'aria-expanded="true">▼</button>'
+            f'aria-expanded="{"false" if initially_collapsed else "true"}">{"▶" if initially_collapsed else "▼"}</button>'
             if item_id in children_by_parent
             else '<span class="item-toggle-placeholder" aria-hidden="true"></span>'
             )
         )
-        trend_toggle = (
+        trend_toggle = "" if is_income_statement_blank_item else (
             f'<button type="button" class="trend-toggle" data-trend-toggle="{item_id}" '
             f'title="{escape("查看趋势" if language == "zh" else "Show trend", quote=True)}" '
             f'aria-label="{escape(("查看" if language == "zh" else "Show") + " " + item_label + ("金额趋势" if language == "zh" else " amount trend"), quote=True)}" '
@@ -424,18 +506,20 @@ def get_public_statement_page(
             '<path d="M5 11V8m4 3V5m4 6V3" stroke="currentColor" stroke-width="2"/>'
             '</svg></button>'
         )
-        group_class = " item-row-group" if item_id in children_by_parent or is_other_profit_loss_group else ""
+        is_first_level_parent = item_id in children_by_parent and indent_levels[item_id] == 0
+        group_class = " item-row-group" if is_first_level_parent or is_other_profit_loss_group else ""
+        classification_class = " income-classification-row" if is_income_classification_heading else ""
         detail_class = " other-profit-loss-detail" if is_other_profit_loss_detail else ""
         hidden_attribute = " hidden" if is_other_profit_loss_detail else ""
         row_html = (
-            f'<tr class="item-row{group_class}{detail_class}" data-item-id="{item_id}"{hidden_attribute}><th scope="row" class="item-name" title="{escape(item_label, quote=True)}" style="padding-left: {10 + indent_levels[item_id] * 18:g}px">{toggle}'
-            f"<span lang=\"{item_language}\">{escape(item_label)}</span>"
+            f'<tr class="item-row{group_class}{classification_class}{detail_class}" data-item-id="{item_id}"{hidden_attribute}><th scope="row" class="item-name" title="{escape(item_label, quote=True)}" style="padding-left: {10 + indent_levels[item_id] * 18:g}px">{toggle}'
+            f"<span lang=\"{item_language}\">{item_name_markup}</span>"
             f"{trend_toggle}</th>{cells}</tr>"
         )
         trend_row = (
             f'<tr class="trend-detail-row{detail_class}" id="trend-{item_id}" data-trend-item-id="{item_id}" hidden>'
             f'<td colspan="{len(dates) + 1}"><div class="trend-detail" data-trend-detail="{item_id}"><div class="trend-chart-scroll">'
-            f'<div class="trend-chart-wrap"><svg class="trend-chart" data-trend-chart="{item_id}" data-trend-label="{escape(item_label, quote=True)}" data-trend-stock="{escape(f"{stock_name} ({stock_code})", quote=True)}" viewBox="0 0 1075 320" role="img" aria-label="{escape(item_label, quote=True)}"></svg></div>'
+            f'<div class="trend-chart-wrap"><svg class="trend-chart" data-trend-chart="{item_id}" data-trend-label="{escape(trend_label, quote=True)}" data-trend-stock="{escape(f"{stock_name} ({stock_code})", quote=True)}" viewBox="0 0 1075 320" role="img" aria-label="{escape(trend_label, quote=True)}"></svg></div>'
             '</div></div></td></tr>'
         )
         rows.append(row_html + trend_row)
@@ -476,6 +560,15 @@ def get_public_statement_page(
         for index, (title_zh, title_en) in enumerate(recommendation_groups)
     )
     default_amount_unit = "亿元" if language == "zh" else "百万元"
+    gross_profit_note = ""
+    if statement == "income_statement" and any(
+        (date, CALCULATED_GROSS_PROFIT_ID) in latest_items for date in dates
+    ):
+        gross_profit_note = (
+            "(1) 毛利润为便于阅读而添加的计算项，按营业收入减营业成本计算，并非财务报表通常单独列示的项目。"
+            if language == "zh"
+            else "(1) Gross profit is shown as a convenience calculation (operating revenue minus operating costs); it is not usually presented as a separate line item in the statement."
+        )
 
     def equation_number(value: object) -> str | None:
         """Format a reported amount using the unit shown by the page."""
@@ -738,6 +831,9 @@ def get_public_statement_page(
     .decimal-toggle {{ display: flex; align-items: center; gap: 5px; }}
     .decimal-toggle input {{ accent-color: #6860ad; }}
     .table-wrap {{ overflow-x: auto; margin-top: -1px; background: #fff; border: 1px solid #d9dfeb; border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; box-shadow: 0 2px 6px #20283b06, 0 12px 32px #20283b05; }}
+    .table-note {{ margin: 12px 2px 0; color: #737c8e; }}
+    .table-note h2 {{ margin: 0 0 3px; color: #505a70; font-size: .82rem; font-weight: 700; }}
+    .table-note p {{ margin: 0; font-size: .8rem; line-height: 1.55; }}
     table {{ border-collapse: collapse; min-width: 100%; table-layout: fixed; width: 100%; }}
     th, td {{ border-top: 1px solid #eceef4; padding: 11px 10px; text-align: left; white-space: nowrap; }}
     thead th:first-child, th.item-name {{ box-sizing: border-box; width: {item_name_column_width}px; min-width: {item_name_column_width}px; max-width: {item_name_column_width}px; overflow: hidden; text-overflow: ellipsis; }}
@@ -752,9 +848,11 @@ def get_public_statement_page(
     td {{ color: #505a70; font-size: .84rem; }}
     .item-name {{ color: #fff; font-size: 0.88rem; font-weight: 500; text-transform: none; }}
     .item-row {{ transition: background-color 120ms ease; }}
+    .income-classification-row > th, .income-classification-row > td {{ padding-top: 7px; padding-bottom: 7px; }}
     .item-row:hover {{ background: #f1f3fb; }}
     .item-row-group {{ background: #f0f1f8; }}
     .item-row-group > th {{ color: #fff; font-weight: 750; }}
+    .item-row-group > th, .item-row-group > td {{ border-top-color: #b8bfd2; border-bottom: 1px solid #b8bfd2; }}
     .item-toggle {{ width: 16px; margin-right: 8px; padding: 0; border: 0; background: transparent; color: #d8d3ff; cursor: pointer; font-size: .72rem; }}
     .item-toggle:hover {{ color: #fff; background: transparent; }}
     .item-toggle-placeholder {{ display: inline-block; width: 16px; margin-right: 8px; }}
@@ -776,7 +874,6 @@ def get_public_statement_page(
     .trend-chart .trend-line {{ stroke: #6860ad; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }}
     .trend-chart .trend-point {{ fill: #fff; stroke: #6860ad; stroke-width: 1.5; cursor: pointer; transition: r 120ms ease, fill 120ms ease; }}
     .trend-chart .trend-point:hover, .trend-chart .trend-point:focus {{ fill: #6860ad; outline: none; }}
-    .trend-chart .trend-point-latest {{ fill: #6860ad; stroke: #fff; stroke-width: 3; }}
     .trend-chart .trend-point-label {{ fill: #4b467f; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: #faf9fd; stroke-width: 4px; stroke-linejoin: round; }}
     .trend-chart .trend-margin-label {{ fill: #7370a9; font-size: .72rem; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: #faf9fd; stroke-width: 3px; stroke-linejoin: round; }}
     .trend-chart .trend-margin-axis {{ stroke: #d7b28d; stroke-width: 1; stroke-dasharray: 2 4; }}
@@ -784,10 +881,11 @@ def get_public_statement_page(
     .trend-chart .trend-margin-point {{ fill: #fffaf5; stroke: #d58b52; stroke-width: 1.8; }}
     .trend-hover-tooltip {{ position: absolute; z-index: 3; min-width: 132px; padding: 9px 12px; border: 1px solid #d8d3f0; border-radius: 9px; background: rgb(255 255 255 / 90%); box-shadow: 0 10px 24px #29234a24; color: #343b50; pointer-events: none; opacity: 0; transform: translate(-50%, calc(-100% - 14px)); transition: opacity 100ms ease; }}
     .trend-hover-tooltip.visible {{ opacity: 1; }}
-    .trend-hover-tooltip-value, .trend-hover-tooltip-date, .trend-hover-tooltip-margin {{ display: block; text-align: center; white-space: nowrap; }}
+    .trend-hover-tooltip-value, .trend-hover-tooltip-date {{ display: block; text-align: center; white-space: nowrap; }}
+    .trend-hover-tooltip-value, .trend-hover-tooltip-margin {{ display: inline-block; white-space: nowrap; }}
     .trend-hover-tooltip-value {{ font-size: 1.05rem; font-weight: 400; font-variant-numeric: tabular-nums; }}
     .trend-hover-tooltip-date {{ margin-top: 4px; color: #737c8e; font-size: .95rem; font-weight: 400; }}
-    .trend-hover-tooltip-margin {{ margin-top: 4px; color: #6860ad; font-size: .95rem; font-weight: 400; }}
+    .trend-hover-tooltip-margin {{ margin-left: 7px; color: #6860ad; font-size: .95rem; font-weight: 400; }}
     .trend-modal {{ position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; }}
     .trend-modal[hidden] {{ display: none; }}
     .trend-modal-backdrop {{ position: absolute; inset: 0; background: #20283b66; backdrop-filter: blur(2px); }}
@@ -855,6 +953,7 @@ def get_public_statement_page(
     <thead><tr><th scope="col">{table_item_label}</th>{''.join(f'<th scope="col" data-reporting-date="{escape(date)}">{escape(reporting_date_caption(date))}</th>' for date in dates)}</tr></thead>
     <tbody>{''.join(rows)}</tbody>
   </table></div>
+  {f'<section class="table-note"><h2>{"说明" if language == "zh" else "Note"}</h2><p>{escape(gross_profit_note)}</p></section>' if gross_profit_note else ''}
   <div class="trend-modal" id="trend-modal" hidden aria-hidden="true">
     <div class="trend-modal-backdrop" data-trend-modal-close></div>
     <div class="trend-modal-dialog" role="dialog" aria-modal="true" aria-label="{escape('趋势图' if language == 'zh' else 'Trend chart', quote=True)}">
@@ -1015,7 +1114,7 @@ def get_public_statement_page(
       toggle.setAttribute('aria-expanded', String(!collapsed));
     }});
   }}
-  const collapsedItems = new Set();
+  const collapsedItems = new Set({json.dumps([82, 83] if statement == "cash_flow_statement" else [57] if statement == "income_statement" else [])});
   let otherProfitLossExpanded = false;
   const otherProfitLossToggle = document.querySelector('[data-other-profit-loss-toggle]');
   otherProfitLossToggle?.addEventListener('click', () => {{
@@ -1066,10 +1165,13 @@ def get_public_statement_page(
       appendSvgElement(svg, 'text', {{ x: 32, y: 32 }}, '—');
       return;
     }}
-    const unit = unitSelect.value;
-    const showDecimals = decimalsToggle.checked;
     const perShare = cells.some((cell) => cell.dataset.perShare === 'true');
+    const unit = perShare ? '元/股' : unitSelect.value;
+    const showDecimals = decimalsToggle.checked;
     const isGrossProfit = itemId === '{CALCULATED_GROSS_PROFIT_ID}';
+    const isNetProfit = itemId === '56';
+    const isOperatingProfit = itemId === '51';
+    const hasMarginSeries = isGrossProfit || isNetProfit || isOperatingProfit;
     const width = 1075;
     const height = 320;
     const padding = 42;
@@ -1084,9 +1186,16 @@ def get_public_statement_page(
     const tickMagnitude = 10 ** Math.floor(Math.log10(rawTickStep));
     const normalizedTickStep = rawTickStep / tickMagnitude;
     const niceTickMultiplier = normalizedTickStep <= 1 ? 1 : normalizedTickStep <= 2 ? 2 : normalizedTickStep <= 2.5 ? 2.5 : normalizedTickStep <= 5 ? 5 : 10;
-    const tickStep = niceTickMultiplier * tickMagnitude;
-    const axisMinDisplay = Math.floor(dataMin / tickStep) * tickStep;
-    const axisMaxDisplay = axisMinDisplay + tickStep * 5;
+    let tickStep = niceTickMultiplier * tickMagnitude;
+    let axisMinDisplay = Math.floor(dataMin / tickStep) * tickStep;
+    let axisMaxDisplay = Math.ceil(dataMax / tickStep - 1e-12) * tickStep;
+    while (Math.round((axisMaxDisplay - axisMinDisplay) / tickStep) + 1 > 6) {{
+      const stepMagnitude = 10 ** Math.floor(Math.log10(tickStep));
+      const normalizedStep = tickStep / stepMagnitude;
+      tickStep = (normalizedStep < 1.5 ? 2 : normalizedStep < 3.5 ? 5 : 10) * stepMagnitude;
+      axisMinDisplay = Math.floor(dataMin / tickStep) * tickStep;
+      axisMaxDisplay = Math.ceil(dataMax / tickStep - 1e-12) * tickStep;
+    }}
     const axisMin = axisMinDisplay * scaleFactor;
     const axisMax = axisMaxDisplay * scaleFactor;
     const range = axisMax - axisMin || scaleFactor;
@@ -1111,17 +1220,18 @@ def get_public_statement_page(
     tooltipDate.className = 'trend-hover-tooltip-date';
     const tooltipMargin = document.createElement('span');
     tooltipMargin.className = 'trend-hover-tooltip-margin';
-    if (isGrossProfit) tooltip.append(tooltipValue, tooltipDate, tooltipMargin);
+    if (hasMarginSeries) tooltip.append(tooltipValue, tooltipDate, tooltipMargin);
     else tooltip.append(tooltipValue, tooltipDate);
     chartWrap?.append(tooltip);
     const hideTrendTooltip = () => tooltip.classList.remove('visible');
-    const showTrendTooltip = (pointElement, value, date) => {{
+    const showTrendTooltip = (pointElement, value, date, marginOnly = false) => {{
       if (!chartWrap) return;
-      tooltipValue.textContent = formatValue(value) + ' ' + unit;
+      tooltipValue.textContent = marginOnly ? value.toFixed(2) + '%' : formatValue(value) + ' ' + unit;
       tooltipDate.textContent = date;
       const pointIndex = dates.indexOf(date);
-      if (isGrossProfit && grossMargins[pointIndex] !== null) {{
-        tooltipMargin.textContent = '{escape("毛利率" if language == "zh" else "Gross margin")}: ' + grossMargins[pointIndex].toFixed(2) + '%';
+      if (!marginOnly && hasMarginSeries && grossMargins[pointIndex] !== null) {{
+        tooltipMargin.textContent = grossMargins[pointIndex].toFixed(2) + '%';
+        tooltipValue.append(' ', tooltipMargin);
       }}
       tooltip.classList.add('visible');
       const pointBox = pointElement.getBoundingClientRect();
@@ -1132,11 +1242,12 @@ def get_public_statement_page(
       tooltip.style.top = (pointBox.top - wrapBox.top) + 'px';
     }};
     const trendStockLabel = svg.dataset.trendStock || '';
-    appendSvgElement(svg, 'text', {{ class: 'trend-chart-title', x: padding, y: 24 }}, trendStockLabel + ' · ' + (svg.dataset.trendLabel || '') + ' · 金额趋势');
-    appendSvgElement(svg, 'text', {{ class: 'trend-chart-unit', x: padding, y: 43 }}, '单位：' + unit);
+    appendSvgElement(svg, 'text', {{ class: 'trend-chart-title', x: padding, y: 24 }}, trendStockLabel + ' · ' + (svg.dataset.trendLabel || ''));
+    appendSvgElement(svg, 'text', {{ class: 'trend-chart-unit', x: padding, y: 43, 'text-anchor': 'start' }}, '单位：' + unit);
     appendSvgElement(svg, 'line', {{ class: 'trend-axis', x1: padding, x2: padding, y1: plotTop, y2: bottom }});
     appendSvgElement(svg, 'line', {{ class: 'trend-axis', x1: padding, x2: axisRight, y1: zeroY, y2: zeroY }});
-    for (let tickIndex = 0; tickIndex <= 5; tickIndex += 1) {{
+    const tickCount = Math.round((axisMaxDisplay - axisMinDisplay) / tickStep) + 1;
+    for (let tickIndex = 0; tickIndex < tickCount; tickIndex += 1) {{
       const tickValue = axisMinDisplay + tickIndex * tickStep;
       const gridValue = tickValue * scaleFactor;
       const gridY = yFor(gridValue);
@@ -1155,22 +1266,33 @@ def get_public_statement_page(
       appendSvgElement(svg, 'path', {{ class: 'trend-area', d: areaPath, fill: 'url(#trend-gradient-' + itemId + ')' }});
       appendSvgElement(svg, 'path', {{ class: 'trend-line', d: linePath }});
     }}
-    if (isGrossProfit) {{
+    let marginPoints = [];
+    if (hasMarginSeries) {{
       const validGrossMargins = grossMargins.filter((margin) => margin !== null);
       const observedMarginMax = validGrossMargins.length ? Math.max(...validGrossMargins) : 0;
       const marginAxisMax = Math.max(20, Math.ceil(observedMarginMax / 5) * 5);
       const marginYFor = (margin) => bottom - (Math.max(0, Math.min(marginAxisMax, margin)) / marginAxisMax) * (bottom - plotTop);
       appendSvgElement(svg, 'line', {{ class: 'trend-margin-axis', x1: axisRight, x2: axisRight, y1: plotTop, y2: bottom }});
       [0, marginAxisMax / 2, marginAxisMax].forEach((margin) => appendSvgElement(svg, 'text', {{ class: 'trend-margin-label', x: axisRight + 10, y: marginYFor(margin) + 4, 'text-anchor': 'start' }}, margin + '%'));
-      appendSvgElement(svg, 'text', {{ class: 'trend-margin-label', x: axisRight, y: 43, 'text-anchor': 'end' }}, '{escape("毛利率" if language == "zh" else "Gross margin")}');
-      const marginPoints = grossMargins.map((margin, index) => margin === null ? null : ({{ x: padding + (index + 0.5) * spacing, y: marginYFor(margin) }}));
+      const marginLabel = isNetProfit
+        ? '{escape("净利率" if language == "zh" else "Net margin")}'
+        : isOperatingProfit
+          ? '{escape("营业利润率" if language == "zh" else "Operating margin")}'
+          : '{escape("毛利率" if language == "zh" else "Gross margin")}';
+      appendSvgElement(svg, 'text', {{ class: 'trend-margin-label', x: axisRight, y: 43, 'text-anchor': 'end' }}, marginLabel);
+      marginPoints = grossMargins.map((margin, index) => margin === null ? null : ({{ x: padding + (index + 0.5) * spacing, y: marginYFor(margin) }}));
       const marginLinePoints = marginPoints.filter((point) => point !== null);
       if (marginLinePoints.length > 1) {{
         const marginLinePath = marginLinePoints.map((point, index) => (index === 0 ? 'M' : 'L') + ' ' + point.x + ' ' + point.y).join(' ');
         appendSvgElement(svg, 'path', {{ class: 'trend-margin-line', d: marginLinePath }});
       }}
-      marginPoints.forEach((point) => {{
-        if (point !== null) appendSvgElement(svg, 'circle', {{ class: 'trend-margin-point', cx: point.x, cy: point.y, r: 3 }});
+      marginPoints.forEach((point, index) => {{
+        if (point === null) return;
+        const marginPointElement = appendSvgElement(svg, 'circle', {{ class: 'trend-margin-point', cx: point.x, cy: point.y, r: 3, tabindex: '0', 'aria-label': dates[index] + ': ' + grossMargins[index].toFixed(2) + '%' }});
+        marginPointElement.addEventListener('mouseenter', () => showTrendTooltip(marginPointElement, values[index], dates[index]));
+        marginPointElement.addEventListener('mouseleave', hideTrendTooltip);
+        marginPointElement.addEventListener('focus', () => showTrendTooltip(marginPointElement, values[index], dates[index]));
+        marginPointElement.addEventListener('blur', hideTrendTooltip);
       }});
     }}
     let latestIndex = -1;
@@ -1194,20 +1316,84 @@ def get_public_statement_page(
         pointsFromLatest += 1;
       }}
     }}
+    const pointLabelBounds = [];
+    const amountLabelsByIndex = new Map();
     values.forEach((value, index) => {{
       const point = points[index];
       if (visibleDateLabelIndices.has(index)) appendSvgElement(svg, 'text', {{ x: padding + (index + 0.5) * spacing, y: bottom + 22, 'text-anchor': 'middle' }}, dates[index].slice(2).replaceAll('-', '/'));
       if (value === null) return;
-      const pointElement = appendSvgElement(svg, 'circle', {{ class: 'trend-point' + (index === latestIndex ? ' trend-point-latest' : ''), cx: point.x, cy: point.y, r: index === latestIndex ? 4.5 : 3.5, tabindex: '0', 'aria-label': dates[index] + ': ' + formatValue(value) + ' ' + unit }});
+      const pointElement = appendSvgElement(svg, 'circle', {{ class: 'trend-point', cx: point.x, cy: point.y, r: 3.5, tabindex: '0', 'aria-label': dates[index] + ': ' + formatValue(value) + ' ' + unit }});
       pointElement.addEventListener('mouseenter', () => showTrendTooltip(pointElement, value, dates[index]));
       pointElement.addEventListener('mouseleave', hideTrendTooltip);
       pointElement.addEventListener('focus', () => showTrendTooltip(pointElement, value, dates[index]));
       pointElement.addEventListener('blur', hideTrendTooltip);
       if (visiblePointLabelIndices.has(index)) {{
-        appendSvgElement(svg, 'text', {{ class: 'trend-point-label', x: point.x, y: point.y - 14, 'text-anchor': 'middle' }}, formatValue(value));
-        if (isGrossProfit && grossMargins[index] !== null) appendSvgElement(svg, 'text', {{ class: 'trend-margin-label', x: point.x, y: point.y + 22, 'text-anchor': 'middle' }}, '{escape("毛利率" if language == "zh" else "Gross margin")}: ' + grossMargins[index].toFixed(2) + '%');
+        const valueLabel = appendSvgElement(svg, 'text', {{ class: 'trend-point-label', x: point.x, y: point.y - 14, 'text-anchor': 'middle' }}, formatValue(value));
+        amountLabelsByIndex.set(index, {{ element: valueLabel, boundsIndex: pointLabelBounds.length }});
+        pointLabelBounds.push(valueLabel.getBBox());
       }}
     }});
+    if (hasMarginSeries) {{
+      const occupiedLabelBounds = [...pointLabelBounds];
+      const marginLabelsBelowPoint = new Set();
+      const overlapsLabel = (candidate) => occupiedLabelBounds.some((occupied) =>
+        candidate.x < occupied.x + occupied.width + 3
+        && candidate.x + candidate.width + 3 > occupied.x
+        && candidate.y < occupied.y + occupied.height + 3
+        && candidate.y + candidate.height + 3 > occupied.y
+      );
+      grossMargins.forEach((margin, index) => {{
+        const point = marginPoints[index];
+        if (margin === null || point === null || !visiblePointLabelIndices.has(index)) return;
+        const label = appendSvgElement(svg, 'text', {{ class: 'trend-margin-label', x: point.x, y: point.y - 8, 'text-anchor': 'middle' }}, margin.toFixed(2) + '%');
+        const amountLabelEntry = amountLabelsByIndex.get(index);
+        const amountLabel = amountLabelEntry?.element;
+        const amountPoint = points[index];
+        if (amountLabel && amountPoint) {{
+          const marginLabelBounds = label.getBBox();
+          const amountLabelBounds = amountLabel.getBBox();
+          const labelsOverlap = marginLabelBounds.x < amountLabelBounds.x + amountLabelBounds.width + 3
+            && marginLabelBounds.x + marginLabelBounds.width + 3 > amountLabelBounds.x
+            && marginLabelBounds.y < amountLabelBounds.y + amountLabelBounds.height + 3
+            && marginLabelBounds.y + marginLabelBounds.height + 3 > amountLabelBounds.y;
+          const pointsClose = Math.abs(point.x - amountPoint.x) < 32 && Math.abs(point.y - amountPoint.y) < 36;
+          if ((labelsOverlap || pointsClose) && point.y > amountPoint.y) {{
+            marginLabelsBelowPoint.add(index);
+          }} else if (labelsOverlap || pointsClose) {{
+            amountLabel.setAttribute('y', amountPoint.y + 18);
+            const updatedBounds = amountLabel.getBBox();
+            pointLabelBounds[amountLabelEntry.boundsIndex] = updatedBounds;
+            occupiedLabelBounds[amountLabelEntry.boundsIndex] = updatedBounds;
+          }}
+        }}
+        if (marginLabelsBelowPoint.has(index)) {{
+          label.setAttribute('y', point.y + 18);
+          occupiedLabelBounds.push(label.getBBox());
+          return;
+        }}
+        let placed = false;
+        const horizontalOffsets = [0, -10, 10, -20, 20];
+        for (let lift = 0; lift <= 56 && !placed; lift += 14) {{
+          for (const offset of horizontalOffsets) {{
+            const x = point.x + offset;
+            const y = point.y - 8 - lift;
+            label.setAttribute('x', x);
+            label.setAttribute('y', y);
+            const bounds = label.getBBox();
+            const insidePlot = bounds.x >= padding - 2 && bounds.x + bounds.width <= axisRight + 2;
+            if (insidePlot && bounds.y >= plotTop - 2 && !overlapsLabel(bounds)) {{
+              occupiedLabelBounds.push(bounds);
+              placed = true;
+              break;
+            }}
+          }}
+        }}
+        if (!placed) {{
+          label.setAttribute('x', point.x);
+          label.setAttribute('y', point.y - 8);
+        }}
+      }});
+    }}
   }}
   function renderExpandedTrendCharts() {{
     if (activeTrendItemId !== null) renderTrendChart(activeTrendItemId);
@@ -1264,7 +1450,7 @@ def get_public_statement_page(
       const raw = Number(cell.dataset.amount);
       if (!Number.isFinite(raw)) return;
       if (raw === 0) {{
-        cell.textContent = '—';
+        cell.textContent = cell.dataset.zeroDisplay === 'blank' ? '\u00a0' : '—';
         return;
       }}
       const perShare = cell.dataset.perShare === 'true';

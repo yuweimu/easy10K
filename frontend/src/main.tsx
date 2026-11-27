@@ -219,6 +219,26 @@ function getIndentLevel(itemId: number, chartById: Map<number, ChartItem>): numb
   return level;
 }
 
+function makeYAxisTicks(min: number, max: number, maxLabels = 6): number[] {
+  const span = max - min || 1;
+  const rawStep = span / (maxLabels - 1);
+  let magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalizedStep = rawStep / magnitude;
+  let step = (normalizedStep <= 1 ? 1 : normalizedStep <= 2 ? 2 : normalizedStep <= 5 ? 5 : 10) * magnitude;
+
+  let low = Math.floor(min / step) * step;
+  let high = Math.ceil(max / step) * step;
+  while ((high - low) / step + 1 > maxLabels) {
+    const normalized = step / magnitude;
+    step = (normalized < 2 ? 2 : normalized < 5 ? 5 : 10) * magnitude;
+    if (step / magnitude >= 10) magnitude *= 10;
+    low = Math.floor(min / step) * step;
+    high = Math.ceil(max / step) * step;
+  }
+  const count = Math.round((high - low) / step) + 1;
+  return Array.from({ length: count }, (_, index) => Number((low + index * step).toPrecision(12)));
+}
+
 function AmountTrend({ item, dates, unit, showDecimals, language, expanded = false, onClose }: {
   item: GroupedReportItem;
   dates: string[];
@@ -256,8 +276,9 @@ function AmountTrend({ item, dates, unit, showDecimals, language, expanded = fal
   if (!valid.length) return <span className="trend-empty">—</span>;
   const min = Math.min(...valid);
   const max = Math.max(...valid);
-  const axisMin = Math.min(0, min);
-  const axisMax = Math.max(0, max);
+  const axisTicks = makeYAxisTicks(Math.min(0, min), Math.max(0, max));
+  const axisMin = axisTicks[0];
+  const axisMax = axisTicks[axisTicks.length - 1];
   const range = axisMax - axisMin || 1;
   const plotBottom = expanded && min < 0 ? bottom - 28 : bottom;
   const yFor = (value: number) => plotBottom - ((value - axisMin) / range) * (plotBottom - plotTop);
@@ -275,8 +296,14 @@ function AmountTrend({ item, dates, unit, showDecimals, language, expanded = fal
       {expanded && <>
         <text x={padding + 8} y={20} fontWeight="700">单位：{unit}</text>
         <line className="trend-axis" x1={padding} x2={padding} y1={axisTop} y2={bottom} />
-        <line className="trend-axis" x1={padding} x2={axisRight} y1={yFor(0)} y2={yFor(0)} />
-        <text x={padding - 10} y={yFor(0) + 4} textAnchor="end">0</text>
+        {axisTicks.map((tick) => (
+          <g key={tick}>
+            <line className="trend-axis" x1={padding} x2={axisRight} y1={yFor(tick)} y2={yFor(tick)} />
+            <text x={padding - 10} y={yFor(tick) + 4} textAnchor="end">
+              {new Intl.NumberFormat(language === "zh" ? "zh-CN" : "en-US", { maximumFractionDigits: 3 }).format(tick)}
+            </text>
+          </g>
+        ))}
         {dates.map((date, index) => dateLabelIndices.has(index) && (
           <text key={date} x={padding + (index + 0.5) * columnSpacing}
             y={bottom + 16} textAnchor="middle">
