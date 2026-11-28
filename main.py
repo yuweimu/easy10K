@@ -517,7 +517,7 @@ def get_public_statement_page(
             not is_other_profit_loss_group
             and (
                 is_first_level_parent
-                or (statement == "income_statement" and item_id in {51, 54, CALCULATED_GROSS_PROFIT_ID})
+                or (statement == "income_statement" and item_id in {51, 54})
             )
         )
         group_class = " item-row-group" if is_highlighted_statement_row else ""
@@ -589,7 +589,7 @@ def get_public_statement_page(
         )
     if statement == "income_statement" and other_profit_loss_group_enabled:
         table_notes.append(
-            "(2) “其他非主营业务损益”并非财务报表中的正式列示项目，本表格为突出经营性科目、改善表格阅读体验而引入。"
+            "(2) “其他非主营业务损益”并非财务报表中的正式列示项目，引入该行合并展示非主营业务损益、投资及减值相关损益，以突出经营性科目、改善表格阅读体验。"
             if language == "zh"
             else "(2) Other profit and loss items are not a formal statement line item; this group is included to improve the clarity and readability of the table as a whole."
         )
@@ -760,7 +760,7 @@ def get_public_statement_page(
             return date
         year, month, _day = match.groups()
         label = period_caption_labels[month]
-        return f"{year}年{label}" if language == "zh" else f"{label} {year}"
+        return f"{year}{label}" if language == "zh" else f"{label} {year}"
 
     amount_unit_options = "".join(
         f"<option value=\"{unit}\"{' selected' if unit == default_amount_unit else ''}>{unit if language == 'zh' else unit + ' CNY'}</option>"
@@ -883,31 +883,33 @@ def get_public_statement_page(
     .table-wrap {{ overflow-x: auto; margin-top: -1px; background: #fff; border: 1px solid #d9dfeb; border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; box-shadow: 0 2px 6px #20283b06, 0 12px 32px #20283b05; }}
     .table-note {{ margin: 12px 2px 0; color: #737c8e; }}
     .table-note h2 {{ margin: 0 0 3px; color: #505a70; font-size: .82rem; font-weight: 700; }}
-    .table-note p {{ margin: 0; font-size: .8rem; line-height: 1.55; }}
+    .table-note p {{ margin: 0; font-size: .86rem; line-height: 1.55; }}
     table {{ border-collapse: collapse; min-width: 100%; table-layout: fixed; width: 100%; }}
-    th, td {{ border-top: 1px solid #eceef4; padding: 11px 10px; text-align: left; white-space: nowrap; }}
+    th, td {{ border-top: 1px solid #eceef4; padding: 6px 4px; text-align: left; white-space: nowrap; }}
     thead th:first-child, th.item-name {{ box-sizing: border-box; width: {item_name_column_width}px; min-width: {item_name_column_width}px; max-width: {item_name_column_width}px; overflow: hidden; text-overflow: ellipsis; }}
     th.item-name {{ display: flex; min-width: 0; align-items: center; }}
     th.item-name > .item-toggle, th.item-name > .item-toggle-placeholder, th.item-name > .trend-toggle {{ flex: 0 0 auto; }}
     th.item-name > span[lang] {{ min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
     col.item-name-column {{ width: {item_name_column_width}px; }}
-    th.amount-column, td.amount-column {{ min-width: 110px; padding-left: 6px; padding-right: 6px; }}
+    th.amount-column, td.amount-column {{ min-width: 110px; padding-left: 3px; padding-right: 3px; }}
     col.amount-column {{ width: 120px; }}
-    th {{ background: #2f3a57; color: #f5f7ff; border-top-color: #435273; font-size: .72rem; font-weight: 550; letter-spacing: .04em; text-transform: uppercase; }}
+    th {{ background: #2f3a57; color: #f5f7ff; border-top-color: #435273; font-size: .84rem; font-weight: 550; line-height: 12px; letter-spacing: .04em; text-transform: uppercase; }}
     thead th, thead th.amount-column {{ text-align: center; }}
-    td {{ color: #505a70; font-size: .84rem; }}
-    .item-name {{ color: #fff; font-size: 0.88rem; font-weight: 500; text-transform: none; }}
+    .table-wrap thead th {{ padding-top: 10px; padding-bottom: 10px; font-size: .96rem; line-height: 18px; }}
+    td {{ color: #505a70; font-size: 1rem; line-height: 15px; }}
+    .item-name {{ color: #fff; font-size: 1rem; font-weight: 400; line-height: 15px; text-transform: none; }}
     .gross-profit-row .item-name > span[lang] {{ font-style: italic; }}
+    .item-row[data-item-id="{OTHER_PROFIT_LOSS_GROUP_ID}"] .item-name > span[lang] {{ font-style: italic; }}
     .item-row {{ transition: background-color 120ms ease; }}
-    .income-classification-row > th, .income-classification-row > td {{ padding-top: 7px; padding-bottom: 7px; }}
+    .income-classification-row > th, .income-classification-row > td {{ padding-top: 6px; padding-bottom: 6px; }}
     .item-row:hover {{ background: #f1f3fb; }}
     .item-row-group {{ background: #f0f1f8; }}
     .item-row-group > th {{ color: #fff; font-weight: 750; }}
     .item-row-group > th, .item-row-group > td {{ border-top-color: #b8bfd2; border-bottom: 1px solid #b8bfd2; }}
-    .item-toggle {{ width: 16px; margin-right: 8px; padding: 0; border: 0; background: transparent; color: #d8d3ff; cursor: pointer; font-size: .72rem; }}
+    .item-toggle {{ width: 16px; margin-right: 3px; padding: 0; border: 0; background: transparent; color: #d8d3ff; cursor: pointer; font-size: .72rem; }}
     .item-toggle:hover {{ color: #fff; background: transparent; }}
-    .item-toggle-placeholder {{ display: inline-block; width: 16px; margin-right: 8px; }}
-    .trend-toggle {{ display: inline-flex; width: 22px; height: 22px; min-height: 0; align-items: center; justify-content: center; margin-left: 6px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #85849b; cursor: pointer; vertical-align: middle; }}
+    .item-toggle-placeholder {{ display: inline-block; width: 16px; margin-right: 3px; }}
+    .trend-toggle {{ display: inline-flex; width: 22px; height: 22px; min-height: 0; align-items: center; justify-content: center; margin-left: 2px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #85849b; cursor: pointer; vertical-align: middle; }}
     .trend-toggle:hover, .trend-toggle[aria-expanded="true"] {{ background: #eeecf8; color: #51488e; }}
     .trend-toggle:focus-visible, .trend-modal-close:focus-visible {{ outline: 2px solid #6860ad; outline-offset: 2px; }}
     .trend-detail-row {{ display: none; }}
