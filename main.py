@@ -15,6 +15,7 @@ from item_ids import (
     EPS_DILUTED_ID,
     EPS_ID,
     OPERATING_COST_ID,
+    OPERATING_COST_DETAIL_ID,
     OPERATING_REVENUE_DETAIL_ID,
     OPERATING_REVENUE_ID,
 )
@@ -271,10 +272,8 @@ def get_public_statement_page(
     if statement == "income_statement":
         calculated_item_labels[CALCULATED_GROSS_PROFIT_ID] = ("毛利润", "Gross profit")
         for date in dates:
-            revenue_item = latest_items.get((date, OPERATING_REVENUE_ID))
-            if revenue_item is None:
-                revenue_item = latest_items.get((date, OPERATING_REVENUE_DETAIL_ID))
-            cost_item = latest_items.get((date, OPERATING_COST_ID))
+            revenue_item = latest_items.get((date, OPERATING_REVENUE_DETAIL_ID))
+            cost_item = latest_items.get((date, OPERATING_COST_DETAIL_ID))
             if not revenue_item or not cost_item:
                 continue
             try:
@@ -301,20 +300,26 @@ def get_public_statement_page(
     root_item_ids = [item_id for item_id in root_item_ids if item_id != CALCULATED_GROSS_PROFIT_ID]
     ordered_item_ids: list[int] = []
     indent_levels: dict[int, int] = {}
+    has_calculated_gross_profit = any(
+        (date, CALCULATED_GROSS_PROFIT_ID) in latest_items for date in dates
+    )
 
     def append_item(item_id: int, indent_level: int) -> None:
         ordered_item_ids.append(item_id)
         indent_levels[item_id] = indent_level
         for child_id in sorted(children_by_parent.get(item_id, [])):
             append_item(child_id, indent_level + 1)
+            if (
+                statement == "income_statement"
+                and item_id == OPERATING_COST_ID
+                and child_id == OPERATING_COST_DETAIL_ID
+                and has_calculated_gross_profit
+            ):
+                ordered_item_ids.append(CALCULATED_GROSS_PROFIT_ID)
+                indent_levels[CALCULATED_GROSS_PROFIT_ID] = indent_level + 1
 
     for root_id in root_item_ids:
         append_item(root_id, 0)
-        if root_id == OPERATING_COST_ID and any(
-            (date, CALCULATED_GROSS_PROFIT_ID) in latest_items for date in dates
-        ):
-            ordered_item_ids.append(CALCULATED_GROSS_PROFIT_ID)
-            indent_levels[CALCULATED_GROSS_PROFIT_ID] = 0
     other_profit_loss_group_enabled = False
     other_profit_loss_detail_ids: set[int] = set()
     if statement == "income_statement":
@@ -359,13 +364,10 @@ def get_public_statement_page(
                 item_id for item_id in ordered_item_ids
                 if item_id not in other_profit_loss_detail_ids
             ]
-            if CALCULATED_GROSS_PROFIT_ID in filtered_item_ids:
-                filtered_position = filtered_item_ids.index(CALCULATED_GROSS_PROFIT_ID) + 1
-            else:
-                filtered_position = sum(
-                    item_id not in other_profit_loss_detail_ids
-                    for item_id in ordered_item_ids[:group_position]
-                )
+            filtered_position = sum(
+                item_id not in other_profit_loss_detail_ids
+                for item_id in ordered_item_ids[:group_position]
+            )
             ordered_item_ids = (
                 filtered_item_ids[:filtered_position]
                 + [OTHER_PROFIT_LOSS_GROUP_ID]
@@ -373,8 +375,10 @@ def get_public_statement_page(
                 + filtered_item_ids[filtered_position:]
             )
             indent_levels[OTHER_PROFIT_LOSS_GROUP_ID] = 0
+            for item_id in details_in_order:
+                indent_levels[item_id] += 1
             calculated_item_labels[OTHER_PROFIT_LOSS_GROUP_ID] = (
-                "其他损益类科目", "Other profit and loss items"
+                "\u00a0加：其他非主营业务损益", "Other profit and loss items"
             )
             other_profit_loss_group_enabled = True
     chart_items = {item.item_id: item for item in line_item_chart._items_by_id.values()}
@@ -404,7 +408,7 @@ def get_public_statement_page(
         83: "三、筹资活动产生的现金流量",
         84: "四、汇率变动对现金及现金等价物的影响",
         85: "五、现金及现金等价物净增加额",
-        86: "\u00a0\u00a0\u00a0加：期初现金及现金等价物余额",
+        86: "\u00a0\u00a0加：期初现金及现金等价物余额",
         87: "六、期末现金及现金等价物余额",
     }
     income_statement_label_overrides = {
@@ -453,7 +457,9 @@ def get_public_statement_page(
             label_cn = income_statement_label_overrides.get(item_id, label_cn)
         item_label = label_cn if language == "zh" else label_en
         item_name_markup = escape(item_label) + (
-            "<sup>(1)</sup>" if item_id == CALCULATED_GROSS_PROFIT_ID else ""
+            "<sup>(1)</sup>" if item_id == CALCULATED_GROSS_PROFIT_ID
+            else "<sup>(2)</sup>" if item_id == OTHER_PROFIT_LOSS_GROUP_ID
+            else ""
         )
         item_language = "zh-CN" if language == "zh" else "en"
         per_share = statement == "income_statement" and item_id in {EPS_ID, EPS_DILUTED_ID}
@@ -463,9 +469,9 @@ def get_public_statement_page(
         if item_id in {CALCULATED_GROSS_PROFIT_ID, 51, 56}:
             for date in dates:
                 gross_profit = latest_items.get((date, item_id), {}).get("amount")
-                revenue_item = latest_items.get((date, OPERATING_REVENUE_ID))
+                revenue_item = latest_items.get((date, OPERATING_REVENUE_DETAIL_ID))
                 if revenue_item is None:
-                    revenue_item = latest_items.get((date, OPERATING_REVENUE_DETAIL_ID))
+                    revenue_item = latest_items.get((date, OPERATING_REVENUE_ID))
                 revenue = revenue_item.get("amount") if revenue_item else None
                 try:
                     if revenue is not None and Decimal(str(revenue)) != 0:
@@ -481,7 +487,7 @@ def get_public_statement_page(
         is_other_profit_loss_detail = item_id in other_profit_loss_detail_ids
         initially_collapsed = (
             (statement == "cash_flow_statement" and item_id in {82, 83})
-            or (statement == "income_statement" and item_id == 57)
+            or (statement == "income_statement" and item_id in {44, 57, 58, 4225})
         )
         toggle = (
             f'<button type="button" class="item-toggle" data-other-profit-loss-toggle '
@@ -507,12 +513,24 @@ def get_public_statement_page(
             '</svg></button>'
         )
         is_first_level_parent = item_id in children_by_parent and indent_levels[item_id] == 0
-        group_class = " item-row-group" if is_first_level_parent or is_other_profit_loss_group else ""
+        is_highlighted_statement_row = (
+            not is_other_profit_loss_group
+            and (
+                is_first_level_parent
+                or (statement == "income_statement" and item_id in {51, 54, CALCULATED_GROSS_PROFIT_ID})
+            )
+        )
+        group_class = " item-row-group" if is_highlighted_statement_row else ""
         classification_class = " income-classification-row" if is_income_classification_heading else ""
         detail_class = " other-profit-loss-detail" if is_other_profit_loss_detail else ""
+        gross_profit_class = " gross-profit-row" if item_id == CALCULATED_GROSS_PROFIT_ID else ""
         hidden_attribute = " hidden" if is_other_profit_loss_detail else ""
+        parent_attribute = (
+            f' data-parent-id="{OPERATING_COST_ID}"'
+            if item_id == CALCULATED_GROSS_PROFIT_ID else ""
+        )
         row_html = (
-            f'<tr class="item-row{group_class}{classification_class}{detail_class}" data-item-id="{item_id}"{hidden_attribute}><th scope="row" class="item-name" title="{escape(item_label, quote=True)}" style="padding-left: {10 + indent_levels[item_id] * 18:g}px">{toggle}'
+            f'<tr class="item-row{group_class}{classification_class}{detail_class}{gross_profit_class}" data-item-id="{item_id}"{parent_attribute}{hidden_attribute}><th scope="row" class="item-name" title="{escape(item_label, quote=True)}" style="padding-left: {10 + indent_levels[item_id] * 18:g}px">{toggle}'
             f"<span lang=\"{item_language}\">{item_name_markup}</span>"
             f"{trend_toggle}</th>{cells}</tr>"
         )
@@ -560,15 +578,22 @@ def get_public_statement_page(
         for index, (title_zh, title_en) in enumerate(recommendation_groups)
     )
     default_amount_unit = "亿元" if language == "zh" else "百万元"
-    gross_profit_note = ""
+    table_notes = []
     if statement == "income_statement" and any(
         (date, CALCULATED_GROSS_PROFIT_ID) in latest_items for date in dates
     ):
-        gross_profit_note = (
-            "(1) 毛利润为便于阅读而添加的计算项，按营业收入减营业成本计算，并非财务报表通常单独列示的项目。"
+        table_notes.append(
+            "(1) “毛利润”通常并非财务报表单独列示的项目，本表格为便于阅读而引入，由营业收入减营业成本计算得出。"
             if language == "zh"
             else "(1) Gross profit is shown as a convenience calculation (operating revenue minus operating costs); it is not usually presented as a separate line item in the statement."
         )
+    if statement == "income_statement" and other_profit_loss_group_enabled:
+        table_notes.append(
+            "(2) “其他非主营业务损益”并非财务报表中的正式列示项目，本表格为突出经营性科目、改善表格阅读体验而引入。"
+            if language == "zh"
+            else "(2) Other profit and loss items are not a formal statement line item; this group is included to improve the clarity and readability of the table as a whole."
+        )
+    table_notes_markup = "".join(f"<p>{escape(note)}</p>" for note in table_notes)
 
     def equation_number(value: object) -> str | None:
         """Format a reported amount using the unit shown by the page."""
@@ -618,8 +643,33 @@ def get_public_statement_page(
         result_with_unit = f"{parent_value}({default_amount_unit})"
         actual_equations.append((parent_cn, parent_en, f"{result_with_unit} =" + "".join(terms_cn), f"{result_with_unit} =" + "".join(terms_en)))
 
+    if statement == "income_statement":
+        net_profit_value = equation_number(latest_items.get((latest_date, 56), {}).get("amount"))
+        net_profit_cn, net_profit_en = item_label(56)
+        for child_ids in ((560101, 560103), (560201, 560203)):
+            child_values = [
+                equation_number(latest_items.get((latest_date, child_id), {}).get("amount"))
+                for child_id in child_ids
+            ]
+            if net_profit_value is None or any(value is None for value in child_values):
+                continue
+            children_cn = [item_label(child_id)[0] for child_id in child_ids]
+            children_en = [item_label(child_id)[1] for child_id in child_ids]
+            result_with_unit = f"{net_profit_value}({default_amount_unit}) = "
+            formula_cn = result_with_unit + " + ".join(
+                f"{label} {value}" for label, value in zip(children_cn, child_values)
+            )
+            formula_en = result_with_unit + " + ".join(
+                f"{label} {value}" for label, value in zip(children_en, child_values)
+            )
+            actual_equations.append((net_profit_cn, net_profit_en, formula_cn, formula_en))
+
     actual_equations.sort(
-        key=lambda equation: (0 if any(marker in equation[0] for marker in ("合计", "总计", "净额", "余额")) else 1)
+        key=lambda equation: (
+            0 if any(marker in equation[2] for marker in ("持续经营净利润", "归属于母公司股东的净利润"))
+            else 1 if any(marker in equation[0] for marker in ("合计", "总计", "净额", "余额", "净利润"))
+            else 2
+        )
     )
     actual_equations = actual_equations[:10]
     equation_disclaimer_title = "数字可靠性校验" if language == "zh" else "Reliability checks"
@@ -847,6 +897,7 @@ def get_public_statement_page(
     thead th, thead th.amount-column {{ text-align: center; }}
     td {{ color: #505a70; font-size: .84rem; }}
     .item-name {{ color: #fff; font-size: 0.88rem; font-weight: 500; text-transform: none; }}
+    .gross-profit-row .item-name > span[lang] {{ font-style: italic; }}
     .item-row {{ transition: background-color 120ms ease; }}
     .income-classification-row > th, .income-classification-row > td {{ padding-top: 7px; padding-bottom: 7px; }}
     .item-row:hover {{ background: #f1f3fb; }}
@@ -953,7 +1004,7 @@ def get_public_statement_page(
     <thead><tr><th scope="col">{table_item_label}</th>{''.join(f'<th scope="col" data-reporting-date="{escape(date)}">{escape(reporting_date_caption(date))}</th>' for date in dates)}</tr></thead>
     <tbody>{''.join(rows)}</tbody>
   </table></div>
-  {f'<section class="table-note"><h2>{"说明" if language == "zh" else "Note"}</h2><p>{escape(gross_profit_note)}</p></section>' if gross_profit_note else ''}
+  {f'<section class="table-note"><h2>{"说明" if language == "zh" else "Note"}</h2>{table_notes_markup}</section>' if table_notes else ''}
   <div class="trend-modal" id="trend-modal" hidden aria-hidden="true">
     <div class="trend-modal-backdrop" data-trend-modal-close></div>
     <div class="trend-modal-dialog" role="dialog" aria-modal="true" aria-label="{escape('趋势图' if language == 'zh' else 'Trend chart', quote=True)}">
@@ -1093,10 +1144,19 @@ def get_public_statement_page(
   function renderItemHierarchy() {{
     itemRows.forEach((row) => {{
       if (row.classList.contains('other-profit-loss-detail')) {{
-        row.hidden = !otherProfitLossExpanded;
+        let parentId = Number(row.dataset.parentId || Math.floor(Number(row.dataset.itemId) / 100));
+        let hidden = !otherProfitLossExpanded;
+        while (!hidden && parentId > 0) {{
+          if (collapsedItems.has(parentId)) {{
+            hidden = true;
+            break;
+          }}
+          parentId = Math.floor(parentId / 100);
+        }}
+        row.hidden = hidden;
         return;
       }}
-      let parentId = Math.floor(Number(row.dataset.itemId) / 100);
+      let parentId = Number(row.dataset.parentId || Math.floor(Number(row.dataset.itemId) / 100));
       let hidden = false;
       while (parentId > 0) {{
         if (collapsedItems.has(parentId)) {{
@@ -1114,7 +1174,7 @@ def get_public_statement_page(
       toggle.setAttribute('aria-expanded', String(!collapsed));
     }});
   }}
-  const collapsedItems = new Set({json.dumps([82, 83] if statement == "cash_flow_statement" else [57] if statement == "income_statement" else [])});
+  const collapsedItems = new Set({json.dumps([82, 83] if statement == "cash_flow_statement" else [44, 57, 58, 4225] if statement == "income_statement" else [])});
   let otherProfitLossExpanded = false;
   const otherProfitLossToggle = document.querySelector('[data-other-profit-loss-toggle]');
   otherProfitLossToggle?.addEventListener('click', () => {{

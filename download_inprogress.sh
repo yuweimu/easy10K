@@ -39,7 +39,7 @@ fi
 stock_codes=$(psql "$database_url" -AtX -v ON_ERROR_STOP=1 -c \
     "SELECT stock_code
        FROM stock_metadata
-      WHERE enrollment = 'Pending'
+      WHERE enrollment = 'Pending' AND stock_code >= '002371'
       ORDER BY stock_code;")
 
 if [[ -z "$stock_codes" ]]; then
@@ -54,7 +54,7 @@ while IFS= read -r stock_code; do
     [[ -n "$stock_code" ]] || continue
     stock_count=$((stock_count + 1))
     echo "=== Downloading $stock_code ==="
-    if ! "$python" "$script_dir/cninfo_download.py" --refresh "$stock_code"; then
+    if ! "$python" "$script_dir/cninfo_download.py" --delay 5,10 --refresh "$stock_code"; then
         echo "Failed to download $stock_code; continuing." >&2
         failed_count=$((failed_count + 1))
     fi
