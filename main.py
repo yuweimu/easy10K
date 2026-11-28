@@ -551,7 +551,7 @@ def get_public_statement_page(
     )
     title = f"{stock_name} ({stock_code}) {localized_title} | Easy10K"
     description = localized_description
-    table_item_label = "财务项目" if language == "zh" else "Financial item"
+    table_item_label = "项目" if language == "zh" else "Financial item"
     language_label = "语言" if language == "zh" else "Language"
     home_label = "首页" if language == "zh" else "Dashboard"
     amount_unit_label = "金额单位" if language == "zh" else "Amount unit"
@@ -896,6 +896,9 @@ def get_public_statement_page(
     th {{ background: #2f3a57; color: #f5f7ff; border-top-color: #435273; font-size: .84rem; font-weight: 550; line-height: 12px; letter-spacing: .04em; text-transform: uppercase; }}
     thead th, thead th.amount-column {{ text-align: center; }}
     .table-wrap thead th {{ padding-top: 10px; padding-bottom: 10px; font-size: .96rem; line-height: 18px; }}
+    .table-wrap thead th.table-caption-cell {{ display: flex; align-items: center; justify-content: center; gap: 8px; }}
+    .hierarchy-toggle-all {{ padding: 3px 5px; border: 1px solid #8792ad; border-radius: 4px; background: #394565; color: #f5f7ff; cursor: pointer; font: inherit; font-size: .68rem; line-height: 1.2; white-space: nowrap; }}
+    .hierarchy-toggle-all:hover {{ background: #4b587b; }}
     td {{ color: #505a70; font-size: 1rem; line-height: 15px; }}
     .item-name {{ color: #fff; font-size: 1rem; font-weight: 400; line-height: 15px; text-transform: none; }}
     .gross-profit-row .item-name > span[lang] {{ font-style: italic; }}
@@ -1003,7 +1006,7 @@ def get_public_statement_page(
   </div>
   <div class="table-wrap"><table data-date-count="{len(dates)}" style="--date-column-count: {len(dates)}; --date-column-min-width: 110px">
     <colgroup><col class="item-name-column">{''.join(f'<col class="amount-column" data-reporting-date="{escape(date, quote=True)}">' for date in dates)}</colgroup>
-    <thead><tr><th scope="col">{table_item_label}</th>{''.join(f'<th scope="col" data-reporting-date="{escape(date)}">{escape(reporting_date_caption(date))}</th>' for date in dates)}</tr></thead>
+    <thead><tr><th scope="col" class="table-caption-cell"><span>{table_item_label}</span><button type="button" class="hierarchy-toggle-all" data-hierarchy-toggle-all aria-expanded="false">{escape("全部展开" if language == "zh" else "Expand all")}</button></th>{''.join(f'<th scope="col" data-reporting-date="{escape(date)}">{escape(reporting_date_caption(date))}</th>' for date in dates)}</tr></thead>
     <tbody>{''.join(rows)}</tbody>
   </table></div>
   {f'<section class="table-note"><h2>{"说明" if language == "zh" else "Note"}</h2>{table_notes_markup}</section>' if table_notes else ''}
@@ -1033,6 +1036,9 @@ def get_public_statement_page(
   const periodButtons = document.querySelectorAll('.period-filters button');
   const itemRows = document.querySelectorAll('[data-item-id]');
   const itemToggles = document.querySelectorAll('[data-item-toggle]');
+  const hierarchyToggleAll = document.querySelector('[data-hierarchy-toggle-all]');
+  const expandAllLabel = {json.dumps("全部展开" if language == "zh" else "Expand all", ensure_ascii=False)};
+  const collapseAllLabel = {json.dumps("全部收起" if language == "zh" else "Collapse all", ensure_ascii=False)};
   const amountUnitPreferenceKey = 'easy10k.amountUnit';
   const showDecimalsPreferenceKey = 'easy10k.showDecimals';
   const periodEndingPreferenceKey = 'easy10k.periodEnding';
@@ -1175,10 +1181,34 @@ def get_public_statement_page(
       toggle.textContent = collapsed ? '▶' : '▼';
       toggle.setAttribute('aria-expanded', String(!collapsed));
     }});
+    const allExpanded = Array.from(itemToggles).every((toggle) =>
+      !collapsedItems.has(Number(toggle.dataset.itemToggle))
+    ) && (!otherProfitLossToggle || otherProfitLossExpanded);
+    if (hierarchyToggleAll) {{
+      hierarchyToggleAll.textContent = allExpanded ? collapseAllLabel : expandAllLabel;
+      hierarchyToggleAll.setAttribute('aria-expanded', String(allExpanded));
+    }}
   }}
   const collapsedItems = new Set({json.dumps([82, 83] if statement == "cash_flow_statement" else [44, 57, 58, 4225] if statement == "income_statement" else [])});
   let otherProfitLossExpanded = false;
   const otherProfitLossToggle = document.querySelector('[data-other-profit-loss-toggle]');
+  hierarchyToggleAll?.addEventListener('click', () => {{
+    const allExpanded = Array.from(itemToggles).every((toggle) =>
+      !collapsedItems.has(Number(toggle.dataset.itemToggle))
+    ) && (!otherProfitLossToggle || otherProfitLossExpanded);
+    if (allExpanded) {{
+      itemToggles.forEach((toggle) => collapsedItems.add(Number(toggle.dataset.itemToggle)));
+      otherProfitLossExpanded = false;
+    }} else {{
+      collapsedItems.clear();
+      otherProfitLossExpanded = true;
+    }}
+    if (otherProfitLossToggle) {{
+      otherProfitLossToggle.textContent = otherProfitLossExpanded ? '▼' : '▶';
+      otherProfitLossToggle.setAttribute('aria-expanded', String(otherProfitLossExpanded));
+    }}
+    renderItemHierarchy();
+  }});
   otherProfitLossToggle?.addEventListener('click', () => {{
     otherProfitLossExpanded = !otherProfitLossExpanded;
     otherProfitLossToggle.textContent = otherProfitLossExpanded ? '▼' : '▶';

@@ -148,7 +148,7 @@ const UI_TEXT = {
     financialStatements: "财务报表",
     companyReport: "公司报告",
     enterStockCode: "请输入股票代码以加载报告。",
-    financialItem: "财务项目",
+    financialItem: "项目",
     recentSearches: "最近搜索",
     availableStocks: "已有数据的股票",
     totalReports: "报告总数",
