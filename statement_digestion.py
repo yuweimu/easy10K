@@ -199,16 +199,16 @@ def parse_statement(markdown, chart, statement):
         return text
 
     def dynamic_other_item(parent_id):
-        """Register the non-zero ``其他`` child for a statement parent."""
+        """Resolve the context-specific ``其他`` child for a statement parent."""
         item_id = parent_id * 100 + 99
-        parent = chart._items_by_id[parent_id]
-        name = f"{parent.name}之其他项"
         item = chart._items_by_id.get(item_id)
         if item is None:
-            item = LineItem(name, item_id, f"Other item under {parent.english_name}")
+            item = LineItem("其他", item_id, "Other")
             chart._items_by_id[item_id] = item
-        chart.items[name] = item
-        chart.item_ids[name] = item_id
+        # The display name is shared by several IDs. Keep label resolution
+        # anchored to the current OCI parent rather than a global name lookup.
+        chart.items.setdefault("其他", item)
+        chart.item_ids.setdefault("其他", item_id)
         return item_id
 
     lines = markdown.splitlines()
@@ -313,14 +313,7 @@ def parse_statement(markdown, chart, statement):
                 item_id = INTEREST_INCOME_ID
             elif label == "其他" and oci_group in (OTHER_COMPREHENSIVE_GROUP_CURRENT_ID,
                                                     OTHER_COMPREHENSIVE_GROUP_NONCONTROLLING_ID):
-                column = statement_amount_column(cells)
-                amount_text = clean_cell(cells[column]) if len(cells) > column else ""
-                try:
-                    amount = parse_amount(amount_text) if amount_text else None
-                except ValueError:
-                    amount = None
-                if amount is not None and amount != 0:
-                    item_id = dynamic_other_item(oci_group)
+                item_id = dynamic_other_item(oci_group)
             if item_id in (FINANCE_INCOME_ID, FINANCE_INCOME_DETAIL_ID, INTEREST_INCOME_ID):
                 finance_details = True
             elif item_id is not None:

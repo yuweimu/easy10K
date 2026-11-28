@@ -148,7 +148,7 @@ const UI_TEXT = {
     financialStatements: "财务报表",
     companyReport: "公司报告",
     enterStockCode: "请输入股票代码以加载报告。",
-    financialItem: "财务项目",
+    financialItem: "项目",
     recentSearches: "最近搜索",
     availableStocks: "已有数据的股票",
     totalReports: "报告总数",
@@ -493,7 +493,7 @@ function App() {
     return recentSearches.filter((value) => !query || value.includes(query));
   }, [recentSearches, stockCode]);
   const [collapsedItemIds, setCollapsedItemIds] = useState<Set<number>>(
-    () => new Set(),
+    () => new Set(activeTab === "Balance Sheet" ? [110128, 1102, 21, 31] : activeTab === "Income Statement" ? [56] : []),
   );
   const allReportingDates = useMemo(
     () => Array.from(new Set(report.map((item) => item.reporting_date))).sort().reverse(),
@@ -625,7 +625,7 @@ function App() {
     setLoading(true);
     setReport([]);
     setPreviewDate(null);
-    setCollapsedItemIds(new Set());
+    setCollapsedItemIds(new Set(activeTab === "Balance Sheet" ? [110128, 1102, 21, 31] : activeTab === "Income Statement" ? [56] : []));
     setSourceSelection(null);
     setExpandedTrendId(null);
     setError(null);
@@ -969,7 +969,6 @@ function App() {
                           aria-label={`${collapsedItemIds.has(item.item_id) ? text.showChildren : text.hideChildren} ${item.label} ${text.childrenOf}`}
                           aria-expanded={!collapsedItemIds.has(item.item_id)}
                         >
-                          {collapsedItemIds.has(item.item_id) ? "▶" : "▼"}
                         </button>
                       ) : (
                         <span className="item-toggle-placeholder" />

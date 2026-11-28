@@ -222,6 +222,7 @@
 			57010105|其他权益工具投资公允价值变动|Changes in Fair Value of Investments in Other Equity Instruments
 			57010105|以公允价值计量且其变动计入其他综合收益的金融资产公允价值变动损益|Changes in Fair Value Gains/Losses of Financial Assets Measured at Fair Value through Other Comprehensive Income
 			57010107|企业自身信用风险公允价值变动|Changes in Fair Value Attributable to the Entity's Own Credit Risk
+			57010199|其他|Other
 		570103|将重分类进损益的其他综合收益|Other Comprehensive Income That May Be Reclassified to Profit or Loss
 		570103|以后将重分类进损益的其他综合收益|Other Comprehensive Income That May Be Reclassified to Profit or Loss
 			57010301|权益法下可转损益的其他综合收益|Share of Other Comprehensive Income of Equity-accounted Investees That May Be Reclassified to Profit or Loss
@@ -237,6 +238,7 @@
 			57010309|现金流量套期损益的有效部分|Effective Portion of Cash Flow Hedge Gains/Losses
 			57010311|外币财务报表折算差额|Foreign Currency Translation Differences
 			57010313|其他可重分类进损益的其他综合收益|Other Reclassifiable Other Comprehensive Income
+			57010399|其他|Other
 	5703|归属于少数股东的其他综合收益的税后净额|Other Comprehensive Income Attributable to Non-controlling Interests, Net of Tax
 
 58|综合收益总额|Total Comprehensive Income
