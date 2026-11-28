@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 line_item_chart = LineItemChart()
 REPORTS_DIR = Path(__file__).resolve().parent / "preprocessed"
 PROJECT_DIR = Path(__file__).resolve().parent
+STATEMENT_STYLES = (PROJECT_DIR / "report_view" / "statement.css").read_text(encoding="utf-8")
 SOURCE_CACHE_DIR = PROJECT_DIR / "reports" / ".source-cache"
 PUBLIC_STATEMENTS = {
     "balance-sheet": ("balance_sheet", "Balance Sheet", "资产负债表"),
@@ -524,6 +525,7 @@ def get_public_statement_page(
         group_class = " item-row-group" if is_highlighted_statement_row else ""
         classification_class = " income-classification-row" if is_income_classification_heading else ""
         detail_class = " other-profit-loss-detail" if is_other_profit_loss_detail else ""
+        other_profit_loss_group_class = " other-profit-loss-group" if is_other_profit_loss_group else ""
         gross_profit_class = " gross-profit-row" if item_id == CALCULATED_GROSS_PROFIT_ID else ""
         hidden_attribute = " hidden" if is_other_profit_loss_detail else ""
         parent_attribute = (
@@ -531,9 +533,9 @@ def get_public_statement_page(
             if item_id == CALCULATED_GROSS_PROFIT_ID else ""
         )
         row_html = (
-            f'<tr class="item-row{group_class}{classification_class}{detail_class}{gross_profit_class}" data-item-id="{item_id}"{parent_attribute}{hidden_attribute}><th scope="row" class="item-name" title="{escape(item_label, quote=True)}" style="padding-left: {10 + indent_levels[item_id] * 18:g}px">{toggle}'
+            f'<tr class="item-row{group_class}{classification_class}{detail_class}{other_profit_loss_group_class}{gross_profit_class}" data-item-id="{item_id}"{parent_attribute}{hidden_attribute}><th scope="row" class="item-name" title="{escape(item_label, quote=True)}" style="padding-left: {10 + indent_levels[item_id] * 18:g}px"><div class="item-name-inner">{toggle}'
             f"<span lang=\"{item_language}\">{item_name_markup}</span>"
-            f"{trend_toggle}</th>{cells}</tr>"
+            f"{trend_toggle}</div></th>{cells}</tr>"
         )
         trend_row = (
             f'<tr class="trend-detail-row{detail_class}" id="trend-{item_id}" data-trend-item-id="{item_id}" hidden>'
@@ -568,16 +570,6 @@ def get_public_statement_page(
         if re.fullmatch(r"\d{6}", str(entry.get("stock_code") or ""))
     }
     stock_directory_json = json.dumps(stock_directory, ensure_ascii=False).replace("<", "\\u003c")
-    recommendation_groups = (
-        ("高ROE企业", "High ROE companies"),
-        ("低负债企业", "Low-debt companies"),
-        ("高现金流企业", "High cash-flow companies"),
-        ("营收高增长企业", "High revenue-growth companies"),
-    )
-    recommendation_sections = "".join(
-        f'<section class="recommendation-group"><h3 class="recommendation-section-title">{escape(title_zh if language == "zh" else title_en)}</h3><div class="recommendation-grid" data-recommendation-source="recent" id="recent-stock-recommendations-{index}"></div></section>'
-        for index, (title_zh, title_en) in enumerate(recommendation_groups)
-    )
     default_amount_unit = "亿元" if language == "zh" else "百万元"
     table_notes = []
     if statement == "income_statement" and any(
@@ -807,164 +799,12 @@ def get_public_statement_page(
   <link rel="canonical" href="{page_url}">
   <script type="application/ld+json">{structured_data}</script>
   <style>
-    @view-transition {{ navigation: auto; }}
-    ::view-transition-old(root), ::view-transition-new(root) {{ animation-duration: 180ms; }}
-    html {{ font-size: 90%; }}
-    body {{ margin: 0; color: #20283b; background: #f3f5fb; font: 14.4px system-ui, sans-serif; }}
-    main {{ max-width: 1400px; margin: 0 auto; padding: 32px 20px 64px; }}
-    h1 {{ margin: 0 0 8px; font-size: 2.6rem; }}
-    p {{ color: #66718a; }}
-    .site-logo {{ margin-bottom: 0; color: #51488e; font-size: 2.2rem; font-weight: 850; letter-spacing: -.02em; line-height: 1; }}
-    .site-logo strong {{ background: linear-gradient(110deg, #51488e 0%, #7567c5 52%, #9b75d1 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }}
-    .site-logo span {{ margin-left: 8px; color: #737c8e; font-size: 1.35rem; font-weight: 700; letter-spacing: .04em; }}
-    .brand-line {{ display: flex; align-items: center; gap: 12px; }}
-    .brand-icon {{ display: inline-flex; width: 34px; height: 34px; flex: 0 0 34px; align-items: center; justify-content: center; padding: 7px; box-sizing: border-box; border-radius: 10px; background: linear-gradient(135deg, #51488e, #8877d0); color: #fff; box-shadow: 0 4px 12px #51488e26; }}
-    .brand-icon svg {{ display: block; width: 100%; height: 100%; }}
-    .page-header {{ position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }}
-    .page-header > div:first-child {{ width: 100%; }}
-    .title-row {{ display: flex; align-items: center; justify-content: space-between; gap: 20px; width: 100%; margin-top: 32px; }}
-    .page-tools {{ position: absolute; top: 0; right: 0; display: flex; align-items: flex-start; justify-content: flex-end; gap: 12px; }}
-    .stock-search {{ position: relative; display: flex; width: 247px; align-items: center; flex: 0 0 247px; gap: 7px; margin-left: auto; transform: translateY(-4px); }}
-    .stock-search input {{ width: 202px; height: 38px; padding: 0 11px; box-sizing: border-box; border: 1px solid #dce0e9; border-radius: 10px; background: #fff; color: #24283d; font: inherit; font-size: calc(.8rem + 2px); }}
-    .stock-search input:focus {{ outline: 2px solid #bcb4ed; outline-offset: 1px; border-color: #6860ad; }}
-    .stock-search > button {{ display: inline-flex; width: 38px; height: 38px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 10px; background: #6860ad; color: #fff; cursor: pointer; }}
-    .stock-search > button svg {{ width: 19px; height: 19px; }}
-    .stock-search > button:hover {{ background: #51488e; }}
-    .stock-suggestions {{ position: absolute; z-index: 10; top: calc(100% + 7px); right: 0; width: 247px; max-height: 280px; overflow-y: auto; padding: 5px; box-sizing: border-box; border: 1px solid #dce0e9; border-radius: 11px; background: #fff; box-shadow: 0 8px 24px #20283b1a; }}
-    .stock-suggestions[hidden] {{ display: none; }}
-    .stock-suggestion {{ display: flex; width: 100%; height: auto; align-items: center; justify-content: space-between; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: #343b50; cursor: pointer; font: inherit; font-size: calc(.8rem + 2px); text-align: left; }}
-    .stock-suggestion[hidden] {{ display: none; }}
-    .stock-suggestion:hover, .stock-suggestion:focus {{ background: #f0eef9; outline: none; }}
-    .stock-suggestion span:last-child {{ margin-left: 16px; color: #737c8e; }}
-    .recommendation-panel {{ margin: 32px 0 20px; padding: 20px 22px 16px; border: 1px solid #d9dfeb; border-radius: 16px; background: linear-gradient(145deg, #fff 0%, #faf9fd 100%); box-shadow: 0 10px 28px #30365912; }}
-    .recommendation-panel-title {{ display: flex; align-items: center; gap: 10px; margin: 0 0 12px; color: #343b50; font-size: 1.2rem; font-weight: 700; letter-spacing: .01em; }}
-    .recommendation-panel-title::before {{ width: 4px; height: 22px; flex: 0 0 4px; border-radius: 4px; background: linear-gradient(180deg, #6860ad, #a08fda); content: ''; }}
-    .recommendation-sections {{ display: block; min-width: 0; }}
-    .recommendation-group {{ display: grid; grid-template-columns: minmax(138px, 180px) minmax(0, 1fr); align-items: center; min-width: 0; min-height: 30px; padding: 8px 0; border-top: 1px solid #ecebf4; }}
-    .recommendation-group:last-child {{ border-bottom: 0; }}
-    .recommendation-section-title {{ display: flex; align-items: center; gap: 7px; margin: 0; color: #51488e; font-size: 1rem; font-weight: 700; white-space: nowrap; }}
-    .recommendation-section-title::before {{ width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: #8d82c9; content: ''; }}
-    .recommendation-empty {{ display: flex; min-height: 24px; box-sizing: border-box; align-items: center; padding: 2px 0; color: #737c8e; font-size: .85rem; }}
-    .recommendation-grid {{ display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }}
-    .recommendation-card {{ display: block; flex: 0 0 auto; max-width: 100%; overflow: hidden; padding: 4px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #4f5fa5; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; text-overflow: ellipsis; white-space: nowrap; transition: background 120ms ease, border-color 120ms ease, color 120ms ease; }}
-    .recommendation-card:hover {{ border-color: #d9d4f1; background: #f2f0fc; color: #3e4789; }}
-    .recommendation-card strong {{ font-size: 1.1rem; font-weight: 400; }}
-    .equation-disclaimer {{ margin-top: 28px; padding: 16px 18px; border: 1px solid #dddcef; border-left: 4px solid #8b82c9; border-radius: 10px; background: #f7f6fc; color: #66718a; }}
-    .equation-disclaimer h2 {{ margin: 0 0 6px; color: #4f478f; font-size: .95rem; font-weight: 700; }}
-    .equation-disclaimer p {{ margin: 0 0 10px; color: #737c8e; font-size: .82rem; line-height: 1.65; }}
-    .equation-disclaimer ul {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 24px; margin: 0; padding: 0; list-style: none; }}
-    .equation-disclaimer li {{ display: flex; min-width: 0; gap: 8px; align-items: baseline; font-size: .8rem; line-height: 1.5; }}
-    .equation-disclaimer li span {{ flex: 0 0 auto; color: #505a70; font-weight: 600; }}
-    .equation-disclaimer code {{ min-width: 0; overflow-wrap: anywhere; color: #6860ad; font: inherit; }}
-    .home-link {{ display: inline-flex; align-items: center; gap: 5px; padding: 7px 10px; border: 1px solid #d9dfeb; border-radius: 8px; background: #fff; color: #5d58a7; font-size: .78rem; font-weight: 700; text-decoration: none; white-space: nowrap; }}
-    .home-link:hover {{ background: #eeecf9; border-color: #c4c0e7; }}
-    .language-switcher {{ display: flex; align-items: center; gap: 8px; flex-shrink: 0; }}
-    .language-switcher span {{ color: #737c8e; font-size: .78rem; }}
-    .language-toggle {{ display: flex; gap: 2px; padding: 3px; background: #fff; border: 1px solid #e0e3ec; border-radius: 9px; box-shadow: 0 1px 2px #20283b05; }}
-    .language-toggle a {{ padding: 6px 10px; border-radius: 6px; color: #6860ad; font-size: .72rem; font-weight: 700; text-decoration: none; }}
-    .language-toggle a.active {{ background: #6860ad; color: #fff; }}
-    .report-tools {{ display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-left: 16px; border-left: 1px solid #dfe2eb; }}
-    .report-tools label {{ margin: 0; color: #343b50; font-size: .78rem; font-weight: 700; white-space: nowrap; }}
-    .statement-navigation {{ display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 0; border-bottom: 0; }}
-    .filter-row {{ display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin: 0 0 4px auto; }}
-    .statement-tabs {{ display: flex; flex-shrink: 0; gap: 8px; margin: 0; padding: 0; }}
-    .statement-tabs a {{ padding: 12px 20px; border-radius: 9px 9px 0 0; background: #e5e8f4; color: #46516f; font-size: 1rem; font-weight: 700; text-decoration: none; }}
-    .statement-tabs a:hover {{ background: #dfe2f0; }}
-    .statement-tabs a.active {{ margin-bottom: 0; color: #fff; background: #5d58a7; }}
-    .period-filters {{ display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0; margin: 0 0 0 auto; }}
-    .period-filters button {{ padding: 8px 14px; border: 0; border-radius: 0; background: #e5e8f4; color: #46516f; cursor: pointer; font: inherit; font-size: .82rem; font-weight: 700; }}
-    .period-filters button:first-child {{ border-radius: 9px 0 0 9px; }}
-    .period-filters button:last-child {{ border-radius: 0 9px 9px 0; }}
-    .period-filters button:hover {{ background: #dfe2f0; }}
-    .period-filters button.active {{ background: #5d58a7; color: #fff; }}
-    .amount-unit-control {{ display: flex; align-items: center; gap: 6px; }}
-    select {{ height: 30px; padding: 0 28px 0 9px; border: 1px solid #dce0e9; border-radius: 8px; background: #fafbfe; color: #24283d; font: inherit; font-size: .8rem; }}
-    .decimal-toggle {{ display: flex; align-items: center; gap: 5px; }}
-    .decimal-toggle input {{ accent-color: #6860ad; }}
-    .table-wrap {{ overflow-x: auto; margin-top: -1px; background: #fff; border: 1px solid #d9dfeb; border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; box-shadow: 0 2px 6px #20283b06, 0 12px 32px #20283b05; }}
-    .table-note {{ margin: 12px 2px 0; color: #737c8e; }}
-    .table-note h2 {{ margin: 0 0 3px; color: #505a70; font-size: .82rem; font-weight: 700; }}
-    .table-note p {{ margin: 0; font-size: .86rem; line-height: 1.55; }}
-    table {{ border-collapse: collapse; min-width: 100%; table-layout: fixed; width: 100%; }}
-    th, td {{ border-top: 1px solid #eceef4; padding: 6px 4px; text-align: left; white-space: nowrap; }}
-    thead th:first-child, th.item-name {{ box-sizing: border-box; width: {item_name_column_width}px; min-width: {item_name_column_width}px; max-width: {item_name_column_width}px; overflow: hidden; text-overflow: ellipsis; }}
-    th.item-name {{ display: flex; min-width: 0; align-items: center; }}
-    th.item-name > .item-toggle, th.item-name > .item-toggle-placeholder, th.item-name > .trend-toggle {{ flex: 0 0 auto; }}
-    th.item-name > span[lang] {{ min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-    col.item-name-column {{ width: {item_name_column_width}px; }}
-    th.amount-column, td.amount-column {{ min-width: 110px; padding-left: 3px; padding-right: 3px; }}
-    col.amount-column {{ width: 120px; }}
-    th {{ background: #2f3a57; color: #f5f7ff; border-top-color: #435273; font-size: .84rem; font-weight: 550; line-height: 12px; letter-spacing: .04em; text-transform: uppercase; }}
-    thead th, thead th.amount-column {{ text-align: center; }}
-    .table-wrap thead th {{ padding-top: 10px; padding-bottom: 10px; font-size: .96rem; line-height: 18px; }}
-    .table-wrap thead th.table-caption-cell {{ display: flex; align-items: center; justify-content: center; gap: 8px; }}
-    .hierarchy-toggle-all {{ padding: 3px 5px; border: 1px solid #8792ad; border-radius: 4px; background: #394565; color: #f5f7ff; cursor: pointer; font: inherit; font-size: .68rem; line-height: 1.2; white-space: nowrap; }}
-    .hierarchy-toggle-all:hover {{ background: #4b587b; }}
-    td {{ color: #505a70; font-size: 1rem; line-height: 15px; }}
-    .item-name {{ color: #fff; font-size: 1rem; font-weight: 400; line-height: 15px; text-transform: none; }}
-    .gross-profit-row .item-name > span[lang] {{ font-style: italic; }}
-    .item-row[data-item-id="{OTHER_PROFIT_LOSS_GROUP_ID}"] .item-name > span[lang] {{ font-style: italic; }}
-    .item-row {{ transition: background-color 120ms ease; }}
-    .income-classification-row > th, .income-classification-row > td {{ padding-top: 6px; padding-bottom: 6px; }}
-    .item-row:hover {{ background: #f1f3fb; }}
-    .item-row-group {{ background: #f0f1f8; }}
-    .item-row-group > th {{ color: #fff; font-weight: 750; }}
-    .item-row-group > th, .item-row-group > td {{ border-top-color: #b8bfd2; border-bottom: 1px solid #b8bfd2; }}
-    .item-toggle {{ display: inline-flex; width: 16px; height: 20px; flex: 0 0 16px; align-items: center; justify-content: center; margin-right: 3px; padding: 0; border: 0; background: transparent; color: #d8d3ff; cursor: pointer; }}
-    .item-toggle::before {{ width: 6px; height: 6px; border-right: 1.8px solid currentColor; border-bottom: 1.8px solid currentColor; content: ""; transform: rotate(-45deg); transition: transform 120ms ease; }}
-    .item-toggle[aria-expanded="true"]::before {{ transform: rotate(45deg); }}
-    .item-toggle:hover {{ color: #fff; background: transparent; }}
-    .item-toggle:focus-visible {{ outline: 2px solid currentColor; outline-offset: 1px; border-radius: 3px; }}
-    .item-toggle-placeholder {{ display: inline-block; width: 16px; margin-right: 3px; }}
-    .trend-toggle {{ display: inline-flex; width: 22px; height: 22px; min-height: 0; align-items: center; justify-content: center; margin-left: 2px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #85849b; cursor: pointer; vertical-align: middle; }}
-    .trend-toggle:hover, .trend-toggle[aria-expanded="true"] {{ background: #eeecf8; color: #51488e; }}
-    .trend-toggle:focus-visible, .trend-modal-close:focus-visible {{ outline: 2px solid #6860ad; outline-offset: 2px; }}
-    .trend-detail-row {{ display: none; }}
-    .trend-detail-row > td {{ padding: 0; background: transparent; white-space: normal; }}
-    .trend-detail {{ width: min(1075.2px, calc(100vw - 64px)); margin: 0 auto; }}
-    .trend-chart-scroll {{ overflow: visible; }}
-    .trend-chart-wrap {{ position: relative; }}
-    .trend-chart {{ display: block; width: 100%; height: clamp(260px, 48vh, 480px); margin-top: 0; overflow: visible; color: #6860ad; }}
-    .trend-chart text {{ fill: #555970; font-size: 0.8rem; }}
-    .trend-chart .trend-chart-title {{ fill: #343b50; font-size: 1rem; font-weight: 750; }}
-    .trend-chart .trend-chart-unit {{ fill: #737c8e; font-size: .76rem; }}
-    .trend-chart .trend-grid {{ stroke: #e5e7f0; stroke-width: 1; stroke-dasharray: 3 5; }}
-    .trend-chart .trend-axis {{ stroke: #cfd3df; stroke-width: 1; }}
-    .trend-chart .trend-area {{ pointer-events: none; }}
-    .trend-chart .trend-line {{ stroke: #6860ad; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }}
-    .trend-chart .trend-point {{ fill: #fff; stroke: #6860ad; stroke-width: 1.5; cursor: pointer; transition: r 120ms ease, fill 120ms ease; }}
-    .trend-chart .trend-point:hover, .trend-chart .trend-point:focus {{ fill: #6860ad; outline: none; }}
-    .trend-chart .trend-point-label {{ fill: #4b467f; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: #faf9fd; stroke-width: 4px; stroke-linejoin: round; }}
-    .trend-chart .trend-margin-label {{ fill: #7370a9; font-size: .72rem; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: #faf9fd; stroke-width: 3px; stroke-linejoin: round; }}
-    .trend-chart .trend-margin-axis {{ stroke: #d7b28d; stroke-width: 1; stroke-dasharray: 2 4; }}
-    .trend-chart .trend-margin-line {{ fill: none; stroke: #d58b52; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }}
-    .trend-chart .trend-margin-point {{ fill: #fffaf5; stroke: #d58b52; stroke-width: 1.8; }}
-    .trend-hover-tooltip {{ position: absolute; z-index: 3; min-width: 132px; padding: 9px 12px; border: 1px solid #d8d3f0; border-radius: 9px; background: rgb(255 255 255 / 90%); box-shadow: 0 10px 24px #29234a24; color: #343b50; pointer-events: none; opacity: 0; transform: translate(-50%, calc(-100% - 14px)); transition: opacity 100ms ease; }}
-    .trend-hover-tooltip.visible {{ opacity: 1; }}
-    .trend-hover-tooltip-value, .trend-hover-tooltip-date {{ display: block; text-align: center; white-space: nowrap; }}
-    .trend-hover-tooltip-value, .trend-hover-tooltip-margin {{ display: inline-block; white-space: nowrap; }}
-    .trend-hover-tooltip-value {{ font-size: 1.05rem; font-weight: 400; font-variant-numeric: tabular-nums; }}
-    .trend-hover-tooltip-date {{ margin-top: 4px; color: #737c8e; font-size: .95rem; font-weight: 400; }}
-    .trend-hover-tooltip-margin {{ margin-left: 7px; color: #6860ad; font-size: .95rem; font-weight: 400; }}
-    .trend-modal {{ position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; }}
-    .trend-modal[hidden] {{ display: none; }}
-    .trend-modal-backdrop {{ position: absolute; inset: 0; background: #20283b66; backdrop-filter: blur(2px); }}
-    .trend-modal-dialog {{ position: relative; z-index: 1; width: min(1320px, calc(100vw - 48px)); max-height: min(760px, calc(100vh - 48px)); overflow: auto; padding: 18px 22px 22px; border: 1px solid #d9dfeb; border-radius: 16px; background: linear-gradient(145deg, #fff 0%, #faf9fd 100%); box-shadow: 0 24px 70px #20283b33; }}
-    .trend-modal-dialog .trend-detail {{ width: 100%; margin: 0; }}
-    .trend-modal-dialog .trend-chart {{ height: clamp(280px, 48vh, 480px); }}
-    .trend-modal-close {{ position: absolute; top: 8px; right: 12px; z-index: 2; width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: #85849b; cursor: pointer; font-size: 1.5rem; line-height: 1; }}
-    .trend-modal-close:hover {{ background: #eeecf8; color: #51488e; }}
-    thead th:first-child, th.item-name {{ border-right: 1px solid #d6d3e4; }}
-    thead th:first-child {{ border-right-color: #504d70; }}
-    .amount-column {{ font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; text-align: right; }}
-    @media (prefers-reduced-motion: reduce) {{ ::view-transition-old(root), ::view-transition-new(root) {{ animation-duration: 0ms; }} }}
-    @media (max-width: 900px) {{ .statement-navigation {{ align-items: flex-start; flex-direction: column; gap: 8px; }} .filter-row {{ align-items: flex-start; flex-direction: column; width: 100%; margin: 0 0 12px; }} .period-filters {{ margin-left: 0; justify-content: flex-start; }} .report-tools {{ justify-content: flex-start; flex-wrap: wrap; padding-left: 0; border-left: 0; }} .trend-modal {{ padding: 10px; }} .trend-modal-dialog {{ width: calc(100vw - 20px); max-height: calc(100vh - 20px); padding: 14px 12px 16px; }} .trend-detail {{ width: 100%; }} }}
-    @media (max-width: 600px) {{ .page-header {{ flex-direction: column; gap: 12px; }} .page-header > div:first-child {{ width: auto; }} .title-row {{ align-items: flex-start; flex-direction: column; gap: 10px; }} .stock-search {{ align-self: flex-end; width: min(100%, 247px); flex-basis: min(100%, 247px); transform: none; }} .stock-suggestions {{ width: 100%; }} .page-tools {{ position: static; align-items: stretch; flex-wrap: wrap; width: 100%; }} .stock-search input {{ flex: 1; width: auto; }} .language-switcher {{ margin-left: auto; }} .recommendation-group {{ display: block; }} .recommendation-section-title {{ margin-bottom: 4px; }} }}
+    :root {{ --label-width: {item_name_column_width}px; }}
+    {STATEMENT_STYLES}
   </style>
 </head>
-<body><main>
-  <div class="page-header">
-    <div>
+<body>
+  <header class="masthead"><div class="masthead-inner">
       <div class="brand-line">
         <span class="brand-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -972,7 +812,7 @@ def get_public_statement_page(
             <path d="m7 15 3-4 3 2 5-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </span>
-        <div class="site-logo" aria-label="ValuePaper 上市公司财报助手"><strong>ValuePaper</strong><span>财报数据助手</span></div>
+        <div class="site-logo" aria-label="ValuePaper 上市公司财报助手"><strong>ValuePaper</strong><span>{"财报数据助手" if language == "zh" else "Financial statements"}</span></div>
       </div>
       <div class="page-tools">
         <a class="home-link" href="/" aria-label="{escape(home_label)}">⌂ {escape(home_label)}</a>
@@ -984,8 +824,6 @@ def get_public_statement_page(
         </nav>
       </div>
 
-      <div class="title-row">
-        <h1>{escape(stock_name)} ({escape(stock_code)}) · {escape(localized_title)}</h1>
         <form class="stock-search" id="stock-search" role="search">
           <input id="stock-search-code" name="stock_code" type="search" autocomplete="off" inputmode="numeric" pattern="[0-9]{{6}}" maxlength="6" placeholder="{'股票代码' if language == 'zh' else 'Stock code'}" aria-label="{'搜索股票代码' if language == 'zh' else 'Search stock code'}" aria-controls="stock-search-suggestions" aria-expanded="false" required>
           <button type="submit" aria-label="{'搜索' if language == 'zh' else 'Search'}" title="{'搜索' if language == 'zh' else 'Search'}">
@@ -993,9 +831,22 @@ def get_public_statement_page(
           </button>
           <div class="stock-suggestions" id="stock-search-suggestions" role="listbox" hidden>{stock_search_options}</div>
         </form>
+  </div></header>
+  <main>
+    <header class="report-heading">
+      <div><div class="company">{escape(stock_name)} <span class="ticker">{escape(stock_code)}</span></div>
+        <h1>{escape(stock_name)} <span class="heading-stock-code">({escape(stock_code)})</span> {escape(localized_title)}</h1>
       </div>
-    </div>
-  </div>
+      <div class="coverage" style="--range-max: {max(0, len(dates) - 1)}">
+        <div class="coverage-heading"><span>{'报告期范围' if language == 'zh' else 'Reporting range'}</span><strong class="range-output">{escape(dates[-1])} – {escape(dates[0])}</strong></div>
+        <div class="range-slider" role="group" aria-label="{'选择报告期范围' if language == 'zh' else 'Select reporting date range'}">
+          <div class="range-track"><span></span></div>
+          <input class="range-input range-start" type="range" min="0" max="{max(0, len(dates) - 1)}" value="0" aria-label="{'开始报告期' if language == 'zh' else 'Start reporting date'}">
+          <input class="range-input range-end" type="range" min="0" max="{max(0, len(dates) - 1)}" value="{max(0, len(dates) - 1)}" aria-label="{'结束报告期' if language == 'zh' else 'End reporting date'}">
+        </div>
+        <div class="range-endpoints"><span>{escape(dates[-1])}</span><span>{escape(dates[0])}</span></div>
+      </div>
+    </header>
   <div class="statement-navigation">
     <nav class="statement-tabs" aria-label="{escape(statement_tabs_label)}">{statement_tab_links}</nav>
     <div class="filter-row">
@@ -1008,7 +859,7 @@ def get_public_statement_page(
       </div>
     </div>
   </div>
-  <div class="table-wrap"><table data-date-count="{len(dates)}" style="--date-column-count: {len(dates)}; --date-column-min-width: 110px">
+  <div class="table-wrap" role="region" tabindex="0" aria-label="{escape(localized_title)}"><table data-date-count="{len(dates)}" style="--date-column-count: {len(dates)}; --date-column-min-width: 110px">
     <colgroup><col class="item-name-column">{''.join(f'<col class="amount-column" data-reporting-date="{escape(date, quote=True)}">' for date in dates)}</colgroup>
     <thead><tr><th scope="col" class="table-caption-cell"><span>{table_item_label}</span><button type="button" class="hierarchy-toggle-all" data-hierarchy-toggle-all aria-expanded="false">{escape("全部展开" if language == "zh" else "Expand all")}</button></th>{''.join(f'<th scope="col" data-reporting-date="{escape(date)}">{escape(reporting_date_caption(date))}</th>' for date in dates)}</tr></thead>
     <tbody>{''.join(rows)}</tbody>
@@ -1021,23 +872,27 @@ def get_public_statement_page(
       <div id="trend-modal-chart-host"></div>
     </div>
   </div>
-  <section class="recommendation-panel">
-    <h2 class="recommendation-panel-title">{escape('为您推荐：' if language == 'zh' else 'Recommended for you:')}</h2>
-    <div class="recommendation-sections" id="recommendation-sections">
-      {recommendation_sections}
-    </div>
-  </section>
-  <aside class="equation-disclaimer" aria-label="{escape(equation_disclaimer_title)}">
-    <h2>{escape(equation_disclaimer_title)}</h2>
+  <details class="equation-disclaimer">
+    <summary>{escape(equation_disclaimer_title)}</summary>
     <p>{escape(equation_disclaimer_intro)}</p>
     <ul>{equation_markup}</ul>
-  </aside>
+  </details>
+  <nav class="recent-companies" aria-label="{'浏览过的公司' if language == 'zh' else 'Recently viewed companies'}" hidden>
+    <strong>{'浏览过的公司' if language == 'zh' else 'Recently viewed companies'}</strong>
+    <div class="recent-links"></div>
+  </nav>
 </main>
 <script>
   const units = {json.dumps(PUBLIC_AMOUNT_UNITS, ensure_ascii=False)};
+  const datesAscending = {json.dumps(list(reversed(dates)), ensure_ascii=False)};
   const unitSelect = document.getElementById('amount-unit');
   const decimalsToggle = document.getElementById('show-decimals');
   const periodButtons = document.querySelectorAll('.period-filters button');
+  const rangeStartInput = document.querySelector('.range-start');
+  const rangeEndInput = document.querySelector('.range-end');
+  const rangeOutput = document.querySelector('.range-output');
+  const rangeTrack = document.querySelector('.range-track span');
+  let activePeriodEnding = '';
   const itemRows = document.querySelectorAll('[data-item-id]');
   const itemToggles = document.querySelectorAll('[data-item-toggle]');
   const hierarchyToggleAll = document.querySelector('[data-hierarchy-toggle-all]');
@@ -1049,8 +904,6 @@ def get_public_statement_page(
   const statementScrollPreferenceKey = 'easy10k.statementScrollY';
   const recentStocksPreferenceKey = 'easy10k.recentStocks';
   const stockDirectory = {stock_directory_json};
-  const recommendationGrids = Array.from(document.querySelectorAll('.recommendation-grid'));
-  const recommendationCategoryGrids = recommendationGrids.filter((grid) => grid.id !== 'recent-stock-recommendations-all');
   const currentStockCode = '{escape(stock_code, quote=True)}';
   function loadRecentStocks() {{
     try {{
@@ -1060,19 +913,11 @@ def get_public_statement_page(
       return [];
     }}
   }}
-  function shuffleStocks(stocks) {{
-    const shuffled = [...stocks];
-    for (let index = shuffled.length - 1; index > 0; index -= 1) {{
-      const randomIndex = Math.floor(Math.random() * (index + 1));
-      [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
-    }}
-    return shuffled;
-  }}
   function renderRecentStocks(grid, stocks) {{
     grid.replaceChildren();
     stocks.slice(0, 12).forEach((code) => {{
       const link = document.createElement('a');
-      link.className = 'recommendation-card';
+      link.className = 'company-link';
       link.href = `/stocks/${{encodeURIComponent(code)}}/{statement_slug}?lang={language}`;
       link.title = code;
       link.setAttribute('aria-label', `${{stockDirectory[code]}} (${{code}})`);
@@ -1085,7 +930,9 @@ def get_public_statement_page(
   const recentStocks = loadRecentStocks().filter((code) => code !== currentStockCode);
   recentStocks.unshift(currentStockCode);
   localStorage.setItem(recentStocksPreferenceKey, JSON.stringify(recentStocks.slice(0, 10)));
-  recommendationCategoryGrids.forEach((grid) => renderRecentStocks(grid, shuffleStocks(recentStocks)));
+  const recentCompanies = document.querySelector('.recent-companies');
+  renderRecentStocks(recentCompanies.querySelector('.recent-links'), recentStocks.slice(1));
+  recentCompanies.hidden = recentStocks.length <= 1;
   const stockSearch = document.getElementById('stock-search');
   const stockSearchCode = document.getElementById('stock-search-code');
   const stockSuggestions = document.getElementById('stock-search-suggestions');
@@ -1133,8 +980,9 @@ def get_public_statement_page(
     const count = table.querySelectorAll('col.amount-column:not([hidden])').length;
     if (!count) return;
     const minimumWidth = Number.parseFloat(getComputedStyle(table).getPropertyValue('--date-column-min-width')) || 120;
-    const availableWidth = Math.max(table.parentElement.clientWidth, {item_name_column_width} + count * minimumWidth);
-    const dateColumnWidth = (availableWidth - {item_name_column_width}) / count;
+    const labelWidth = table.querySelector('thead th').getBoundingClientRect().width;
+    const availableWidth = Math.max(table.parentElement.clientWidth, labelWidth + count * minimumWidth);
+    const dateColumnWidth = (availableWidth - labelWidth) / count;
     table.style.width = '100%';
     table.style.minWidth = `${{availableWidth}}px`;
     table.querySelectorAll('col.amount-column').forEach((column) => {{
@@ -1142,8 +990,18 @@ def get_public_statement_page(
     }});
   }}
   function renderPeriods(ending) {{
+    activePeriodEnding = ending;
+    const startIndex = Number(rangeStartInput.value);
+    const endIndex = Number(rangeEndInput.value);
+    const rangeStart = datesAscending[startIndex];
+    const rangeEnd = datesAscending[endIndex];
+    rangeOutput.textContent = `${{rangeStart}} – ${{rangeEnd}}`;
+    const lastIndex = Math.max(1, datesAscending.length - 1);
+    rangeTrack.style.left = `${{startIndex / lastIndex * 100}}%`;
+    rangeTrack.style.right = `${{(datesAscending.length - 1 - endIndex) / lastIndex * 100}}%`;
     document.querySelectorAll('[data-reporting-date]').forEach((cell) => {{
-      cell.hidden = Boolean(ending) && !cell.dataset.reportingDate.endsWith(ending);
+      const date = cell.dataset.reportingDate;
+      cell.hidden = date < rangeStart || date > rangeEnd || (Boolean(ending) && !date.endsWith(ending));
     }});
     periodButtons.forEach((button) => {{
       const active = button.dataset.periodEnding === ending;
@@ -1354,8 +1212,8 @@ def get_public_statement_page(
       const areaPath = linePath + ' L ' + linePoints[linePoints.length - 1].x + ' ' + zeroY + ' L ' + linePoints[0].x + ' ' + zeroY + ' Z';
       const defs = appendSvgElement(svg, 'defs', {{}});
       const gradient = appendSvgElement(defs, 'linearGradient', {{ id: 'trend-gradient-' + itemId, x1: '0', x2: '0', y1: '0', y2: '1' }});
-      appendSvgElement(gradient, 'stop', {{ offset: '0%', 'stop-color': '#6860ad', 'stop-opacity': '.24' }});
-      appendSvgElement(gradient, 'stop', {{ offset: '100%', 'stop-color': '#6860ad', 'stop-opacity': '.03' }});
+      appendSvgElement(gradient, 'stop', {{ offset: '0%', 'stop-color': 'var(--accent)', 'stop-opacity': '.24' }});
+      appendSvgElement(gradient, 'stop', {{ offset: '100%', 'stop-color': 'var(--accent)', 'stop-opacity': '.03' }});
       appendSvgElement(svg, 'path', {{ class: 'trend-area', d: areaPath, fill: 'url(#trend-gradient-' + itemId + ')' }});
       appendSvgElement(svg, 'path', {{ class: 'trend-line', d: linePath }});
     }}
@@ -1562,6 +1420,13 @@ def get_public_statement_page(
       renderPeriods(ending);
     }});
   }});
+  [rangeStartInput, rangeEndInput].forEach((input) => input.addEventListener('input', () => {{
+    if (Number(rangeStartInput.value) > Number(rangeEndInput.value)) {{
+      if (input === rangeStartInput) rangeEndInput.value = rangeStartInput.value;
+      else rangeStartInput.value = rangeEndInput.value;
+    }}
+    renderPeriods(activePeriodEnding);
+  }}));
   document.querySelectorAll('.statement-tabs a').forEach((link) => {{
     link.addEventListener('click', () => {{
       sessionStorage.setItem(statementScrollPreferenceKey, String(window.scrollY));
