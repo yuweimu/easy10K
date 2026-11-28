@@ -487,17 +487,18 @@ def get_public_statement_page(
         is_other_profit_loss_detail = item_id in other_profit_loss_detail_ids
         initially_collapsed = (
             (statement == "cash_flow_statement" and item_id in {82, 83})
-            or (statement == "income_statement" and item_id in {44, 57, 58, 4225})
+            or (statement == "income_statement" and item_id in {44, 56, 57, 58, 4225})
+            or (statement == "balance_sheet" and item_id in {110128, 1102, 21, 31})
         )
         toggle = (
             f'<button type="button" class="item-toggle" data-other-profit-loss-toggle '
             f'aria-label="{escape("展开" if language == "zh" else "Show", quote=True)} {escape(item_label, quote=True)}" '
-            f'aria-expanded="false">▶</button>'
+            f'aria-expanded="false"></button>'
             if is_other_profit_loss_group
             else (
             f'<button type="button" class="item-toggle" data-item-toggle="{item_id}" '
             f'aria-label="{escape(("展开" if language == "zh" else "Show") + " " + item_label)}" '
-            f'aria-expanded="{"false" if initially_collapsed else "true"}">{"▶" if initially_collapsed else "▼"}</button>'
+            f'aria-expanded="{"false" if initially_collapsed else "true"}"></button>'
             if item_id in children_by_parent
             else '<span class="item-toggle-placeholder" aria-hidden="true"></span>'
             )
@@ -583,13 +584,13 @@ def get_public_statement_page(
         (date, CALCULATED_GROSS_PROFIT_ID) in latest_items for date in dates
     ):
         table_notes.append(
-            "(1) “毛利润”通常并非财务报表单独列示的项目，本表格为便于阅读而引入，由营业收入减营业成本计算得出。"
+            "(1) “毛利润”并非财务报表中正式列示的项目，本表格为便于阅读而引入，由营业收入减营业成本计算得出。"
             if language == "zh"
             else "(1) Gross profit is shown as a convenience calculation (operating revenue minus operating costs); it is not usually presented as a separate line item in the statement."
         )
     if statement == "income_statement" and other_profit_loss_group_enabled:
         table_notes.append(
-            "(2) “其他非主营业务损益”并非财务报表中的正式列示项目，引入该行合并展示非主营业务损益、投资及减值相关损益，以突出经营性科目、改善表格阅读体验。"
+            "(2) “其他非主营业务损益”并非财务报表中正式列示的项目，本表格引入该项目以合并展示非主营业务损益、投资及减值相关损益，从而突出经营性科目、改善表格阅读体验。"
             if language == "zh"
             else "(2) Other profit and loss items are not a formal statement line item; this group is included to improve the clarity and readability of the table as a whole."
         )
@@ -909,8 +910,11 @@ def get_public_statement_page(
     .item-row-group {{ background: #f0f1f8; }}
     .item-row-group > th {{ color: #fff; font-weight: 750; }}
     .item-row-group > th, .item-row-group > td {{ border-top-color: #b8bfd2; border-bottom: 1px solid #b8bfd2; }}
-    .item-toggle {{ width: 16px; margin-right: 3px; padding: 0; border: 0; background: transparent; color: #d8d3ff; cursor: pointer; font-size: .72rem; }}
+    .item-toggle {{ display: inline-flex; width: 16px; height: 20px; flex: 0 0 16px; align-items: center; justify-content: center; margin-right: 3px; padding: 0; border: 0; background: transparent; color: #d8d3ff; cursor: pointer; }}
+    .item-toggle::before {{ width: 6px; height: 6px; border-right: 1.8px solid currentColor; border-bottom: 1.8px solid currentColor; content: ""; transform: rotate(-45deg); transition: transform 120ms ease; }}
+    .item-toggle[aria-expanded="true"]::before {{ transform: rotate(45deg); }}
     .item-toggle:hover {{ color: #fff; background: transparent; }}
+    .item-toggle:focus-visible {{ outline: 2px solid currentColor; outline-offset: 1px; border-radius: 3px; }}
     .item-toggle-placeholder {{ display: inline-block; width: 16px; margin-right: 3px; }}
     .trend-toggle {{ display: inline-flex; width: 22px; height: 22px; min-height: 0; align-items: center; justify-content: center; margin-left: 2px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #85849b; cursor: pointer; vertical-align: middle; }}
     .trend-toggle:hover, .trend-toggle[aria-expanded="true"] {{ background: #eeecf8; color: #51488e; }}
@@ -1178,7 +1182,6 @@ def get_public_statement_page(
     itemToggles.forEach((toggle) => {{
       const itemId = Number(toggle.dataset.itemToggle);
       const collapsed = collapsedItems.has(itemId);
-      toggle.textContent = collapsed ? '▶' : '▼';
       toggle.setAttribute('aria-expanded', String(!collapsed));
     }});
     const allExpanded = Array.from(itemToggles).every((toggle) =>
@@ -1189,7 +1192,7 @@ def get_public_statement_page(
       hierarchyToggleAll.setAttribute('aria-expanded', String(allExpanded));
     }}
   }}
-  const collapsedItems = new Set({json.dumps([82, 83] if statement == "cash_flow_statement" else [44, 57, 58, 4225] if statement == "income_statement" else [])});
+  const collapsedItems = new Set({json.dumps([82, 83] if statement == "cash_flow_statement" else [44, 56, 57, 58, 4225] if statement == "income_statement" else [110128, 1102, 21, 31] if statement == "balance_sheet" else [])});
   let otherProfitLossExpanded = false;
   const otherProfitLossToggle = document.querySelector('[data-other-profit-loss-toggle]');
   hierarchyToggleAll?.addEventListener('click', () => {{
@@ -1204,14 +1207,12 @@ def get_public_statement_page(
       otherProfitLossExpanded = true;
     }}
     if (otherProfitLossToggle) {{
-      otherProfitLossToggle.textContent = otherProfitLossExpanded ? '▼' : '▶';
       otherProfitLossToggle.setAttribute('aria-expanded', String(otherProfitLossExpanded));
     }}
     renderItemHierarchy();
   }});
   otherProfitLossToggle?.addEventListener('click', () => {{
     otherProfitLossExpanded = !otherProfitLossExpanded;
-    otherProfitLossToggle.textContent = otherProfitLossExpanded ? '▼' : '▶';
     otherProfitLossToggle.setAttribute('aria-expanded', String(otherProfitLossExpanded));
     renderItemHierarchy();
   }});
